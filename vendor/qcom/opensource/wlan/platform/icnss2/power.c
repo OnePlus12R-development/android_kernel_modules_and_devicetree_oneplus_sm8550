@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #include <linux/clk.h>
 #include <linux/delay.h>
-#if IS_ENABLED(CONFIG_MSM_QMP)
-#include <linux/mailbox/qmp.h>
-#endif
 #include <linux/of.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/regulator/consumer.h>
@@ -15,6 +13,9 @@
 #include "qmi.h"
 #include "debug.h"
 #include "power.h"
+#if IS_ENABLED(CONFIG_MSM_QMP)
+#include <linux/soc/qcom/qcom_aoss.h>
+#endif
 
 static struct icnss_vreg_cfg icnss_wcn6750_vreg_list[] = {
 	{"vdd-cx-mx", 824000, 952000, 0, 0, 0, false, true},
@@ -38,6 +39,13 @@ static struct icnss_battery_level icnss_battery_level[] = {
 	{0, 2850000},
 };
 
+static struct icnss_vreg_cfg icnss_wcn6450_vreg_list[] = {
+	{"vdd-cx-mx", 824000, 952000, 0, 0, 0, false, true},
+	{"vdd-1.8-xo", 1872000, 1872000, 0, 0, 0, false, true},
+	{"vdd-1.3-rfa", 1256000, 1352000, 0, 0, 0, false, true},
+	{"vdd-aon", 1256000, 1352000, 0, 0, 0, false, true},
+};
+
 static struct icnss_clk_cfg icnss_clk_list[] = {
 	{"rf_clk", 0, 0},
 };
@@ -48,6 +56,7 @@ static struct icnss_clk_cfg icnss_adrestea_clk_list[] = {
 
 #define ICNSS_VREG_LIST_SIZE		ARRAY_SIZE(icnss_wcn6750_vreg_list)
 #define ICNSS_VREG_ADRESTEA_LIST_SIZE	ARRAY_SIZE(icnss_adrestea_vreg_list)
+#define ICNSS_VREG_EVROS_LIST_SIZE	ARRAY_SIZE(icnss_wcn6450_vreg_list)
 #define ICNSS_CLK_LIST_SIZE		ARRAY_SIZE(icnss_clk_list)
 #define ICNSS_CLK_ADRESTEA_LIST_SIZE	ARRAY_SIZE(icnss_adrestea_clk_list)
 
@@ -311,6 +320,10 @@ static struct icnss_vreg_cfg *get_vreg_list(u32 *vreg_list_size,
 		*vreg_list_size = ICNSS_VREG_ADRESTEA_LIST_SIZE;
 		return icnss_adrestea_vreg_list;
 
+	case WCN6450_DEVICE_ID:
+		*vreg_list_size = ICNSS_VREG_EVROS_LIST_SIZE;
+		return icnss_wcn6450_vreg_list;
+
 	default:
 		icnss_pr_err("Unsupported device_id 0x%x\n", device_id);
 		*vreg_list_size = 0;
@@ -524,7 +537,8 @@ int icnss_get_clk(struct icnss_priv *priv)
 	if (priv->device_id == ADRASTEA_DEVICE_ID) {
 		clk_cfg = icnss_adrestea_clk_list;
 		clk_list_size = ICNSS_CLK_ADRESTEA_LIST_SIZE;
-	} else if (priv->device_id == WCN6750_DEVICE_ID) {
+	} else if (priv->device_id == WCN6750_DEVICE_ID ||
+		   priv->device_id == WCN6450_DEVICE_ID) {
 		clk_cfg = icnss_clk_list;
 		clk_list_size = ICNSS_CLK_LIST_SIZE;
 	}
@@ -722,7 +736,18 @@ void icnss_put_resources(struct icnss_priv *priv)
 	icnss_put_vreg(priv);
 }
 
-int icnss_aop_mbox_init(struct icnss_priv *priv)
+
+#if IS_ENABLED(CONFIG_MSM_QMP)
+/**
+ * icnss_aop_interface_init: Initialize AOP interface: either mbox channel or direct QMP
+ * @priv: Pointer to icnss platform data
+ *
+ * Device tree file should have either mbox or qmp configured, but not both.
+ * Based on device tree configuration setup mbox channel or QMP
+ *
+ * Return: 0 for success, otherwise error code
+*/
+int icnss_aop_interface_init(struct icnss_priv *priv)
 {
 	struct mbox_client *mbox = &priv->mbox_client_data;
 	struct mbox_chan *chan;
@@ -742,19 +767,50 @@ int icnss_aop_mbox_init(struct icnss_priv *priv)
 	mbox->knows_txdone = false;
 
 	priv->mbox_chan = NULL;
+	priv->qmp = NULL;
+	priv->use_direct_qmp = false;
+	/* First try to get mbox channel, if it fails then try qmp_get
+	 * In device tree file there should be either mboxes or qmp,
+	 * cannot have both properties at the same time.
+	 */
 	chan = mbox_request_channel(mbox, 0);
 	if (IS_ERR(chan)) {
 		ret = PTR_ERR(chan);
-		icnss_pr_err("Failed to get mbox channel with err %d\n", ret);
-		return ret;
+		icnss_pr_dbg("Failed to get mbox channel with err %d\n", ret);
+		priv->qmp = qmp_get(&priv->pdev->dev);
+		if (IS_ERR(priv->qmp)) {
+			icnss_pr_err("Failed to get qmp\n");
+			return PTR_ERR(priv->qmp);
+		} else {
+			priv->use_direct_qmp = true;
+			icnss_pr_dbg("QMP initialized\n");
+		}
+	} else {
+		priv->mbox_chan = chan;
+		icnss_pr_dbg("Mbox channel initialized\n");
 	}
-	priv->mbox_chan = chan;
-
-	icnss_pr_dbg("Mbox channel initialized\n");
-	return 0;
+	return ret;
 }
 
-#if IS_ENABLED(CONFIG_MSM_QMP)
+/**
+ * cnss_aop_interface_deinit: Cleanup AOP interface
+ * @priv: Pointer to icnss platform data
+ *
+ * Cleanup mbox channel or QMP whichever was configured during initialization.
+ *
+ * Return: None
+ */
+void icnss_aop_interface_deinit(struct icnss_priv *priv)
+{
+	if (!IS_ERR_OR_NULL(priv->mbox_chan))
+		mbox_free_channel(priv->mbox_chan);
+
+	if (!IS_ERR_OR_NULL(priv->qmp)) {
+		qmp_put(priv->qmp);
+		priv->use_direct_qmp = false;
+	}
+}
+
 static int icnss_aop_set_vreg_param(struct icnss_priv *priv,
 				    const char *vreg_name,
 				    enum icnss_vreg_param param,
@@ -772,21 +828,38 @@ static int icnss_aop_set_vreg_param(struct icnss_priv *priv,
 	snprintf(mbox_msg, ICNSS_MBOX_MSG_MAX_LEN,
 		 "{class: wlan_pdc, res: %s.%s, %s: %d}", vreg_name,
 		 vreg_param_str[param], tcs_seq_str[seq], val);
+	if (priv->use_direct_qmp) {
+		icnss_pr_dbg("Sending AOP QMP msg: %s\n", mbox_msg);
+		ret = qmp_send(priv->qmp, mbox_msg, ICNSS_MBOX_MSG_MAX_LEN);
+		if (ret < 0)
+			icnss_pr_err("Failed to send AOP QMP msg: %s\n", mbox_msg);
+		else
+			ret = 0;
+	} else {
+		icnss_pr_dbg("Sending AOP Mbox msg: %s\n", mbox_msg);
+		pkt.size = ICNSS_MBOX_MSG_MAX_LEN;
+		pkt.data = mbox_msg;
 
-	icnss_pr_dbg("Sending AOP Mbox msg: %s\n", mbox_msg);
-	pkt.size = ICNSS_MBOX_MSG_MAX_LEN;
-	pkt.data = mbox_msg;
-
-	ret = mbox_send_message(priv->mbox_chan, &pkt);
-	if (ret < 0)
-		icnss_pr_err("Failed to send AOP mbox msg: %s,ret: %d\n",
-			     mbox_msg, ret);
-	else
-		ret = 0;
+		ret = mbox_send_message(priv->mbox_chan, &pkt);
+		if (ret < 0)
+			icnss_pr_err("Failed to send AOP mbox msg: %s,ret: %d\n",
+				     mbox_msg, ret);
+		else
+			ret = 0;
+	}
 
 	return ret;
 }
 #else
+int icnss_aop_interface_init(struct icnss_priv *priv)
+{
+	return 0;
+}
+
+void icnss_aop_interface_deinit(struct icnss_priv *priv)
+{
+}
+
 static int icnss_aop_set_vreg_param(struct icnss_priv *priv,
 				    const char *vreg_name,
 				    enum icnss_vreg_param param,
@@ -800,8 +873,8 @@ int icnss_update_cpr_info(struct icnss_priv *priv)
 {
 	struct icnss_cpr_info *cpr_info = &priv->cpr_info;
 
-	if (!cpr_info->vreg_ol_cpr || !priv->mbox_chan) {
-		icnss_pr_dbg("Mbox channel / OL CPR Vreg not configured\n");
+	if (!cpr_info->vreg_ol_cpr || (!priv->mbox_chan && !priv->qmp)) {
+		icnss_pr_dbg("Mbox channel / QMP / OL CPR Vreg not configured\n");
 		return 0;
 	}
 

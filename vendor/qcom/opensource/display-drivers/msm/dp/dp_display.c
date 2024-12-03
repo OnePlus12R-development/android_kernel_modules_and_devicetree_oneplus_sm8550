@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2021-2022, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023, Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -11,7 +11,6 @@
 #include <linux/component.h>
 #include <linux/of_irq.h>
 #include <linux/delay.h>
-#include <linux/soc/qcom/fsa4480-i2c.h>
 #include <linux/usb/phy.h>
 #include <linux/jiffies.h>
 #include <linux/pm_qos.h>
@@ -169,6 +168,7 @@ struct dp_display_private {
 
 	enum drm_connector_status cached_connector_status;
 	enum dp_display_states state;
+	enum dp_aux_switch_type switch_type;
 
 	struct platform_device *pdev;
 	struct device_node *aux_switch_node;
@@ -1099,6 +1099,7 @@ static int dp_display_host_init(struct dp_display_private *dp)
 	enable_irq(dp->irq);
 	dp_display_abort_hdcp(dp, false);
 
+	dp_display_qos_request(dp, true);
 	dp_display_state_add(DP_STATE_INITIALIZED);
 
 	/* log this as it results from user action of cable connection */
@@ -1187,6 +1188,7 @@ static void dp_display_host_deinit(struct dp_display_private *dp)
 		return;
 	}
 
+	dp_display_qos_request(dp, false);
 	dp_display_abort_hdcp(dp, true);
 	dp->ctrl->deinit(dp->ctrl);
 	dp->hpd->host_deinit(dp->hpd, &dp->catalog->hpd);
@@ -1221,8 +1223,8 @@ static int dp_display_process_hpd_high(struct dp_display_private *dp)
 					dp->debug->max_pclk_khz);
 
 	if (!dp->debug->sim_mode && !dp->no_aux_switch && !dp->parser->gpio_aux_switch
-			&& dp->aux_switch_node) {
-		rc = dp->aux->aux_switch(dp->aux, true, dp->hpd->orientation);
+			&& dp->aux_switch_node && dp->aux->switch_configure) {
+		rc = dp->aux->switch_configure(dp->aux, true, dp->hpd->orientation);
 		if (rc) {
 			mutex_unlock(&dp->session_lock);
 			return rc;
@@ -1400,7 +1402,7 @@ static int dp_display_process_hpd_low(struct dp_display_private *dp, bool skip_w
 	return rc;
 }
 
-static int dp_display_fsa4480_callback(struct notifier_block *self,
+static int dp_display_aux_switch_callback(struct notifier_block *self,
 		unsigned long event, void *data)
 {
 	return 0;
@@ -1416,9 +1418,12 @@ static int dp_display_init_aux_switch(struct dp_display_private *dp)
 	if (dp->aux_switch_ready)
 	       return rc;
 
+	if (!dp->aux->switch_register_notifier)
+		return rc;
+
 	SDE_EVT32_EXTERNAL(SDE_EVTLOG_FUNC_ENTRY);
 
-	nb.notifier_call = dp_display_fsa4480_callback;
+	nb.notifier_call = dp_display_aux_switch_callback;
 	nb.priority = 0;
 
 	/*
@@ -1426,7 +1431,7 @@ static int dp_display_init_aux_switch(struct dp_display_private *dp)
 	 * Bootup DP with cable connected usecase can hit this scenario.
 	 */
 	for (retry = 0; retry < max_retries; retry++) {
-		rc = fsa4480_reg_notifier(&nb, dp->aux_switch_node);
+		rc = dp->aux->switch_register_notifier(&nb, dp->aux_switch_node);
 		if (rc == 0) {
 			DP_DEBUG("registered notifier successfully\n");
 			dp->aux_switch_ready = true;
@@ -1443,7 +1448,8 @@ static int dp_display_init_aux_switch(struct dp_display_private *dp)
 		return rc;
 	}
 
-	fsa4480_unreg_notifier(&nb, dp->aux_switch_node);
+	if (dp->aux->switch_unregister_notifier)
+		dp->aux->switch_unregister_notifier(&nb, dp->aux_switch_node);
 
 	SDE_EVT32_EXTERNAL(SDE_EVTLOG_FUNC_EXIT, rc);
 	return rc;
@@ -1466,12 +1472,12 @@ static int dp_display_usbpd_configure_cb(struct device *dev)
 	}
 
 	if (!dp->debug->sim_mode && !dp->no_aux_switch
-	    && !dp->parser->gpio_aux_switch && dp->aux_switch_node) {
+	    && !dp->parser->gpio_aux_switch && dp->aux_switch_node && dp->aux->switch_configure) {
 		rc = dp_display_init_aux_switch(dp);
 		if (rc)
 			return rc;
 
-		rc = dp->aux->aux_switch(dp->aux, true, dp->hpd->orientation);
+		rc = dp->aux->switch_configure(dp->aux, true, dp->hpd->orientation);
 		if (rc)
 			return rc;
 	}
@@ -1709,8 +1715,8 @@ static int dp_display_usbpd_disconnect_cb(struct device *dev)
 	dp->aux->abort(dp->aux, true);
 
 	if (!dp->debug->sim_mode && !dp->no_aux_switch
-	    && !dp->parser->gpio_aux_switch)
-		dp->aux->aux_switch(dp->aux, false, ORIENTATION_NONE);
+	    && !dp->parser->gpio_aux_switch && dp->aux->switch_configure)
+		dp->aux->switch_configure(dp->aux, false, ORIENTATION_NONE);
 
 	dp_display_disconnect_sync(dp);
 
@@ -1752,6 +1758,73 @@ static void dp_display_mst_attention(struct dp_display_private *dp)
 		dp->mst.cbs.hpd_irq(&dp->dp_display);
 
 	DP_MST_DEBUG("mst_attention_work. mst_active:%d\n", dp->mst.mst_active);
+}
+
+static int dp_display_disable_hdcp(struct dp_display_private *dp, struct dp_panel *dp_panel)
+{
+	struct dp_link_hdcp_status *status;
+	int i;
+
+	status = &dp->link->hdcp_status;
+
+	dp_display_state_add(DP_STATE_HDCP_ABORTED);
+	cancel_delayed_work_sync(&dp->hdcp_cb_work);
+	if (dp_display_is_hdcp_enabled(dp) && status->hdcp_state != HDCP_STATE_INACTIVE) {
+		bool off = true;
+
+		if (dp_display_state_is(DP_STATE_SUSPENDED)) {
+			DP_DEBUG("Can't perform HDCP cleanup while suspended. Defer\n");
+			dp->hdcp_delayed_off = true;
+			return -EINVAL;
+		}
+
+		flush_delayed_work(&dp->hdcp_cb_work);
+		if (dp->mst.mst_active) {
+			if (dp_panel) {
+				/*
+				 * dp_display_pre_disable is turning off the connected mst panel.
+				 * The panel to be turned off is passed as an argument.
+				 */
+				dp_display_hdcp_deregister_stream(dp, dp_panel->stream_id);
+				for (i = DP_STREAM_0; i < DP_STREAM_MAX; i++) {
+					if (i != dp_panel->stream_id && dp->active_panels[i]) {
+						DP_DEBUG("Streams are active. Skip HDCP disable\n");
+						off = false;
+					}
+				}
+			} else {
+				/*
+				 * Attention event requires all the hdcp streams to turn off.
+				 * If the panel passed as argument is NULL, then disable all the
+				 * streams and HDCP.
+				 */
+				for (i = DP_STREAM_0; i < DP_STREAM_MAX; i++)
+					dp_display_hdcp_deregister_stream(dp, i);
+			}
+		}
+
+		if (off) {
+			if (dp->hdcp.ops->off)
+				dp->hdcp.ops->off(dp->hdcp.data);
+			dp_display_update_hdcp_status(dp, true);
+		}
+	}
+
+	return 0;
+}
+
+static void dp_display_attention_hdcp_enable(struct dp_display_private *dp, bool enable)
+{
+	if (!dp_display_state_is(DP_STATE_ENABLED))
+		return;
+
+	if (enable) {
+		dp_display_state_remove(DP_STATE_HDCP_ABORTED);
+		cancel_delayed_work_sync(&dp->hdcp_cb_work);
+		queue_delayed_work(dp->wq, &dp->hdcp_cb_work, HZ/4);
+	} else {
+		dp_display_disable_hdcp(dp, NULL);
+	}
 }
 
 static void dp_display_attention_work(struct work_struct *work)
@@ -1818,6 +1891,7 @@ static void dp_display_attention_work(struct work_struct *work)
 		DP_TEST_LINK_TRAINING | DP_LINK_STATUS_UPDATED)) {
 
 		mutex_lock(&dp->session_lock);
+		dp_display_attention_hdcp_enable(dp, false);
 		dp_audio_enable(dp, false);
 
 		if (dp->link->sink_request & DP_TEST_LINK_PHY_TEST_PATTERN) {
@@ -1837,8 +1911,10 @@ static void dp_display_attention_work(struct work_struct *work)
 			rc = dp->ctrl->link_maintenance(dp->ctrl);
 		}
 
-		if (!rc)
+		if (!rc) {
+			dp_display_attention_hdcp_enable(dp, true);
 			dp_audio_enable(dp, true);
+		}
 
 		mutex_unlock(&dp->session_lock);
 		if (rc)
@@ -1965,7 +2041,7 @@ static int dp_display_usb_notifier(struct notifier_block *nb,
 		dp_display_state_add(DP_STATE_ABORTED);
 		dp->ctrl->abort(dp->ctrl, true);
 		dp->aux->abort(dp->aux, true);
-		dp_display_handle_disconnect(dp, true);
+		dp_display_handle_disconnect(dp, false);
 		dp->debug->abort(dp->debug);
 	}
 
@@ -2084,12 +2160,22 @@ static int dp_init_sub_modules(struct dp_display_private *dp)
 
 	dp->aux_switch_node = of_parse_phandle(dp->pdev->dev.of_node, phandle, 0);
 	if (!dp->aux_switch_node) {
-		DP_DEBUG("cannot parse %s handle\n", phandle);
 		dp->no_aux_switch = true;
+		DP_WARN("Aux switch node not found, assigning bypass mode as switch type\n");
+		dp->switch_type = DP_AUX_SWITCH_BYPASS;
+		goto skip_node_name;
 	}
 
+	if (!strcmp(dp->aux_switch_node->name, "fsa4480"))
+		dp->switch_type = DP_AUX_SWITCH_FSA4480;
+	else if (!strcmp(dp->aux_switch_node->name, "wcd939x_i2c"))
+		dp->switch_type = DP_AUX_SWITCH_WCD939x;
+	else
+		dp->switch_type = DP_AUX_SWITCH_BYPASS;
+
+skip_node_name:
 	dp->aux = dp_aux_get(dev, &dp->catalog->aux, dp->parser,
-			dp->aux_switch_node, dp->aux_bridge);
+			dp->aux_switch_node, dp->aux_bridge, dp->switch_type);
 	if (IS_ERR(dp->aux)) {
 		rc = PTR_ERR(dp->aux);
 		DP_ERR("failed to initialize aux, rc = %d\n", rc);
@@ -2619,9 +2705,7 @@ static int dp_display_pre_disable(struct dp_display *dp_display, void *panel)
 {
 	struct dp_display_private *dp;
 	struct dp_panel *dp_panel = panel;
-	struct dp_link_hdcp_status *status;
 	int rc = 0;
-	size_t i;
 
 	if (!dp_display || !panel) {
 		DP_ERR("invalid input\n");
@@ -2633,44 +2717,13 @@ static int dp_display_pre_disable(struct dp_display *dp_display, void *panel)
 	SDE_EVT32_EXTERNAL(SDE_EVTLOG_FUNC_ENTRY, dp->state);
 	mutex_lock(&dp->session_lock);
 
-	status = &dp->link->hdcp_status;
-
 	if (!dp_display_state_is(DP_STATE_ENABLED)) {
 		dp_display_state_show("[not enabled]");
 		goto end;
 	}
 
-	dp_display_state_add(DP_STATE_HDCP_ABORTED);
-	cancel_delayed_work_sync(&dp->hdcp_cb_work);
-	if (dp_display_is_hdcp_enabled(dp) &&
-			status->hdcp_state != HDCP_STATE_INACTIVE) {
-		bool off = true;
-
-		if (dp_display_state_is(DP_STATE_SUSPENDED)) {
-			DP_DEBUG("Can't perform HDCP cleanup while suspended. Defer\n");
-			dp->hdcp_delayed_off = true;
-			goto clean;
-		}
-
-		flush_delayed_work(&dp->hdcp_cb_work);
-		if (dp->mst.mst_active) {
-			dp_display_hdcp_deregister_stream(dp,
-				dp_panel->stream_id);
-			for (i = DP_STREAM_0; i < DP_STREAM_MAX; i++) {
-				if (i != dp_panel->stream_id &&
-						dp->active_panels[i]) {
-					DP_DEBUG("Streams are still active. Skip disabling HDCP\n");
-					off = false;
-				}
-			}
-		}
-
-		if (off) {
-			if (dp->hdcp.ops->off)
-				dp->hdcp.ops->off(dp->hdcp.data);
-			dp_display_update_hdcp_status(dp, true);
-		}
-	}
+	if (dp_display_disable_hdcp(dp, dp_panel))
+		goto clean;
 
 	dp_display_clear_colorspaces(dp_display);
 

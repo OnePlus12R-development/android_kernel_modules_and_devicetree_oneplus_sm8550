@@ -635,7 +635,7 @@ static int tfa98xx_check_result(struct tfa98xx *tfa98xx, uint8_t *pdata)
 		/* When short circuit or open circuit, read r0 will return same value */
 		/* damaged but f0 and r0 is ok, record and check whether r0 is same . */
 		if ((false == spk_err) && (tfa_fb.damage_flag & (1 << index)) && (fr < F0_BLOCK_HOLE)) {
-			if ((re == tfa_fb.last_damage_r0[index]) && (fr == tfa_fb.last_damage_f0[index])) {
+			if (re == tfa_fb.last_damage_r0[index]) {
 				if (tfa_fb.start_damage_tm[index] == 0) {
 					tfa_fb.start_damage_tm[index] = ktime_get();
 				} else if (ktime_after(ktime_get(), ktime_add_ms(tfa_fb.start_damage_tm[index], CHECK_DAMAGE_TIME))) {

@@ -66,6 +66,12 @@ config DUMP_TASKS_MEM
 	help
 	  dump all userspace process meminfo
 
+config IOMMU_DMA_ALLOC_ADJUST_FLAGS
+	bool "__iommu_dma_alloc_pages adjust flags by order"
+	default n
+	help
+	  __iommu_dma_alloc_pages adjust flags by order
+
 config DYNAMIC_TUNING_SWAPPINESS
 	bool "tuning swappiess depends on file_pages size"
 	default y
@@ -103,6 +109,13 @@ config ABORT_MM_OPT
 	  When performing memory reclaim or memory compaction, it allows to abort when
 	  receive a signal or cpu-usage is too high.
 
+config OPLUS_FG_PROTECT
+	bool "mapped_protect fg protect"
+	depends on MAPPED_PROTECT && OPLUS_FEATURE_CPU_JANKINFO && HYBRIDSWAP
+	default n
+	help
+          fg_protect
+
 config LOOK_AROUND
 	tristate "memload optimization for look_around"
 	  default n
@@ -117,3 +130,4 @@ source "mm/oplus_mm/mm_osvelte/Kconfig"
 
 source "mm/oplus_mm/uxmem_opt/Kconfig"
 source "mm/oplus_mm/dynamic_readahead/Kconfig"
+source "mm/oplus_mm/kswapd_opt/Kconfig"

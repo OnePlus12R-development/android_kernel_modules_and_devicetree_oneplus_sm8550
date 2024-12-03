@@ -1,8 +1,6 @@
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Changes from Qualcomm Innovation Center are provided under the following license:
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause-Clear
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -1094,6 +1092,11 @@ dp_fisa_rx_get_sw_ft_entry(struct dp_rx_fst *fisa_hdl, qdf_nbuf_t nbuf,
 	}
 
 	sw_ft_entry = &sw_ft_base[flow_idx];
+	if (!sw_ft_entry->is_populated) {
+		dp_info("Pkt rx for non configured flow idx 0x%x", flow_idx);
+		DP_STATS_INC(fisa_hdl, invalid_flow_index, 1);
+		return NULL;
+	}
 
 	if (!fisa_hdl->flow_deletion_supported) {
 		sw_ft_entry->vdev = vdev;
@@ -1116,17 +1119,23 @@ dp_fisa_rx_get_sw_ft_entry(struct dp_rx_fst *fisa_hdl, qdf_nbuf_t nbuf,
 #ifdef DP_OFFLOAD_FRAME_WITH_SW_EXCEPTION
 /*
  * dp_rx_reo_dest_honor_check() - check if packet reo destination is changed
-				  by FW offload
+				  by FW offload and is valid
+ * @fisa_hdl: handle to FISA context
  *@nbuf: RX packet nbuf
  *@tlv_reo_dest_ind: reo_dest_ind fetched from rx_packet_tlv
  *
- * Return: QDF_STATUS_SUCCESS - reo destination not change, others - yes.
+ * Return: QDF_STATUS_SUCCESS - reo dest not change/ not valid, others - yes.
  */
 static inline QDF_STATUS
-dp_rx_reo_dest_honor_check(qdf_nbuf_t nbuf, uint32_t tlv_reo_dest_ind)
+dp_rx_reo_dest_honor_check(struct dp_rx_fst *fisa_hdl, qdf_nbuf_t nbuf,
+			   uint32_t tlv_reo_dest_ind)
 {
 	uint8_t sw_exception =
 			qdf_nbuf_get_rx_reo_dest_ind_or_sw_excpt(nbuf);
+
+	if (fisa_hdl->rx_hash_enabled &&
+	    (tlv_reo_dest_ind < HAL_REO_DEST_IND_START_OFFSET))
+		return QDF_STATUS_E_FAILURE;
 	/*
 	 * If sw_exception bit is marked, then this data packet is
 	 * re-injected by FW offload, reo destination will not honor
@@ -1136,7 +1145,8 @@ dp_rx_reo_dest_honor_check(qdf_nbuf_t nbuf, uint32_t tlv_reo_dest_ind)
 }
 #else
 static inline QDF_STATUS
-dp_rx_reo_dest_honor_check(qdf_nbuf_t nbuf, uint32_t tlv_reo_dest_ind)
+dp_rx_reo_dest_honor_check(struct dp_rx_fst *fisa_hdl, qdf_nbuf_t nbuf,
+			   uint32_t tlv_reo_dest_ind)
 {
 	uint8_t  ring_reo_dest_ind =
 			qdf_nbuf_get_rx_reo_dest_ind_or_sw_excpt(nbuf);
@@ -1147,7 +1157,9 @@ dp_rx_reo_dest_honor_check(qdf_nbuf_t nbuf, uint32_t tlv_reo_dest_ind)
 	 * skip FISA to avoid REO2SW ring mismatch issue for same flow.
 	 */
 	if (tlv_reo_dest_ind != ring_reo_dest_ind ||
-	    REO_DEST_IND_IPA_REROUTE == ring_reo_dest_ind)
+	    REO_DEST_IND_IPA_REROUTE == ring_reo_dest_ind ||
+	    (fisa_hdl->rx_hash_enabled &&
+	     (tlv_reo_dest_ind < HAL_REO_DEST_IND_START_OFFSET)))
 		return QDF_STATUS_E_FAILURE;
 
 	return QDF_STATUS_SUCCESS;
@@ -1180,7 +1192,7 @@ dp_rx_get_fisa_flow(struct dp_rx_fst *fisa_hdl, struct dp_vdev *vdev,
 	rx_tlv_hdr = qdf_nbuf_data(nbuf);
 	hal_rx_msdu_get_reo_destination_indication(hal_soc_hdl, rx_tlv_hdr,
 						   &tlv_reo_dest_ind);
-	status = dp_rx_reo_dest_honor_check(nbuf, tlv_reo_dest_ind);
+	status = dp_rx_reo_dest_honor_check(fisa_hdl, nbuf, tlv_reo_dest_ind);
 	if (QDF_IS_STATUS_ERROR(status))
 		return sw_ft_entry;
 
@@ -1648,6 +1660,11 @@ static bool dp_fisa_aggregation_should_stop(
 	uint32_t l3_hdr_offset, l4_hdr_offset, l2_l3_hdr_len;
 	uint32_t cumulative_ip_len_delta = hal_cumulative_ip_len -
 					   fisa_flow->hal_cumultive_ip_len;
+	uint32_t ip_csum_err = 0;
+	uint32_t tcp_udp_csum_err = 0;
+
+	hal_rx_tlv_csum_err_get(fisa_flow->soc_hdl->hal_soc, rx_tlv_hdr,
+				&ip_csum_err, &tcp_udp_csum_err);
 
 	hal_rx_get_l3_l4_offsets(fisa_flow->soc_hdl->hal_soc, rx_tlv_hdr,
 				 &l3_hdr_offset, &l4_hdr_offset);
@@ -1655,6 +1672,12 @@ static bool dp_fisa_aggregation_should_stop(
 	l2_l3_hdr_len = l3_hdr_offset + l4_hdr_offset;
 
 	/**
+	 * If l3/l4 checksum validation failed for MSDU, then data
+	 * is not trust worthy to build aggregated skb, so do not
+	 * allow for aggregation. And also in aggregated case it
+	 * is job of driver to make sure checksum is valid before
+	 * computing partial checksum for final aggregated skb.
+	 *
 	 * kernel network panic if UDP data length < 12 bytes get aggregated,
 	 * no solid conclusion currently, as a SW WAR, only allow UDP
 	 * aggregation if UDP data length >= 16 bytes.
@@ -1667,6 +1690,7 @@ static bool dp_fisa_aggregation_should_stop(
 	 * otherwise, current fisa flow aggregation should be stopped.
 	 */
 	if (fisa_flow->do_not_aggregate ||
+	    (ip_csum_err || tcp_udp_csum_err) ||
 	    msdu_len < (l2_l3_hdr_len + FISA_MIN_L4_AND_DATA_LEN) ||
 	    hal_cumulative_ip_len <= fisa_flow->hal_cumultive_ip_len ||
 	    cumulative_ip_len_delta > FISA_MAX_SINGLE_CUMULATIVE_IP_LEN ||

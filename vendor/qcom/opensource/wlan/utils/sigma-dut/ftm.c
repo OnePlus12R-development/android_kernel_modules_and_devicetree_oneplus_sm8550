@@ -10,14 +10,18 @@
 #include <sys/stat.h>
 #include <regex.h>
 #include "wpa_helpers.h"
+#include "wpa_ctrl.h"
 
 static const char LOC_XML_FILE_PATH[] = "./data/sigma-dut-target.xml";
+static const char LOC_11AZ_CONFIG_XML_FILE_PATH[] = "./data/lowi11az.xml";
 
 static const char LOC_LOWI_TEST_DISCOVERY[] = "lowi_test -a -b 2 -n 1";
 static const char LOC_LOWI_TEST_RANGING[] =
 "lowi_test -r ./data/sigma-dut-target.xml -n 1";
 static const char LOC_LOWI_TEST_NEIGHBOR_RPT_REQ[] = "lowi_test -nrr";
 static const char LOC_LOWI_TEST_ANQP_REQ[] = "lowi_test -anqp -mac ";
+static const char LOC_LOWI_TEST_11AZ_CONFIG[] =
+"lowi_test -11az ./data/lowi11az.xml";
 static const char WPA_INTERWORKING_ENABLE[] =
 "SET interworking 1";
 static const char WPA_INTERWORKING_DISABLE[] =
@@ -56,6 +60,10 @@ struct capi_loc_cmd {
 	unsigned int burstPeriod;
 	unsigned int locCivic;
 	unsigned int lci;
+	unsigned int ntb;
+	unsigned int tb;
+	unsigned int ftm_bw_rtt;
+	unsigned int freq;
 };
 
 
@@ -687,6 +695,40 @@ int loc_cmd_sta_preset_testparameters(struct sigma_dut *dut,
 }
 
 
+static enum sigma_cmd_result
+lowi_cmd_sta_reset_ptksa_cache(struct sigma_dut *dut, struct sigma_conn *conn,
+			       struct sigma_cmd *cmd)
+{
+	const char *intf = get_param(cmd, "Interface");
+	char buf[1024], bssid[18], req[200], *pos;
+
+	memset(req, 0, sizeof(req));
+	memset(buf, 0, sizeof(buf));
+	if (wpa_command_resp(intf, "PTKSA_CACHE_LIST", buf, sizeof(buf)) < 0 ||
+	    strncmp(buf, "UNKNOWN COMMAND", 15) == 0) {
+		send_resp(dut, conn, SIGMA_ERROR,
+			  "ErrorCode,PTKSA_CACHE_LIST not supported");
+		return STATUS_SENT_ERROR;
+	}
+	pos = buf;
+	while (pos) {
+		pos = strchr(pos, '\n');
+		if (!pos)
+			break;
+		pos = strchr(pos, ' ');
+		if (!pos)
+			break;
+		pos++;
+
+		strlcpy(bssid, pos, sizeof(bssid));
+		snprintf(req, sizeof(req), "PASN_DEAUTH bssid=%s", bssid);
+		wpa_command(intf, req);
+	}
+
+	return STATUS_SENT;
+}
+
+
 int lowi_cmd_sta_reset_default(struct sigma_dut *dut, struct sigma_conn *conn,
 				struct sigma_cmd *cmd)
 {
@@ -699,5 +741,318 @@ int lowi_cmd_sta_reset_default(struct sigma_dut *dut, struct sigma_conn *conn,
 	}
 #endif /* ANDROID_WIFI_HAL */
 
+	dut->i2rlmrpolicy = LOC_FORCE_FTM_I2R_LMR_POLICY;
+	lowi_cmd_sta_reset_ptksa_cache(dut, conn, cmd);
+
+	return 0;
+}
+
+
+static int loc_r2_set_11az_config(struct sigma_dut *dut, const char *dst_mac,
+				  struct capi_loc_cmd *loc_cmd)
+{
+	FILE *xml;
+
+	xml = fopen(LOC_11AZ_CONFIG_XML_FILE_PATH, "w");
+	if (!xml) {
+		sigma_dut_print(dut, DUT_MSG_ERROR,
+				"%s - Unable to create the XML file", __func__);
+		return -1;
+	}
+
+	fprintf(xml, "<body>\n");
+	fprintf(xml, "  <config_11az>\n");
+	fprintf(xml, "    <i2rlmrpolicy>%u</i2rlmrpolicy>\n",
+		dut->i2rlmrpolicy);
+	fprintf(xml, "  </config_11az>\n");
+	fprintf(xml, "</body>\n");
+
+	fclose(xml);
+	sigma_dut_print(dut, DUT_MSG_INFO,
+			"%s - Successfully created XML file", __func__);
+
+	return system(LOC_LOWI_TEST_11AZ_CONFIG);
+}
+
+
+static int loc_r2_write_xml_file(struct sigma_dut *dut, const char *dst_mac,
+				 struct capi_loc_cmd *loc_cmd)
+{
+	FILE *xml;
+	unsigned int bw, preamble;
+	unsigned int tmrtype = 0;
+	unsigned int is_rtt_bg_node = 0;
+
+	xml = fopen(LOC_XML_FILE_PATH, "w");
+	if (!xml) {
+		sigma_dut_print(dut, DUT_MSG_ERROR,
+				"%s - Unable to create the XML file", __func__);
+		return -1;
+	}
+
+#define LOC_R2_BW_VHT_20  0
+#define LOC_R2_BW_VHT_40  1
+#define LOC_R2_BW_VHT_80  2
+#define LOC_R2_BW_VHT_160 3
+
+#define LOC_R2_PREAMBLE_HT 1
+#define LOC_R2_PREAMBLE_VHT 2
+#define LOC_R2_PREAMBLE_HE 3
+
+#define LOC_R2_BW_20  0
+#define LOC_R2_BW_40  1
+#define LOC_R2_BW_80  2
+#define LOC_R2_BW_160 3
+
+	preamble = LOC_R2_PREAMBLE_HE;
+
+	switch (loc_cmd->ftm_bw_rtt) {
+	case LOC_R2_BW_VHT_20:
+		bw = LOC_R2_BW_20;
+		break;
+	case LOC_R2_BW_VHT_40:
+		bw = LOC_R2_BW_40;
+		break;
+	case LOC_R2_BW_VHT_80:
+		bw = LOC_R2_BW_80;
+		break;
+	case LOC_R2_BW_VHT_160:
+		bw = LOC_R2_BW_160;
+		break;
+	default:
+		sigma_dut_print(dut, DUT_MSG_ERROR,
+				"%s - Bad Format/BW received", __func__);
+		fclose(xml);
+		return -1;
+	}
+
+#define LOC_R2_CAPI_DEFAULT_FTMS_PER_BURST 25
+#define LOC_R2_CAPI_DEFAULT_BURST_DUR 10
+
+	if (loc_cmd->ntb) {
+		tmrtype = 1;
+	} else if (loc_cmd->tb) {
+		tmrtype = 2;
+		is_rtt_bg_node = 1;
+	}
+	fprintf(xml, "<body>\n");
+	fprintf(xml, "  <ranging>\n");
+	fprintf(xml, "    <ap>\n");
+	fprintf(xml, "    <rttType>3</rttType>\n");
+	fprintf(xml, "    <numFrames>%u</numFrames>\n",
+		LOC_R2_CAPI_DEFAULT_FTMS_PER_BURST);
+	fprintf(xml, "    <bw>%u</bw>\n", bw);
+	fprintf(xml, "    <preamble>%u</preamble>\n", preamble);
+	fprintf(xml, "    <phymode>-1</phymode>\n");
+	fprintf(xml, "    <asap>%u</asap>\n", loc_cmd->asap);
+	fprintf(xml, "    <lci>%u</lci>\n", loc_cmd->lci);
+	fprintf(xml, "    <civic>%u</civic>\n", loc_cmd->locCivic);
+	/* Use parameters from LOWI cache */
+	fprintf(xml, "    <paramControl>%u</paramControl>\n", 0);
+	fprintf(xml, "    <ptsftimer>%u</ptsftimer>\n", 0);
+	fprintf(xml, "    <frequency>%u</frequency>\n", loc_cmd->freq);
+	fprintf(xml, "    <tmrtype>%u</tmrtype>\n", tmrtype);
+	fprintf(xml, "    <sectype>%u</sectype>\n", 1);
+	fprintf(xml, "    <tmrMinDelta>%u</tmrMinDelta>\n", 2500);
+	fprintf(xml, "    <tmrMaxDelta>%u</tmrMaxDelta>\n", 300);
+	fprintf(xml, "    <I2RFbPolicy>%u</I2RFbPolicy>\n", dut->i2rlmr_iftmr);
+	fprintf(xml, "    <isRttBgNode>%u</isRttBgNode>\n", is_rtt_bg_node);
+	fprintf(xml, "    <tbPeriodicity>%u</tbPeriodicity>\n", 4);
+	fprintf(xml, "    <tbDuration>%u</tbDuration>\n", 80);
+	fprintf(xml, "    <tbMaxSessionExpiry>%u</tbMaxSessionExpiry>\n", 5);
+	fprintf(xml, "    <mac>%s</mac>\n", dst_mac);
+	fprintf(xml, "    </ap>\n");
+	fprintf(xml, "  </ranging>\n");
+	fprintf(xml, "  <summary>\n");
+	fprintf(xml, "    <mac>%s</mac>\n", dst_mac);
+	fprintf(xml, "  </summary>\n");
+	fprintf(xml, "</body>\n");
+
+	dut->i2rlmr_iftmr = 0;
+
+	fclose(xml);
+	sigma_dut_print(dut, DUT_MSG_INFO,
+			"%s - Successfully created XML file", __func__);
+	return 0;
+}
+
+
+static int loc_r2_get_bss_frequency(struct sigma_dut *dut,
+				    struct sigma_conn *conn,
+				    struct sigma_cmd *cmd)
+{
+	const char *intf = get_param(cmd, "Interface");
+	const char *bssid;
+	char buf[4096], *pos;
+	int freq, res;
+	struct wpa_ctrl *ctrl;
+
+	bssid = get_param(cmd, "destmac");
+	if (!bssid) {
+		send_resp(dut, conn, SIGMA_INVALID,
+			  "errorCode,destmac argument is missing");
+		return 0;
+	}
+
+	ctrl = open_wpa_mon(intf);
+	if (!ctrl) {
+		sigma_dut_print(dut, DUT_MSG_ERROR,
+				"Failed to open wpa_supplicant monitor connection");
+		return 0;
+	}
+
+	if (wpa_command(intf, "SCAN TYPE=ONLY")) {
+		send_resp(dut, conn, SIGMA_ERROR,
+			  "errorCode,Could not start scan");
+		wpa_ctrl_detach(ctrl);
+		wpa_ctrl_close(ctrl);
+		return 0;
+	}
+
+	res = get_wpa_cli_event(dut, ctrl, "CTRL-EVENT-SCAN-RESULTS",
+				buf, sizeof(buf));
+
+	wpa_ctrl_detach(ctrl);
+	wpa_ctrl_close(ctrl);
+
+	if (res < 0) {
+		send_resp(dut, conn, SIGMA_ERROR,
+			  "errorCode,Scan did not complete");
+		return 0;
+	}
+
+	snprintf(buf, sizeof(buf), "BSS %s", bssid);
+	if (wpa_command_resp(intf, buf, buf, sizeof(buf)) < 0 ||
+	    strncmp(buf, "id=", 3) != 0) {
+		send_resp(dut, conn, SIGMA_ERROR,
+			  "errorCode,Specified BSSID not found");
+		return 0;
+	}
+
+	pos = strstr(buf, "\nfreq=");
+	if (!pos) {
+		send_resp(dut, conn, SIGMA_ERROR,
+			  "errorCode,Channel not found");
+		return 0;
+	}
+	freq = atoi(pos + 6);
+	return freq;
+}
+
+
+int loc_r2_cmd_sta_exec_action(struct sigma_dut *dut, struct sigma_conn *conn,
+			       struct sigma_cmd *cmd)
+{
+	const char *params = NULL;
+	const char *program = get_param(cmd, "prog");
+	const char *loc_op = get_param(cmd, "trigger");
+	const char *interface = get_param(cmd, "interface");
+	const char *dest_mac = get_param(cmd, "destmac");
+	const char *ntb = get_param(cmd, "NTB");
+	const char *tb = get_param(cmd, "TB");
+	const char *ftm_bw_rtt = get_param(cmd, "FormatBWRanging");
+	struct capi_loc_cmd loc_cmd;
+
+	memset(&loc_cmd, 0, sizeof(loc_cmd));
+
+	if (!loc_op) {
+		sigma_dut_print(dut, DUT_MSG_ERROR,
+				"%s - No Operation! - Aborting", __func__);
+		return -1;
+	}
+
+	if (!program || strcasecmp(program, "LOCR2") != 0) {
+		sigma_dut_print(dut, DUT_MSG_ERROR,
+				"%s - No LOCR2 Program in Command! - Aborting",
+				__func__);
+		return -1;
+	}
+
+	if (!interface || strcasecmp(interface, "wlan0") != 0) {
+		sigma_dut_print(dut, DUT_MSG_ERROR,
+				"%s - Incomplete command in LOCR2 CAPI request",
+				__func__);
+		send_resp(dut, conn, SIGMA_ERROR,
+			  "ErrMsg,Missing wlan0 Interface Type");
+		return 0;
+	}
+
+	if (!dest_mac) {
+		sigma_dut_print(dut, DUT_MSG_ERROR,
+				"%s - Incomplete command in LOCR2 CAPI request",
+				__func__);
+		send_resp(dut, conn, SIGMA_ERROR,
+			  "ErrMsg,Incomplete LOCR2 CAPI command - missing MAC");
+		return 0;
+	}
+
+	if (!ftm_bw_rtt) {
+		sigma_dut_print(dut, DUT_MSG_ERROR,
+				"%s - Incomplete command in LOCR2 CAPI request",
+				__func__);
+		send_resp(dut, conn, SIGMA_ERROR,
+			  "ErrMsg,Incomplete Loc CAPI command - missing Format & BW");
+		return 0;
+	}
+
+	if (!ntb && !tb) {
+		sigma_dut_print(dut, DUT_MSG_ERROR,
+				"%s - Incomplete command in LOCR2 CAPI request",
+				__func__);
+		send_resp(dut, conn, SIGMA_ERROR,
+			  "ErrMsg,Incomplete Loc CAPI command - missing TMR Type(NTB or TB)");
+		return 0;
+	}
+
+	if (ntb) {
+		sscanf(ntb, "%u", &loc_cmd.ntb);
+		sigma_dut_print(dut, DUT_MSG_INFO, "%s - ntb: %u",
+				__func__, loc_cmd.ntb);
+	} else {
+		sscanf(tb, "%u", &loc_cmd.tb);
+		sigma_dut_print(dut, DUT_MSG_INFO, "%s - tb: %u",
+				__func__, loc_cmd.tb);
+	}
+
+	sscanf(ftm_bw_rtt, "%u", &loc_cmd.ftm_bw_rtt);
+	sigma_dut_print(dut, DUT_MSG_INFO, "%s - ftmbw: %u",
+			__func__, loc_cmd.ftm_bw_rtt);
+
+	loc_cmd.freq = loc_r2_get_bss_frequency(dut, conn, cmd);
+	sigma_dut_print(dut, DUT_MSG_INFO, "%s - freq: %u",
+			__func__, loc_cmd.freq);
+
+	if (loc_r2_write_xml_file(dut, dest_mac, &loc_cmd) < 0) {
+		sigma_dut_print(dut, DUT_MSG_ERROR,
+				"%s - Failed to write to XML file because of bad command",
+				__func__);
+		send_resp(dut, conn, SIGMA_ERROR,
+			  "ErrMsg,Bad CAPI command");
+		return 0;
+	}
+
+	if (loc_r2_set_11az_config(dut, dest_mac, &loc_cmd) < 0) {
+		sigma_dut_print(dut, DUT_MSG_ERROR,
+				"%s - Failed to set 11az config command",
+				__func__);
+		send_resp(dut, conn, SIGMA_ERROR,
+			  "ErrMsg,Bad CAPI command");
+		return 0;
+	}
+	sleep(1);
+
+	if (pass_request_to_ltest(dut, LOWI_TST_RANGING, params) < 0) {
+		/* Loc operation been failed. */
+		sigma_dut_print(dut, DUT_MSG_ERROR,
+				"%s - Failed to initiate Loc command",
+				__func__);
+		send_resp(dut, conn, SIGMA_ERROR,
+			  "ErrMsg,Failed to initiate Loc command");
+		return 0;
+	}
+
+	sigma_dut_print(dut, DUT_MSG_INFO,
+			"%s - Succeeded to initiate LOCR2 command", __func__);
+	send_resp(dut, conn, SIGMA_COMPLETE, NULL);
 	return 0;
 }

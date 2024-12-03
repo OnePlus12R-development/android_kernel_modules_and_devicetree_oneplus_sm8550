@@ -12,6 +12,8 @@ DESCRIPTION:
 #ifndef __OPLUS_PMIC_INFO_H__
 #define __OPLUS_PMIC_INFO_H__
 
+#include <linux/regmap.h>
+
 #define PMIC_INFO_MAGIC 0x43494D504F50504F
 #define PMIC_GEN3_INFO_MAGIC 0x43494d50334e4547 /*  GEN3PMIC */
 #define PMIC_GEN3_NVMEM_MAGIC 0x43494d504d454d56 /*  VMEMPMIC */
@@ -177,6 +179,32 @@ struct PMICGen3HistoryKernelStruct {
 	struct PMICGen3RecordKernelStruct pmic_record[MAX_HISTORY_COUNT];
 };
 
+struct PMICOcplogStruct {
+        u16     ppid;
+        u8      mode_at_ocp;
+};
+
+struct PMICOcplogRecoedStruct {
+        struct PMICOcplogStruct ocp_record[3]; /* max num is 3 */
+};
+
+struct ocp_device_dev {
+        struct device           *dev;
+        struct regmap           *regmap;
+        u16                     base;
+        u16                     dev_base;
+};
+
+static inline int ocp_dev_masked_write(struct ocp_device_dev *ocp_dev, u16 addr, u8 mask, u8 val)
+{
+	int rc;
+	rc = regmap_update_bits(ocp_dev->regmap, addr, mask, val);
+	if (rc) {
+		pr_err("Register write failed, addr=0x%04X, rc=%d\n", addr, rc);
+	}
+	return rc;
+}
+
 #define pmic_gen3_info_attr_ro(_name) \
 static struct kobj_attribute _name##_gen3_attr = {	\
 	.attr	= {				\
@@ -194,4 +222,13 @@ int use_nvmem_pmic_info(void);
 
 int __init pmic_pon_log_driver_init(void);
 void __exit pmic_pon_log_driver_exit(void);
-#endif
+
+void *get_ocp_state_from_nvmem(void);
+void *get_ocp_state(void);
+int __init pmic_ocp_state_driver_init(void);
+void __exit pmic_ocp_state_driver_exit(void);
+
+int __init pmic_ocp_dev_driver_init(void);
+void __exit pmic_ocp_dev_driver_exit(void);
+#endif /*end*/
+

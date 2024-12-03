@@ -155,6 +155,10 @@ static void persistent_ram_update(const void *s, unsigned int count)
 static void pstore_write_device_info(const char *s, unsigned int c)
 {
 	struct persistent_ram_buffer *buffer = device_info_ramzone.buffer;
+	if (!buffer) {
+		pr_err("device_info_ramzone state error!\n");
+		return;
+	}
 	if (c > device_info_ramzone.device_info_size)
 		c = device_info_ramzone.device_info_size;
 	if (buffer->start + c > device_info_ramzone.device_info_size)

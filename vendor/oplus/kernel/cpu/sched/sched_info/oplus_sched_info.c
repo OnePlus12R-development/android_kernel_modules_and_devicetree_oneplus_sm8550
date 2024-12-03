@@ -7,12 +7,9 @@
 #include "osi_tasktrack.h"
 #include "osi_hotthread.h"
 #include "osi_topology.h"
-#include "osi_loadindicator.h"
 #include "osi_freq.h"
-#include "osi_onlinecpu.h"
 #include "osi_cputime.h"
 #include "osi_cpuload.h"
-#include "osi_cpuset.h"
 #include "osi_version.h"
 #include "osi_enable.h"
 #include "osi_debug.h"
@@ -22,6 +19,10 @@
 #include "osi_amu.h"
 #endif
 #include "osi_preemptirq.h"
+
+#if IS_ENABLED(CONFIG_OPLUS_PERF_SCHEDINFO)
+#include "perf_schedinfo.h"
+#endif
 
 static struct proc_dir_entry *d_task_info;
 static struct proc_dir_entry *d_cpu_jank_info;
@@ -47,6 +48,7 @@ void android_vh_cpufreq_resolve_freq_handler(void *unused,
 {
 	jankinfo_update_freq_reach_limit_count(policy,
 				old_target_freq, *target_freq, DO_CLAMP);
+	osi_cpufreq_transition_handler(policy, *target_freq);
 }
 
 void android_vh_cpufreq_fast_switch_handler(void *unused,
@@ -118,7 +120,6 @@ static int __init jank_info_init(void)
 
 	cluster_init();
 	jank_cpuload_init();
-	jank_onlinecpu_reset();
 
 	d_task_info = proc_mkdir(JANK_INFO_DIR, NULL);
 	if (!d_task_info) {
@@ -138,11 +139,6 @@ static int __init jank_info_init(void)
 		goto err_jank_info_enable;
 	}
 
-	proc_entry = jank_load_indicator_proc_init(d_cpu_jank_info);
-	if (!proc_entry) {
-		pr_err("create load_indicator fail\n");
-		goto err_load_indicator;
-	}
 
 	proc_entry = jank_debug_proc_init(d_cpu_jank_info);
 	if (!proc_entry) {
@@ -174,13 +170,14 @@ static int __init jank_info_init(void)
 		goto err_calcload;
 	}
 
-#if IS_ENABLED(CONFIG_JANK_CPUSET)
-	proc_entry = jank_cpuset_threshold_proc_init(d_cpu_jank_info);
+#if IS_ENABLED(CONFIG_OPLUS_PERF_SCHEDINFO)
+	proc_entry = perf_schedinfo_init(d_cpu_jank_info);
 	if (!proc_entry) {
-		pr_err("create cpuset_threshold fail\n");
-		goto err_cpuset_threshold;
+		pr_err("create cpu perf schedinfo fail\n");
+		goto err_perf_schedinfo;
 	}
 #endif
+
 	osi_hotthread_proc_init(d_cpu_jank_info);
 	osi_base_proc_init(d_cpu_jank_info);
 #if IS_ENABLED(CONFIG_ARM64_AMU_EXTN)
@@ -195,36 +192,34 @@ static int __init jank_info_init(void)
 
 	return 0;
 
-#if IS_ENABLED(CONFIG_JANK_CPUSET)
-err_cpuset_threshold:
-	jank_calcload_proc_deinit(d_cpu_jank_info);
+#if IS_ENABLED(CONFIG_OPLUS_PERF_SCHEDINFO)
+err_perf_schedinfo:
+	perf_schedinfo_exit(d_cpu_jank_info);
 #endif
 
 err_calcload:
-	jank_version_proc_deinit(d_cpu_jank_info);
+	jank_calcload_proc_deinit(d_cpu_jank_info);
 
 err_cpu_version:
-	jank_cpuload_proc_deinit(d_cpu_jank_info);
+	jank_version_proc_deinit(d_cpu_jank_info);
 
 err_cpu_load:
-	jank_tasktrack_proc_deinit(d_cpu_jank_info);
+	jank_cpuload_proc_deinit(d_cpu_jank_info);
 
 err_task_track:
-	jank_debug_proc_deinit(d_cpu_jank_info);
+	jank_tasktrack_proc_deinit(d_cpu_jank_info);
 
 err_debug:
-	jank_load_indicator_proc_deinit(d_cpu_jank_info);
-
-err_load_indicator:
-	jank_enable_proc_deinit(d_cpu_jank_info);
+	jank_debug_proc_deinit(d_cpu_jank_info);
 
 err_jank_info_enable:
-	remove_proc_entry(JANK_INFO_PROC_NODE, d_task_info);
+	jank_enable_proc_deinit(d_cpu_jank_info);
 
 err_jank_info:
-	remove_proc_entry(JANK_INFO_DIR, NULL);
+	remove_proc_entry(JANK_INFO_PROC_NODE, d_task_info);
 
 err_task_info:
+	remove_proc_entry(JANK_INFO_DIR, NULL);
 	return -ENOMEM;
 }
 
@@ -235,11 +230,6 @@ void __exit __maybe_unused jank_info_exit(void)
 	jank_calcload_exit();
 
 	jank_calcload_proc_deinit(d_cpu_jank_info);
-
-#if IS_ENABLED(CONFIG_JANK_CPUSET)
-	jank_cpuset_threshold_proc_deinit(d_cpu_jank_info);
-#endif
-
 	jank_version_proc_deinit(d_cpu_jank_info);
 	jank_cpuload_proc_deinit(d_cpu_jank_info);
 	osi_hotthread_proc_deinit(d_cpu_jank_info);
@@ -249,7 +239,6 @@ void __exit __maybe_unused jank_info_exit(void)
 	osi_freq_exit(d_cpu_jank_info);
 	jank_tasktrack_proc_deinit(d_cpu_jank_info);
 	jank_debug_proc_deinit(d_cpu_jank_info);
-	jank_load_indicator_proc_deinit(d_cpu_jank_info);
 	jank_enable_proc_deinit(d_cpu_jank_info);
 
 	remove_proc_entry(JANK_INFO_PROC_NODE, d_task_info);

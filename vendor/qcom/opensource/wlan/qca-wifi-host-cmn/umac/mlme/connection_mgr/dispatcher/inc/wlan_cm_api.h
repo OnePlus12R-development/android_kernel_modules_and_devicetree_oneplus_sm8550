@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2020-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -269,6 +269,51 @@ bool wlan_cm_is_vdev_roam_reassoc_state(struct wlan_objmgr_vdev *vdev)
 #endif
 
 /**
+ * wlan_cm_connect_resp_fill_mld_addr_from_cm_id() - API to get MLD of
+ * current candidate from connect request ID.
+ * @vdev: VDEV objmgr pointer.
+ * @cm_id: connect request ID.
+ * @rsp: connect resp pointer.
+ *
+ * This wrapper API fills MLD address in @rsp from connect request ID.
+ *
+ * Return: void
+ */
+void
+wlan_cm_connect_resp_fill_mld_addr_from_cm_id(struct wlan_objmgr_vdev *vdev,
+					      wlan_cm_id cm_id,
+					      struct wlan_cm_connect_resp *rsp);
+
+/**
+ * wlan_cm_connect_resp_fill_mld_addr_from_vdev_id() - API to get MLD
+ * from scan entry in join request.
+ * @psoc: PSOC objmgr pointer.
+ * @vdev_id: session ID.
+ * @entry: Scan entry of the candidate.
+ * @rsp: connect response pointer.
+ *
+ * This wrapper API gets VDEV from join request and fills MLD address
+ * in @rsp from the scan entry in join request.
+ *
+ * Return: void
+ */
+#ifdef WLAN_FEATURE_11BE_MLO
+void
+wlan_cm_connect_resp_fill_mld_addr_from_vdev_id(struct wlan_objmgr_psoc *psoc,
+						uint8_t vdev_id,
+						struct scan_cache_entry *entry,
+						struct wlan_cm_connect_resp *rsp);
+#else
+static inline void
+wlan_cm_connect_resp_fill_mld_addr_from_vdev_id(struct wlan_objmgr_psoc *psoc,
+						uint8_t vdev_id,
+						struct scan_cache_entry *entry,
+						struct wlan_cm_connect_resp *rsp)
+{
+}
+#endif
+
+/**
  * wlan_cm_get_active_connect_req() - Get copy of active connect request
  * @vdev: vdev pointer
  * @req: pointer to the copy of the active connect request
@@ -519,4 +564,24 @@ QDF_STATUS wlan_cm_sta_update_bw_puncture(struct wlan_objmgr_vdev *vdev,
 					  uint8_t ccfs0, uint8_t ccfs1,
 					  enum phy_ch_width new_bw);
 #endif /* WLAN_FEATURE_11BE */
+
+#if defined(WLAN_FEATURE_11BE_MLO) && defined(WLAN_FEATURE_11BE_MLO_ADV_FEATURE)
+
+/**
+ * wlan_cm_check_mlo_roam_auth_status - api to check roam auth status on link
+ * @vdev: vdev corresponds to given link
+ *
+ * This api will be called to check if roam auth status is connected
+ *
+ * Return: boolean true or false
+ */
+bool
+wlan_cm_check_mlo_roam_auth_status(struct wlan_objmgr_vdev *vdev);
+#else
+static inline bool
+wlan_cm_check_mlo_roam_auth_status(struct wlan_objmgr_vdev *vdev)
+{
+	return false;
+}
+#endif
 #endif /* __WLAN_CM_UCFG_API_H */

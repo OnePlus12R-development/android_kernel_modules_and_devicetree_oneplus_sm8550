@@ -130,7 +130,7 @@ static iw_softap_get_ini_cfg(struct net_device *dev,
 }
 
 /**
- * iw_softap_set_two_ints_getnone() - Generic "set two integer" ioctl handler
+ * __iw_softap_set_two_ints_getnone() - Generic "set two integer" ioctl handler
  * @dev: device upon which the ioctl was received
  * @info: ioctl request information
  * @wrqu: ioctl request data
@@ -257,6 +257,15 @@ static int __iw_softap_set_two_ints_getnone(struct net_device *dev,
 	return ret;
 }
 
+/**
+ * iw_softap_set_two_ints_getnone() - Generic "set two integer" ioctl handler
+ * @dev: device upon which the ioctl was received
+ * @info: ioctl request information
+ * @wrqu: ioctl request data
+ * @extra: ioctl extra data
+ *
+ * Return: 0 on success, non-zero on error
+ */
 static int iw_softap_set_two_ints_getnone(struct net_device *dev,
 					  struct iw_request_info *info,
 					  union iwreq_data *wrqu, char *extra)
@@ -2005,7 +2014,7 @@ static iw_softap_disassoc_sta(struct net_device *dev,
 }
 
 /**
- * iw_get_char_setnone() - Generic "get char" private ioctl handler
+ * __iw_get_char_setnone() - Generic "get char" private ioctl handler
  * @dev: device upon which the ioctl was received
  * @info: ioctl request information
  * @wrqu: ioctl request data
@@ -2048,6 +2057,15 @@ static int __iw_get_char_setnone(struct net_device *dev,
 	return ret;
 }
 
+/**
+ * iw_get_char_setnone() - Generic "get char" private ioctl handler
+ * @dev: device upon which the ioctl was received
+ * @info: ioctl request information
+ * @wrqu: ioctl request data
+ * @extra: ioctl extra data
+ *
+ * Return: 0 on success, non-zero on error
+ */
 static int iw_get_char_setnone(struct net_device *dev,
 				struct iw_request_info *info,
 				union iwreq_data *wrqu, char *extra)
@@ -2720,7 +2738,7 @@ iw_get_softap_linkspeed(struct net_device *dev,
  * @dev: net device
  * @info: iwpriv request information
  * @wrqu: iwpriv command parameter
- * @extra
+ * @extra: extra data pointer
  *
  * This function will call wlan_cfg80211_mc_cp_stats_get_peer_rssi
  * to get rssi
@@ -2801,7 +2819,7 @@ __iw_get_peer_rssi(struct net_device *dev, struct iw_request_info *info,
  * @dev: net device
  * @info: iwpriv request information
  * @wrqu: iwpriv command parameter
- * @extra
+ * @extra: extra data pointer
  *
  * This function will call __iw_get_peer_rssi
  *
@@ -3431,7 +3449,7 @@ const struct iw_handler_def hostapd_handler_def = {
 };
 
 /**
- * hdd_register_wext() - register wext context
+ * hdd_register_hostapd_wext() - register hostapd wext context
  * @dev: net device handle
  *
  * Registers wext interface context for a given net device

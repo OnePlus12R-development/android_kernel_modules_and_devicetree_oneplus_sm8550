@@ -13,6 +13,10 @@
 #include <../kernel/oplus_cpu/sched/sched_assist/sa_common.h>
 #endif
 
+#define CREATE_TRACE_POINTS
+#include "trace_oplus_locking.h"
+#undef CREATE_TRACE_POINT
+
 #include "locking_main.h"
 #ifdef CONFIG_OPLUS_LOCKING_OSQ
 #include "rwsem.h"
@@ -20,50 +24,8 @@
 #ifdef CONFIG_OPLUS_LOCKING_MONITOR
 #include "kern_lock_stat.h"
 #endif
+#include "rwsem_base.h"
 
-#define RWSEM_READER_OWNED	(1UL << 0)
-#define RWSEM_RD_NONSPINNABLE	(1UL << 1)
-#define RWSEM_WR_NONSPINNABLE	(1UL << 2)
-#define RWSEM_NONSPINNABLE	(RWSEM_RD_NONSPINNABLE | RWSEM_WR_NONSPINNABLE)
-#define RWSEM_OWNER_FLAGS_MASK	(RWSEM_READER_OWNED | RWSEM_NONSPINNABLE)
-
-#define RWSEM_WRITER_LOCKED	(1UL << 0)
-#define RWSEM_WRITER_MASK	RWSEM_WRITER_LOCKED
-
-/*
- * Note:
- * The following macros must be the same as in kernel/locking/rwsem.c
- */
-#define RWSEM_FLAG_WAITERS	(1UL << 1)
-#define RWSEM_FLAG_HANDOFF	(1UL << 2)
-
-#define rwsem_first_waiter(sem) \
-	list_first_entry(&sem->wait_list, struct rwsem_waiter, list)
-
-static inline struct task_struct *rwsem_owner(struct rw_semaphore *sem)
-{
-	return (struct task_struct *)
-		(atomic_long_read(&sem->owner) & ~RWSEM_OWNER_FLAGS_MASK);
-}
-
-static inline bool rwsem_test_oflags(struct rw_semaphore *sem, long flags)
-{
-	return atomic_long_read(&sem->owner) & flags;
-}
-
-static inline bool is_rwsem_reader_owned(struct rw_semaphore *sem)
-{
-#if IS_ENABLED(CONFIG_DEBUG_RWSEMS)
-	/*
-	 * Check the count to see if it is write-locked.
-	 */
-	long count = atomic_long_read(&sem->count);
-
-	if (count & RWSEM_WRITER_MASK)
-		return false;
-#endif
-	return rwsem_test_oflags(sem, RWSEM_READER_OWNED);
-}
 
 static bool rwsem_list_add_ux(struct list_head *entry, struct list_head *head, bool handoff_set)
 {
@@ -414,6 +376,7 @@ static void android_vh_rwsem_opt_spin_finish_handler(void *unused,
 	struct oplus_task_struct *ots = get_oplus_task_struct(current);
 #ifdef CONFIG_OPLUS_INTERNAL_VERSION
 	u64 delta;
+	bool wlock = (unused == NULL) ? true : false;
 #endif
 
 	if (unlikely(IS_ERR_OR_NULL(ots)))
@@ -422,7 +385,10 @@ static void android_vh_rwsem_opt_spin_finish_handler(void *unused,
 	if (likely(ots->lkinfo.opt_spin_start_time)) {
 #ifdef CONFIG_OPLUS_INTERNAL_VERSION
 		delta = sched_clock() - ots->lkinfo.opt_spin_start_time;
-		handle_wait_stats(OSQ_RWSEM_WRITE, delta);
+		if (wlock)
+			handle_wait_stats(OSQ_RWSEM_WRITE, delta);
+		else
+			handle_wait_stats(OSQ_RWSEM_READ, delta);
 #endif
 		ots->lkinfo.opt_spin_start_time = 0;
 	}
@@ -434,14 +400,14 @@ static void android_vh_rwsem_can_spin_on_owner_handler(void *unused,
 {
 	struct oplus_task_struct *ots = get_oplus_task_struct(current);
 	struct oplus_rw_semaphore *osem = get_oplus_rw_semaphore(sem);
+	bool wlock = (unused == NULL) ? true : false;
 	long block_ux_cnt;
 
 	if (unlikely(!locking_opt_enable(LK_OSQ_ENABLE) || !ots))
 		return;
 
-	/* NOTE:kernel-5.15, this will always be writer, should just go? */
-	/* ux or rt task just go */
-	if ((ots->ux_state & 0xf) || (current->prio < MAX_RT_PRIO))
+	/* writer | ux | rt just go */
+	if (wlock || (ots->ux_state & 0xf) || (current->prio < MAX_RT_PRIO))
 		return;
 
 	block_ux_cnt = atomic_long_read(&osem->count);
@@ -465,6 +431,206 @@ static void android_vh_rwsem_write_wait_finish_handler(void *unused, struct rw_s
 #endif
 }
 
+#ifdef CONFIG_OPLUS_RWSEM_RSPIN
+static inline bool rwsem_reader_can_spin_on_owner(struct rw_semaphore *sem)
+{
+	struct task_struct *owner;
+	unsigned long flags;
+	bool ret = true;
+	bool rlock;
+
+	if (need_resched())
+		return false;
+
+	preempt_disable();
+	/*
+	 * Disable preemption is equal to the RCU read-side crital section,
+	 * thus the task_strcut structure won't go away.
+	 */
+	owner = rwsem_owner_flags(sem, &flags);
+	/*
+	 * Don't check the read-owner as the entry may be stale.
+	 */
+	if ((flags & RWSEM_NONSPINNABLE) ||
+	    (owner && !(flags & RWSEM_READER_OWNED) && !owner_on_cpu(owner)))
+		ret = false;
+	preempt_enable();
+#ifdef CONFIG_OPLUS_LOCKING_OSQ
+	android_vh_rwsem_can_spin_on_owner_handler(&rlock, sem, &ret);
+#endif
+
+	return ret;
+}
+
+static noinline enum owner_state rwsem_reader_spin_on_owner(struct rw_semaphore *sem)
+{
+	struct task_struct *new, *owner;
+	unsigned long flags, new_flags;
+	enum owner_state state;
+#ifdef CONFIG_OPLUS_LOCKING_OSQ
+	int cnt = 0;
+	bool time_out = false;
+#endif
+
+	lockdep_assert_preemption_disabled();
+
+	owner = rwsem_owner_flags(sem, &flags);
+	state = rwsem_owner_state(owner, flags);
+	if (state != OWNER_WRITER)
+		return state;
+
+	for (;;) {
+#ifdef CONFIG_OPLUS_LOCKING_OSQ
+		android_vh_rwsem_opt_spin_start_handler(NULL, sem, &time_out, &cnt, true);
+		if (time_out)
+			break;
+#endif
+		/*
+		 * When a waiting writer set the handoff flag, it may spin
+		 * on the owner as well. Once that writer acquires the lock,
+		 * we can spin on it. So we don't need to quit even when the
+		 * handoff bit is set.
+		 */
+		new = rwsem_owner_flags(sem, &new_flags);
+		if ((new != owner) || (new_flags != flags)) {
+			state = rwsem_owner_state(new, new_flags);
+			break;
+		}
+
+		/*
+		 * Ensure we emit the owner->on_cpu, dereference _after_
+		 * checking sem->owner still matches owner, if that fails,
+		 * owner might point to free()d memory, if it still matches,
+		 * our spinning context already disabled preemption which is
+		 * equal to RCU read-side crital section ensures the memory
+		 * stays valid.
+		 */
+		barrier();
+
+		if (need_resched() || !owner_on_cpu(owner)) {
+			state = OWNER_NONSPINNABLE;
+			break;
+		}
+
+		cpu_relax();
+	}
+
+	return state;
+}
+
+/* TODO: set rwsem_rspin_enabled according user scene. */
+static int rwsem_rspin_enabled = 1;
+module_param(rwsem_rspin_enabled, int, 0644);
+
+static inline int user_hint_rwsem_rspin_enable(void)
+{
+	return rwsem_rspin_enabled;
+}
+
+static inline bool rspin_enable(void)
+{
+	return user_hint_rwsem_rspin_enable()
+		&& locking_opt_enable(LK_RWSEM_RSPIN_ENABLE);
+}
+
+static inline bool rwsem_try_read_lock_unqueued(struct rw_semaphore *sem)
+{
+	long count = atomic_long_read(&sem->count);
+
+	if (count & (RWSEM_WRITER_MASK | RWSEM_FLAG_HANDOFF))
+		return false;
+
+	count = atomic_long_fetch_add_acquire(RWSEM_READER_BIAS, &sem->count);
+	if (!(count & (RWSEM_WRITER_MASK | RWSEM_FLAG_HANDOFF))) {
+		rwsem_set_reader_owned(sem);
+		return true;
+	}
+
+	/* Back out the change */
+	atomic_long_add(-RWSEM_READER_BIAS, &sem->count);
+	return false;
+}
+
+static bool reader_optimistic_spin(struct rw_semaphore *sem)
+{
+	bool taken = false;
+	int prev_owner_state = OWNER_NULL;
+#ifdef CONFIG_OPLUS_LOCKING_OSQ
+	int cnt = 0;
+	bool time_out = false;
+	bool rlock;
+#endif
+
+	if (!osq_lock(&sem->osq))
+		goto done;
+
+	for (;;) {
+		enum owner_state owner_state;
+
+#ifdef CONFIG_OPLUS_LOCKING_OSQ
+		android_vh_rwsem_opt_spin_start_handler(NULL, sem, &time_out, &cnt, false);
+		if (time_out)
+			break;
+#endif
+		owner_state = rwsem_reader_spin_on_owner(sem);
+		if (!(owner_state & OWNER_SPINNABLE))
+			break;
+
+		taken = rwsem_try_read_lock_unqueued(sem);
+		if (taken)
+			break;
+
+		if (owner_state != OWNER_WRITER) {
+			if (need_resched())
+				break;
+			if (rt_task(current) &&
+			   (prev_owner_state != OWNER_WRITER))
+				break;
+		}
+		prev_owner_state = owner_state;
+
+		cpu_relax();
+	}
+	osq_unlock(&sem->osq);
+#ifdef CONFIG_OPLUS_LOCKING_OSQ
+	android_vh_rwsem_opt_spin_finish_handler(&rlock, sem, taken);
+#endif
+done:
+	return taken;
+}
+
+static void android_vh_rwsem_direct_rsteal_handler(void *unused, struct rw_semaphore *sem, bool *steal)
+{
+	if (rspin_enable())
+		*steal = !osq_is_locked(&sem->osq);
+}
+
+static void android_vh_rwsem_optimistic_rspin_handler(void *unused, struct rw_semaphore *sem, long *adjustment, bool *rspin)
+{
+	if (!rspin_enable())
+		return;
+
+	if (!rwsem_reader_can_spin_on_owner(sem))
+		goto out;
+
+	atomic_long_add(-RWSEM_READER_BIAS, &sem->count);
+	*adjustment = 0;
+	if (reader_optimistic_spin(sem)) {
+		*rspin = true;
+	} else {
+		/*
+		 * If we failed to spin and get lock, restore sem->count and adjustment
+		 * to avoid braking the disrupting the following process outof vendor hook.
+		 */
+		atomic_long_add(RWSEM_READER_BIAS, &sem->count);
+		*adjustment = -RWSEM_READER_BIAS;
+	}
+
+out:
+	trace_reader_opt_rspin_result(current, *rspin);
+}
+#endif
+
 void register_rwsem_vendor_hooks(void)
 {
 #ifdef CONFIG_OPLUS_LOCKING_OSQ
@@ -480,6 +646,11 @@ void register_rwsem_vendor_hooks(void)
 #endif
 	register_trace_android_vh_rwsem_read_wait_finish(android_vh_rwsem_read_wait_finish_handler, NULL);
 	register_trace_android_vh_rwsem_write_wait_finish(android_vh_rwsem_write_wait_finish_handler, NULL);
+
+#ifdef CONFIG_OPLUS_RWSEM_RSPIN
+	register_trace_android_vh_rwsem_direct_rsteal(android_vh_rwsem_direct_rsteal_handler, NULL);
+	register_trace_android_vh_rwsem_optimistic_rspin(android_vh_rwsem_optimistic_rspin_handler, NULL);
+#endif
 }
 
 void unregister_rwsem_vendor_hooks(void)
@@ -494,4 +665,9 @@ void unregister_rwsem_vendor_hooks(void)
 #endif
 	unregister_trace_android_vh_rwsem_read_wait_finish(android_vh_rwsem_read_wait_finish_handler, NULL);
 	unregister_trace_android_vh_rwsem_write_wait_finish(android_vh_rwsem_write_wait_finish_handler, NULL);
+
+#ifdef CONFIG_OPLUS_RWSEM_RSPIN
+	unregister_trace_android_vh_rwsem_direct_rsteal(android_vh_rwsem_direct_rsteal_handler, NULL);
+	unregister_trace_android_vh_rwsem_optimistic_rspin(android_vh_rwsem_optimistic_rspin_handler, NULL);
+#endif
 }

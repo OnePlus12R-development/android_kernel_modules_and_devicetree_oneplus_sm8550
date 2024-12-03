@@ -25,3 +25,12 @@ dtbo-$(CONFIG_ARCH_KALAMA) += oplus/aston-camera-overlay-T0.dtbo  \
 dtbo-$(CONFIG_ARCH_KALAMA) += oplus/astondomastic-camera-overlay-T0.dtbo  \
 
 #OPLUS_DTS_OVERLAY end
+
+# dtbo-$(CONFIG_ARCH_CROW) += crow-camera.dtbo \
+# 				crow-camera-sensor-idp.dtbo \
+# 				crow-camera-sensor-qrd.dtbo
+
+dtbo-$(CONFIG_ARCH_CROW) += crow-camera.dtbo \
+				oplus/benz-camera-overlay.dtbo
+
+dtbo-$(CONFIG_ARCH_CROW) += oplus/jeep-camera-overlay.dtbo

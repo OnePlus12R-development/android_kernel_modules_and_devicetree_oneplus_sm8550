@@ -30,6 +30,8 @@
 #ifdef CONFIG_LOCKING_PROTECT
 #include "sched_assist_locking.h"
 #endif
+#include "sa_sysfs.h"
+
 
 extern unsigned int sysctl_sched_latency;
 
@@ -43,7 +45,7 @@ EXPORT_PER_CPU_SYMBOL(task_lb_count);
 #endif
 
 #ifdef CONFIG_OPLUS_ADD_CORE_CTRL_MASK
-struct cpumask *ux_cpu_halt_mask = NULL;
+struct cpumask *ux_cpu_halt_mask;
 #endif
 
 int oplus_idle_cpu(int cpu)
@@ -69,6 +71,7 @@ static inline int get_task_cls_for_scene(struct task_struct *task)
 	struct ux_sched_cputopo ux_cputopo = ux_sched_cputopo;
 	int cls_max = ux_cputopo.cls_nr - 1;
 	int cls_mid = cls_max - 1;
+	unsigned long im_flag;
 
 	/* only one cluster or init failed */
 	if (unlikely(cls_max <= 0))
@@ -88,7 +91,8 @@ static inline int get_task_cls_for_scene(struct task_struct *task)
 	if (sched_assist_scene(SA_LAUNCHER_SI))
 		return is_task_util_over(task, BOOST_THRESHOLD_UNIT) ? cls_mid : 0;
 
-	if (oplus_get_im_flag(task) == IM_FLAG_CAMERA_HAL)
+	im_flag = oplus_get_im_flag(task);
+	if (test_bit(IM_FLAG_CAMERA_HAL, &im_flag))
 		return cls_mid;
 
 	return 0;
@@ -117,6 +121,7 @@ bool should_ux_task_skip_cpu(struct task_struct *task, unsigned int dst_cpu)
 {
 	struct oplus_rq *orq = NULL;
 	int reason = -1;
+	unsigned long im_flag;
 
 	if (unlikely(!global_sched_assist_enabled))
 		return false;
@@ -125,7 +130,7 @@ bool should_ux_task_skip_cpu(struct task_struct *task, unsigned int dst_cpu)
 		return false;
 
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_PIPELINE)
-	if (pipeline_task_skip_cpu(task, dst_cpu)) {
+	if (oplus_pipeline_task_skip_cpu(task, dst_cpu)) {
 		reason = -1;
 		goto skip;
 	}
@@ -145,7 +150,8 @@ bool should_ux_task_skip_cpu(struct task_struct *task, unsigned int dst_cpu)
 		/* camera hal thread only skip rt, because they are too much,
 		 * if they skip each other, maybe easily jump to super big core. :(
 		 */
-		if (oplus_get_im_flag(task) == IM_FLAG_CAMERA_HAL)
+		im_flag = oplus_get_im_flag(task);
+		if (test_bit(IM_FLAG_CAMERA_HAL, &im_flag))
 			return false;
 
 		orq = (struct oplus_rq *) cpu_rq(dst_cpu)->android_oem_data1;
@@ -293,6 +299,11 @@ EXPORT_SYMBOL(should_ux_task_skip_eas);
 		for (; se; se = NULL)
 #endif
 
+int is_audio_scene(void)
+{
+	return save_audio_tgid > 0;
+}
+
 extern void set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se);
 void oplus_replace_next_task_fair(struct rq *rq, struct task_struct **p, struct sched_entity **se, bool *repick, bool simple)
 {
@@ -339,31 +350,21 @@ void oplus_replace_next_task_fair(struct rq *rq, struct task_struct **p, struct 
 			continue;
 		}
 
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_AUDIO_OPT)
+		if (is_audio_scene() && test_bit(IM_FLAG_AUDIO_CAMERA_HAL, &ots->im_flag)) {
+			update_ux_timeline_task_removal(orq, ots);
+			put_task_struct(temp);
+			continue;
+		}
+#endif
 		*p = temp;
 		*se = &temp->se;
 		*repick = true;
-
-		/*
-		 * NOTE:
-		 * Because the following code is not merged in kernel-5.15,
-		 * set_next_entity() will no longer be called to remove the
-		 * task from the red-black tree when pick_next_task_fair(),
-		 * so we remove the picked task here.
-		 *
-		 * https://android-review.googlesource.com/c/kernel/common/+/1667002
-		 */
-		if (simple) {
-			for_each_sched_entity((*se)) {
-				struct cfs_rq *cfs_rq = cfs_rq_of(*se);
-				set_next_entity(cfs_rq, *se);
-			}
-		}
 
 		break;
 	}
 	spin_unlock_irqrestore(orq->ux_list_lock, irqflag);
 }
-EXPORT_SYMBOL(oplus_replace_next_task_fair);
 
 inline void oplus_check_preempt_wakeup(struct rq *rq, struct task_struct *p, bool *preempt, bool *nopreempt)
 {
@@ -371,12 +372,17 @@ inline void oplus_check_preempt_wakeup(struct rq *rq, struct task_struct *p, boo
 	struct oplus_rq *orq;
 	struct oplus_task_struct *ots;
 	unsigned long irqflag;
-	bool wake_ux;
-	bool curr_ux;
-
+	bool wake_ux = false;
+	bool curr_ux = false;
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_AUDIO_OPT)
+	unsigned long im_flag;
+#endif
 	/* this cpu is running in this function, no rcu primitives needed*/
 	curr = rq->curr;
 	ots = get_oplus_task_struct(curr);
+	if (IS_ERR_OR_NULL(ots)) {
+		return;
+	}
 #ifdef CONFIG_LOCKING_PROTECT
 	if (!IS_ERR_OR_NULL(ots)) {
 		if (task_inlock(ots) && !task_skip_protect(p)) {
@@ -392,8 +398,20 @@ inline void oplus_check_preempt_wakeup(struct rq *rq, struct task_struct *p, boo
 	if (likely(!global_sched_assist_enabled))
 		return;
 
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_AUDIO_OPT)
+	if (is_audio_scene()) {
+		im_flag = oplus_get_im_flag(p);
+		wake_ux = test_bit(IM_FLAG_AUDIO_CAMERA_HAL, &im_flag) ? false : test_task_ux(p);
+		curr_ux = test_bit(IM_FLAG_AUDIO_CAMERA_HAL, &ots->im_flag) ? false : test_task_ux(curr);
+	}
+	else {
+		wake_ux = test_task_ux(p);
+		curr_ux = test_task_ux(curr);
+	}
+#else
 	wake_ux = test_task_ux(p);
 	curr_ux = test_task_ux(curr);
+#endif
 
 	if (!wake_ux && !curr_ux)
 		return;
@@ -681,6 +699,11 @@ void android_rvh_check_preempt_tick_handler(void *unused, struct task_struct *ta
 	rq = task_rq(task);
 	orq = (struct oplus_rq *) rq->android_oem_data1;
 
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_AUDIO_OPT)
+	if (is_audio_scene() && test_bit(IM_FLAG_AUDIO_CAMERA_HAL, &ots->im_flag))
+		return;
+#endif
+
 	if (oplus_rbnode_empty(&ots->ux_entry) && (!oplus_rbtree_empty(&orq->ux_list))) {
 		resched_curr(rq);
 		return;
@@ -755,7 +778,7 @@ void android_rvh_replace_next_task_fair_handler(void *unused,
 	*
 	* https://android-review.googlesource.com/c/kernel/common/+/1667002
 	*/
-	if (simple) {
+	if (simple && true == *repick) {
 		for_each_sched_entity((*se)) {
 			struct cfs_rq *cfs_rq = cfs_rq_of(*se);
 			set_next_entity(cfs_rq, *se);
@@ -801,7 +824,7 @@ bool oplus_cpu_halted(unsigned int cpu)
 {
 	return ux_cpu_halt_mask && cpumask_test_cpu(cpu, ux_cpu_halt_mask);
 }
-
+EXPORT_SYMBOL_GPL(oplus_cpu_halted);
 void init_ux_halt_mask(struct cpumask *halt_mask)
 {
 	ux_cpu_halt_mask = halt_mask;

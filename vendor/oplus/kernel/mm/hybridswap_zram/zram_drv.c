@@ -1060,6 +1060,12 @@ static ssize_t comp_algorithm_store(struct device *dev,
 	if (!zcomp_available_algorithm(compressor))
 		return -EINVAL;
 
+#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
+	/* lz4k does support huge page */
+	if (unlikely(sysfs_streq(compressor, "lz4k") && is_chp_zram(zram)))
+		return -EINVAL;
+#endif
+
 	down_write(&zram->init_lock);
 	if (init_done(zram)) {
 		up_write(&zram->init_lock);

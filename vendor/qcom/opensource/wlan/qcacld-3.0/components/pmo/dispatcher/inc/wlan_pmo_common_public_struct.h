@@ -55,6 +55,8 @@
 #define MAX_MC_IP_ADDR 10
 #define IGMP_QUERY_ADDRESS 0x10000e0
 
+#define WOW_LARGE_RX_RTPM_DELAY 1200
+
 /**
  * enum pmo_vdev_param_id: tell vdev param id
  * @pmo_vdev_param_listen_interval: vdev listen interval param id
@@ -184,9 +186,7 @@ enum pmo_suspend_mode {
 	PMO_SUSPEND_SHUTDOWN
 };
 
-//Add for Extend WoW timeout
-#define PMO_TARGET_SUSPEND_TIMEOUT   (10000)
-//#define PMO_TARGET_SUSPEND_TIMEOUT   (4000)
+#define PMO_TARGET_SUSPEND_TIMEOUT   (4000)
 #define PMO_WAKE_LOCK_TIMEOUT        1000
 #define PMO_RESUME_TIMEOUT           (4000)
 

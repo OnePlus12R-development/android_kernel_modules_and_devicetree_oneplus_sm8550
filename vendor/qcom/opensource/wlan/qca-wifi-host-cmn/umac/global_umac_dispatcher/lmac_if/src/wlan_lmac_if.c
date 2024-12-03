@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -81,6 +81,7 @@
 
 #ifdef WLAN_FEATURE_11BE_MLO
 #include "wlan_mlo_mgr_cmn.h"
+#include <wlan_mlo_t2lm.h>
 #endif
 
 #include <wlan_twt_tgt_if_rx_api.h>
@@ -966,6 +967,12 @@ wlan_lmac_if_mlo_mgr_rx_ops_register(struct wlan_lmac_if_rx_ops *rx_ops)
 	/* register handler for received mlo related events */
 	rx_ops->mlo_rx_ops.process_link_set_active_resp =
 		mlo_process_link_set_active_resp;
+	rx_ops->mlo_rx_ops.process_mlo_vdev_tid_to_link_map_event =
+		wlan_mlo_vdev_tid_to_link_map_event;
+	rx_ops->mlo_rx_ops.process_mlo_link_state_info_event =
+		wlan_handle_ml_link_state_info_event;
+	rx_ops->mlo_rx_ops.mlo_link_disable_request_handler =
+		wlan_mlo_link_disable_request_handler;
 }
 #else
 static void

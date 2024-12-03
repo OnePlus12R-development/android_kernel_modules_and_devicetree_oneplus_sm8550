@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -227,6 +227,15 @@
  * Broadcast TWT element
  */
 #define WLAN_VDEV_OP_CU_CAT2                0x00100000
+  /* for mlo reconfig link removal functionality */
+#define WLAN_VDEV_OP_MLO_STOP_LINK_DEL      0x00200000
+  /* for mlo reconfig link add functionality */
+#define WLAN_VDEV_OP_MLO_LINK_ADD           0x00400000
+  /* for mlo reconfig link removal TBTT complete */
+#define WLAN_VDEV_OP_MLO_LINK_TBTT_COMPLETE 0x00800000
+
+/* MLO link removal is in progress on this VDEV */
+#define WLAN_VDEV_OP_MLO_LINK_REMOVAL_IN_PROGRESS 0x01000000
 
  /* CAPABILITY: IBSS available */
 #define WLAN_VDEV_C_IBSS                    0x00000001
@@ -250,6 +259,8 @@
 #define WLAN_VDEV_C_RESTRICT_OFFCHAN     0x00000200
   /* CAPABILITY: eMLSR capability */
 #define WLAN_VDEV_C_EMLSR_CAP            0x00000400
+  /* CAPABILITY: Exclude per sta profile in unicast Probe req */
+#define WLAN_VDEV_C_EXCL_STA_PROF_PRB_REQ   0x00000800
 
 /* Invalid VDEV identifier */
 #define WLAN_INVALID_VDEV_ID 255
@@ -328,6 +339,7 @@ struct wlan_channel {
  * @mldaddr[]:          MLD address
  * @linkaddr[]:         Link MAC address
  * @mlo_link_id: link id for mlo connection
+ * @mlo_external_sae_auth: MLO external SAE auth
  * @wlan_vdev_mlo_lock: lock to protect the set/clear of
  * WLAN_VDEV_FEXT2_MLO feature flag in vdev MLME
  */
@@ -348,6 +360,7 @@ struct wlan_objmgr_vdev_mlme {
 	uint8_t  linkaddr[QDF_MAC_ADDR_SIZE];
 #ifdef WLAN_FEATURE_11BE_MLO
 	uint8_t  mlo_link_id;
+	bool mlo_external_sae_auth;
 #ifdef WLAN_MLO_USE_SPINLOCK
 	qdf_spinlock_t wlan_vdev_mlo_lock;
 #else
@@ -1565,6 +1578,17 @@ static inline uint16_t wlan_vdev_get_peer_count(struct wlan_objmgr_vdev *vdev)
 	return vdev->vdev_objmgr.wlan_peer_count;
 }
 
+/**
+ * wlan_vdev_mlme_is_ap() - Check whether @vdev is an AP or not
+ * @vdev: VDEV object
+ *
+ * Return: True if @vdev is ap, otherwise false.
+ */
+static inline bool wlan_vdev_mlme_is_ap(struct wlan_objmgr_vdev *vdev)
+{
+	return (wlan_vdev_mlme_get_opmode(vdev) == QDF_SAP_MODE);
+}
+
 #ifdef WLAN_FEATURE_11BE_MLO
 /**
  * wlan_vdev_mlme_is_mlo_vdev() - Determine whether the given vdev is an MLO
@@ -1960,6 +1984,36 @@ static inline uint16_t wlan_vdev_get_max_peer_count(
 	return vdev->vdev_objmgr.max_peer_count;
 }
 
+#ifdef WLAN_FEATURE_11BE_MLO
+/**wlan_vdev_set_mlo_external_sae_auth_conversion() - set MLO external sae auth
+ * @vdev: VDEV object
+ * @val: true or false
+ *
+ * API to set mlo external sae auth of VDEV
+ *
+ * Return: void
+ */
+static inline void
+wlan_vdev_set_mlo_external_sae_auth_conversion(struct wlan_objmgr_vdev *vdev,
+					       bool val)
+{
+	vdev->vdev_mlme.mlo_external_sae_auth = val;
+}
+
+/**wlan_vdev_get_mlo_external_sae_auth_conversion() - get MLO external sae auth
+ * @vdev: VDEV object
+ *
+ * API to get mlo external sae auth of VDEV
+ *
+ * Return: mlo external sae auth of VDEV
+ */
+static inline bool
+wlan_vdev_get_mlo_external_sae_auth_conversion(struct wlan_objmgr_vdev *vdev)
+{
+	return vdev->vdev_mlme.mlo_external_sae_auth;
+}
+#endif
+
 /**
  * wlan_print_vdev_info() - print vdev members
  * @vdev: vdev object pointer
@@ -2030,6 +2084,24 @@ wlan_objmgr_vdev_trace_del_ref_list(struct wlan_objmgr_vdev *vdev)
 #endif
 
 /**
+ * wlan_vdev_get_bss_peer_mac_for_pmksa() - To get bss peer mac/mld
+ * address based on association to cache/retrieve PMK.
+ * @vdev: Pointer to vdev
+ * @bss_peer_mac: Pointer to BSS peer MAC address.
+ *
+ * The PMKSA entry for an ML candaidate will be present with MLD
+ * address, whereas for non-ML candidate legacy MAC address is used
+ * to save the PMKSA. To get the right entry during lookup, this API
+ * will return MLD address if the VDEV is MLO VDEV else return
+ * MAC address of BSS peer.
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+wlan_vdev_get_bss_peer_mac_for_pmksa(struct wlan_objmgr_vdev *vdev,
+				     struct qdf_mac_addr *bss_peer_mac);
+
+/**
  * wlan_vdev_get_bss_peer_mac() - to get bss peer mac address
  * @vdev: pointer to vdev
  * @bss_peer_mac: pointer to bss_peer_mac_address
@@ -2057,6 +2129,13 @@ QDF_STATUS wlan_vdev_get_bss_peer_mac(struct wlan_objmgr_vdev *vdev,
  */
 QDF_STATUS wlan_vdev_get_bss_peer_mld_mac(struct wlan_objmgr_vdev *vdev,
 					  struct qdf_mac_addr *mld_mac);
+#else
+static inline
+QDF_STATUS wlan_vdev_get_bss_peer_mld_mac(struct wlan_objmgr_vdev *vdev,
+					  struct qdf_mac_addr *mld_mac)
+{
+	return QDF_STATUS_E_INVAL;
+}
 #endif
 
 #endif /* _WLAN_OBJMGR_VDEV_OBJ_H_*/

@@ -317,9 +317,11 @@ struct mtk_charger {
 #ifdef OPLUS_FEATURE_CHG_BASIC
 	struct oplus_chg_ic_dev *ic_dev;
 	struct oplus_chg_ic_dev *gauge_ic_dev;
+	struct oplus_chg_ic_dev *pps_ic;
 	bool wls_boost_soft_start;
 	int wls_set_boost_vol;
 	struct oplus_mms *gauge_topic;
+	int low_batt_otg_boost_curr_ua;
 #endif
 
 	struct platform_device *pdev;
@@ -501,6 +503,14 @@ struct mtk_charger {
 	struct wakeup_source *status_wake_lock;
 	bool status_wake_lock_on;
 	bool hvdcp_disable;
+
+	bool usbtemp_dischg_reg_configurable;
+	int usbtemp_dischg_reg_addr;
+	int usbtemp_dischg_reg_mask;
+	int usbtemp_dischg_enable;
+	int usbtemp_dischg_disable;
+	int wls_boost_vol_start_mv;
+	int wls_boost_vol_max_mv;
 #endif
 };
 

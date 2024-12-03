@@ -39,6 +39,8 @@ int ext_amp_boost_volume_get(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_
 int ext_amp_boost_volume_set(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol);
 int ext_amp_force_mute_get(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol);
 int ext_amp_force_mute_set(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol);
+int ext_amp_check_feedback_get(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol);
+int ext_amp_check_feedback_set(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol);
 int oplus_spkr_pa_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *kcontrol, int event);
 int oplus_add_pa_manager_snd_controls(struct snd_soc_component *component);
 int oplus_add_analog_pa_manager_dapm(struct snd_soc_dapm_context *dapm);

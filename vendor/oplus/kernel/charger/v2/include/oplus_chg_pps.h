@@ -21,6 +21,7 @@ enum pps_topic_item {
 	PPS_ITEM_CHARGING,
 	PPS_ITEM_ADAPTER_ID,
 	PPS_ITEM_OPLUS_ADAPTER,
+	PPS_ITEM_ONLINE_KEEP,
 };
 
 typedef enum
@@ -76,7 +77,7 @@ enum pps_power_type {
 	OPLUS_PPS_POWER_MAX = 0xFFFF,
 };
 
-int oplus_pps_current_to_level(int curr);
+int oplus_pps_current_to_level(struct oplus_mms *mms, int curr);
 enum fastchg_protocol_type oplus_pps_adapter_id_to_protocol_type(u32 id);
 int oplus_pps_adapter_id_to_power(u32 id);
 #endif /* __OPLUS_CHG_PPS_H__ */

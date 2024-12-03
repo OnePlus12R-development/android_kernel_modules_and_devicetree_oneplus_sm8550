@@ -139,10 +139,42 @@ static void init_oplus_task_struct(void *ptr)
 	RB_CLEAR_NODE(&ots->ux_entry);
 	RB_CLEAR_NODE(&ots->exec_time_node);
 	INIT_LIST_HEAD(&ots->fbg_list);
+
+	atomic64_set(&ots->inherit_ux, 0);
+	ots->ux_priority = -1;
+	ots->ux_nice = -1;
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_ABNORMAL_FLAG)
+	ots->abnormal_flag = 0;
+#endif
+#ifdef CONFIG_OPLUS_FEATURE_SCHED_SPREAD
+	ots->lb_state = 0;
+	ots->ld_flag = 0;
+#endif
+	ots->target_process = -1;
+	ots->update_running_start_time = false;
+#if IS_ENABLED(CONFIG_OPLUS_LOCKING_STRATEGY)
+	memset(&ots->lkinfo, 0, sizeof(struct locking_info));
+#endif
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_CPU_JANKINFO)
+	ots->block_start_time = 0;
+#endif
 #ifdef CONFIG_LOCKING_PROTECT
 	INIT_LIST_HEAD(&ots->locking_entry);
 	ots->locking_start_time = 0;
 	ots->locking_depth = 0;
+#endif
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_LOADBALANCE)
+	/* for loadbalance */
+	plist_node_init(&ots->rtb, MAX_IM_FLAG_PRIO);
+#endif
+
+#if IS_ENABLED(CONFIG_ARM64_AMU_EXTN) && IS_ENABLED(CONFIG_OPLUS_FEATURE_CPU_JANKINFO)
+	ots->amu_cycle = 0;
+	ots->amu_instruct = 0;
+#endif
+
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_PIPELINE)
+	atomic_set(&ots->pipeline_cpu, -1);
 #endif
 	raw_spin_lock_init(&ots->fbg_list_entry_lock);
 	ots->preferred_cluster_id = -1;

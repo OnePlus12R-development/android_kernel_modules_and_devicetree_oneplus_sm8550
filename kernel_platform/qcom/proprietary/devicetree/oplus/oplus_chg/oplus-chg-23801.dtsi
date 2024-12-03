@@ -80,6 +80,7 @@
 					OPLUS_IC_FUNC_EXIT
 					OPLUS_IC_FUNC_REG_DUMP
 					OPLUS_IC_FUNC_BUCK_GET_BYBID_INFO
+					OPLUS_IC_FUNC_BUCK_GET_BYBID_MATCH_INFO
 				>;
 				virqs = <
 					OPLUS_IC_VIRQ_ERR
@@ -144,6 +145,7 @@
 					OPLUS_IC_FUNC_GAUGE_GET_BATTID_INFO
 					OPLUS_IC_FUNC_GAUGE_GET_REG_INFO
 					OPLUS_IC_FUNC_GAUGE_GET_CALIB_TIME
+					OPLUS_IC_FUNC_GAUGE_GET_BATTID_MATCH_INFO
 				>;
 				virqs = <
 					OPLUS_IC_VIRQ_ERR
@@ -999,8 +1001,8 @@
 		oplus_spec,svooc_cool_down_current_limit = <100 15 15 20 25 30 35 40 45 50 55 60 63 65 70 75 80 85 100>;
 		oplus_spec,vooc_cool_down_current_limit = <60 20 20 20 30 40 50 60>;
 
-		oplus_spec,vooc_little_cold_full_voltage = <4540>;
-		oplus_spec,vooc_cool_full_voltage = <4540>;
+		oplus_spec,vooc_little_cold_full_voltage = <4470>;
+		oplus_spec,vooc_cool_full_voltage = <4470>;
 		oplus_spec,vooc_warm_full_voltage = <4130>;
 		oplus_spec,vooc_1time_full_voltage = <4550>;
 		oplus_spec,vooc_ntime_full_voltage = <4540>;
@@ -1069,14 +1071,14 @@
 				strategy_temp_little_cold =	<4150 30 0 0 0
 								4350 25 0 0 0
 								4350 20 0 0 0
-								4534 15 0 0 0
-								4540 10 1 0 0>;
+								4460 15 0 0 0
+								4470 10 1 0 0>;
 				strategy_temp_cool =		<4150 35 0 0 0
 								4350 30 0 0 0
 								4350 25 0 0 0
 								4350 20 0 0 0
-								4534 15 0 0 0
-								4540 10 1 0 0>;
+								4460 15 0 0 0
+								4470 10 1 0 0>;
 				strategy_temp_little_cool =	<4150 73 0 600 0
 								4150 70 0 600 0
 								4150 65 0 600 0
@@ -1130,13 +1132,13 @@
 			strategy_soc_50_to_75 {
 				strategy_temp_little_cold =	<4350 25 0 0 0
 								4350 20 0 0 0
-								4534 15 0 0 0
-								4540 10 1 0 0>;
+								4460 15 0 0 0
+								4470 10 1 0 0>;
 				strategy_temp_cool =		<4350 30 0 0 0
 								4350 25 0 0 0
 								4350 20 0 0 0
-								4534 15 0 0 0
-								4540 10 1 0 0>;
+								4460 15 0 0 0
+								4470 10 1 0 0>;
 				strategy_temp_little_cool =	<4480 50 0 0 0
 								4480 45 0 0 0
 								4480 40 0 0 0
@@ -1173,10 +1175,10 @@
 			};
 
 			strategy_soc_75_to_85 {
-				strategy_temp_little_cold =	<4534 15 0 0 0
-								4540 10 1 0 0>;
-				strategy_temp_cool =		<4534 15 0 0 0
-								4540 10 1 0 0>;
+				strategy_temp_little_cold =	<4460 15 0 0 0
+								4470 10 1 0 0>;
+				strategy_temp_cool =		<4460 15 0 0 0
+								4470 10 1 0 0>;
 				strategy_temp_little_cool =	<4534 35 0 0 0
 								4534 30 0 0 0
 								4534 25 0 0 0
@@ -1204,10 +1206,10 @@
 			};
 
 			strategy_soc_85_to_90 {
-				strategy_temp_little_cold =	<4534 15 0 0 0
-								4540 10 1 0 0>;
-				strategy_temp_cool =		<4534 15 0 0 0
-								4540 10 1 0 0>;
+				strategy_temp_little_cold =	<4460 15 0 0 0
+								4470 10 1 0 0>;
+				strategy_temp_cool =		<4460 15 0 0 0
+								4470 10 1 0 0>;
 				strategy_temp_little_cool =	<4534 35 0 0 0
 								4534 30 0 0 0
 								4534 25 0 0 0
@@ -1297,8 +1299,6 @@
 
 		oplus,cp_ic_connect = <OPLUS_CHG_IC_CONNECT_PARALLEL>;
 		oplus,main_cp = <0>;
-
-		oplus,reg_proc_node;
 	};
 };
 

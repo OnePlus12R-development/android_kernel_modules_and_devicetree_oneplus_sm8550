@@ -87,6 +87,13 @@ config OPLUS_FEATURE_CPU_JANKINFO
 	help
 	  define this config to enable oplus_schedinfo.
 
+config OPLUS_PERF_SCHEDINFO
+	tristate "config oplus_perf_schedinfo"
+	depends on OPLUS_FEATURE_CPU_JANKINFO
+	default y
+	help
+	  cpu sched info
+
 config OPLUS_FEATURE_FRAME_BOOST
 	tristate "frame boost"
 	default n
@@ -94,6 +101,13 @@ config OPLUS_FEATURE_FRAME_BOOST
 	help
 	  This moduler is used to improve frame missing by aggregating key-threads in one group,
 	  then adjust cpu frequence and placement.
+
+config OPLUS_FEATURE_MULTI_FBG
+	bool "multi fbg"
+	default n
+	depends on OPLUS_FEATURE_FRAME_BOOST
+	help
+	  use multi fbg
 
 config OPLUS_CPU_AUDIO_PERF
 	tristate "boost audio task in scheduler"
@@ -150,3 +164,9 @@ config OPLUS_CAMERA_UX
  	default n
  	help
  	  config camera ux.
+
+config OPLUS_FEATURE_AUDIO_OPT
+	tristate "camera optimization in audio mode"
+	default n
+	help
+	  Turning off the camera's ux attribute in audio mode

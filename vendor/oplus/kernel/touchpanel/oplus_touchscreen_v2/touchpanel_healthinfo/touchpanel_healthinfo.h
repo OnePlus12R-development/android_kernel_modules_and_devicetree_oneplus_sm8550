@@ -88,6 +88,7 @@ typedef enum {
 	HEALTH_VDDI,
 	HEALTH_RAW_TOUCH,
 	HEALTH_GRIP_RECLINING,
+	HEALTH_IRQ_TYPE,
 } healthinfo_type;
 
 void reset_healthinfo_time_counter(u64 *time_counter);

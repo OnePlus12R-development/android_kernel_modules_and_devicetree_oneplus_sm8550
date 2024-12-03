@@ -98,6 +98,7 @@ struct uefi_log_thread_header
 	char is_monitoring;   // ==1,is normal mode need monitor
 	char is_needfeedback; // ==1, need upload to DCS
 	uint64_t no_bootcount;
+        uint64_t retry_bootcount;
 };
 
 #if LINUX_VERSION_CODE > KERNEL_VERSION(5, 15, 0)

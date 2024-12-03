@@ -1,5 +1,5 @@
 /* Copyright (c) 2019-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -411,9 +411,12 @@ ssize_t audio_pkt_write(struct file *file, const char __user *buf,
 		mutex_unlock(&audpkt_dev->lock);
 		goto free_kbuf;
 	}
-	ret = gpr_send_pkt(ap_priv->adev,(struct gpr_pkt *) kbuf);
+
+	ret = gpr_send_pkt(ap_priv->adev, (struct gpr_pkt *) kbuf);
 	if (ret < 0) {
 		AUDIO_PKT_ERR("APR Send Packet Failed ret -%d\n", ret);
+		if (ret == -ECONNRESET)
+			ret = -ENETRESET;
 	}
 	mutex_unlock(&audpkt_dev->lock);
 
@@ -488,8 +491,13 @@ static int audio_pkt_srvc_callback(struct gpr_device *adev,
 		__func__,hdr_size, pkt_size);
 
 	skb = alloc_skb(pkt_size, GFP_ATOMIC);
-	if (!skb)
+	if (!skb) {
+#ifdef OPLUS_ARCH_EXTENDS
+		dev_info(&adev->dev, "%s: alloc_skb failed, pkt_size = 0x%x\n",
+			__func__, pkt_size);
+#endif
 		return -ENOMEM;
+	}
 
 	skb_put_data(skb, data, pkt_size);
 
@@ -727,7 +735,6 @@ static int audio_pkt_platform_driver_remove(struct platform_device *adev)
 				 MINOR_NUMBER_COUNT);
 	}
 
-	//of_platform_depopulate(&adev->dev);
 	AUDIO_PKT_INFO("Audio Packet Port Driver Removed\n");
 
 	return 0;

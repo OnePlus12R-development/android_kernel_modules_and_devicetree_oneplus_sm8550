@@ -10,3 +10,5 @@ oplus_locking_strategy-y += rwsem.o
 oplus_locking_strategy-y += futex.o
 oplus_locking_strategy-y += sysfs.o
 oplus_locking_strategy-$(CONFIG_OPLUS_LOCKING_MONITOR) += kern_lock_stat.o
+
+obj-$(CONFIG_OPLUS_LOCKTORTURE) += oplus_lock_torture.o

@@ -7,15 +7,41 @@
 
 #include <linux/sched.h>
 #include <linux/module.h>
+#include <linux/of.h>
 
 #include "locking_main.h"
 
+#define FEATURE_ENABLE 0xffffffff
+
 unsigned int g_opt_enable;
 unsigned int g_opt_debug;
+unsigned int dynamic_switch;
+
+void parse_dts_switch(void)
+{
+	struct device_node *np = NULL;
+	int ret;
+
+	np = of_find_node_by_name(NULL, "oplus_sync_ipc");
+
+	if(np) {
+		ret = of_property_read_u32(np, "disable", &dynamic_switch);
+		if(ret) {
+			pr_err("no oplus_sync_ipc disable!");
+		} else {
+			pr_err("oplus_sync_ipc : %d", dynamic_switch);
+			return;
+		}
+	}
+
+	dynamic_switch = FEATURE_ENABLE;
+}
 
 static int __init locking_opt_init(void)
 {
 	int ret = 0;
+
+	parse_dts_switch();
 
 	g_opt_enable |= LK_MUTEX_ENABLE;
 	g_opt_enable |= LK_RWSEM_ENABLE;
@@ -23,6 +49,12 @@ static int __init locking_opt_init(void)
 #ifdef CONFIG_OPLUS_LOCKING_OSQ
 	g_opt_enable |= LK_OSQ_ENABLE;
 #endif
+#ifdef CONFIG_OPLUS_RWSEM_RSPIN
+	g_opt_enable |= LK_RWSEM_RSPIN_ENABLE;
+#endif
+
+	g_opt_enable &= dynamic_switch;
+	pr_err("g_opt_enable : %d", g_opt_enable);
 
 	lk_sysfs_init();
 	register_rwsem_vendor_hooks();

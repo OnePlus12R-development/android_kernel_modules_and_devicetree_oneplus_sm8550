@@ -147,6 +147,8 @@ struct focal_debug_func
     int  (*get_fw_version)(void *chip_data);
     int  (*dump_reg_sate)(void *chip_data, char *buf);
     void (*set_grip_handle)  (void *chip_data, int para_num, char *buf);
+	void (*prc_enable)(void *chip_data, bool enable);
+	bool (*get_prc_flag)(void *chip_data);
 };
 
 /*********PART4:function declare*****************/

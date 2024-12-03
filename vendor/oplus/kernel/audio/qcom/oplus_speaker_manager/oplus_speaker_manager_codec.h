@@ -67,6 +67,7 @@ struct oplus_amp_status {
 	int amp_boost_volume;
 	enum oplus_pa_work_mode amp_mode_setting;
 	int amp_force_mute_status;
+	int check_feeback_enable;
 };
 
 struct oplus_speaker_device {
@@ -88,6 +89,8 @@ struct oplus_speaker_device {
 	int (*boost_voltage_get)(struct oplus_speaker_device *speaker_device);
 	void (*speaker_mute_set)(struct oplus_speaker_device *speaker_device, int enable);
 	void (*speaker_mute_get)(struct oplus_speaker_device *speaker_device, int *enable);
+	void (*speaker_check_feeback_set)(struct oplus_speaker_device *speaker_device, int enable);
+	void (*speaker_check_feeback_get)(struct oplus_speaker_device *speaker_device, int *enable);
 };
 
 struct oplus_spk_dev_node {

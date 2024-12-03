@@ -60,6 +60,7 @@
 #define THEIA_PANEL_BLANK_VALUE              MTK_DISP_BLANK_POWERDOWN
 #endif
 
+#define SYSTEM_ID 20120
 #define PWKKEY_DCS_TAG                      "CriticalLog"
 #define PWKKEY_DCS_EVENTID                  "Theia"
 #define PWKKEY_BLACK_SCREEN_DCS_LOGTYPE     "black_screen_monitor"
@@ -113,7 +114,7 @@ ssize_t get_last_pwkey_stage(char *buf);
 ssize_t get_pwkey_stages(char *buf);
 void record_stage(const char *buf);
 int get_systemserver_pid(void);
-bool is_slowkernel_skip(void);
+long get_timestamp_ms(void);
 void set_timer_started(bool enable);
 void doPanic(void);
 void recovery_timer_func(struct timer_list *t);

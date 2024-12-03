@@ -28,10 +28,11 @@
 };
 
 &pm8550b_haptics {
-	qcom,vmax-mv = <1400>;
+	qcom,vmax-mv = <1200>;
 	qcom,cl-vmax-mv = <1680>;
 	qcom,lra-period-us = <5882>;
 	qcom,fifo-vmax-mv = <7300>;
+	qcom,richtap-fifo-vmax-mv = <6300>;
 	qcom,old-steady-vmax-mv = <7300>;
 	qcom,brake-mode = <BRAKE_OPEN_LOOP>;
 	qcom,cal-data-restore;

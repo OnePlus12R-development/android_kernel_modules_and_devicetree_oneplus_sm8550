@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2014, 2017-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/init.h>
@@ -21,6 +22,7 @@
 
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_MM_FEEDBACK)
 #include <soc/oplus/system/oplus_mm_kevent_fb.h>
+#define OPLUS_AUDIO_EVENTID_AUDIO_DAEMON     10050
 #endif /* CONFIG_OPLUS_FEATURE_MM_FEEDBACK */
 
 #define Q6_PIL_GET_DELAY_MS 100
@@ -28,6 +30,7 @@
 #define SSR_RESET_CMD 1
 #define IMAGE_UNLOAD_CMD 0
 #define MAX_FW_IMAGES 4
+#define ADSP_LOADER_APM_TIMEOUT_MS 10000
 
 enum spf_subsys_state {
 	SPF_SUBSYS_DOWN,
@@ -134,11 +137,12 @@ static void adsp_load_fw(struct work_struct *adsp_ldr_work)
 		}
 
 		dev_dbg(&pdev->dev, "%s: Q6/MDSP image is loaded\n", __func__);
+		return;
 	}
 
 load_adsp:
 	{
-		adsp_state = spf_core_is_apm_ready();
+		adsp_state = spf_core_is_apm_ready(ADSP_LOADER_APM_TIMEOUT_MS);
 		if (adsp_state == SPF_SUBSYS_DOWN) {
 			rc = rproc_boot(priv->pil_h);
 			if (rc) {
@@ -174,6 +178,10 @@ static ssize_t adsp_ssr_store(struct kobject *kobj,
 	struct platform_device *pdev = adsp_private;
 	struct adsp_loader_private *priv = NULL;
 
+	if (!pdev) {
+		pr_err("%s: Platform device null\n", __func__);
+		return -EINVAL;
+	}
 	dev_dbg(&pdev->dev, "%s: going to call adsp ssr\n ", __func__);
 
 	priv = platform_get_drvdata(pdev);
@@ -196,7 +204,7 @@ static ssize_t adsp_ssr_store(struct kobject *kobj,
 	adsp_loader_do(adsp_private);
 
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_MM_FEEDBACK)
-	mm_fb_audio_kevent_named_delay(OPLUS_AUDIO_EVENTID_ADSP_CRASH, \
+	mm_fb_audio_kevent_named_delay(OPLUS_AUDIO_EVENTID_AUDIO_DAEMON, \
 		MM_FB_KEY_RATELIMIT_5MIN, 2, "FieldData@@APPS requesting for ADSP restart$$detailData@@audio$$module@@adsp");
 #endif /* CONFIG_OPLUS_FEATURE_MM_FEEDBACK */
 
@@ -347,7 +355,7 @@ static int adsp_loader_probe(struct platform_device *pdev)
 	rproc_phandle = be32_to_cpup(prop->value);
 	adsp = rproc_get_by_phandle(rproc_phandle);
 	if (!adsp) {
-		dev_err(&pdev->dev, "fail to get rproc\n", __func__);
+		dev_err(&pdev->dev, "fail to get rproc\n");
 		return -EPROBE_DEFER;
 	}
 

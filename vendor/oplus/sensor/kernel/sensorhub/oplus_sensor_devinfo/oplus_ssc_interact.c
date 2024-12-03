@@ -167,6 +167,41 @@ static const struct file_operations under_mdevice_fops = {
 	.release = ssc_interactive_release,
 };
 
+#if IS_ENABLED(CONFIG_OPLUS_SENSOR_USE_BLANK_MODE)
+static int mtk_lcdinfo_callback(struct notifier_block *nb, unsigned long event,
+        void *data)
+{
+	int val = 0;
+	struct ssc_interactive *ssc_cxt = g_ssc_cxt;
+
+	if (!data || !ssc_cxt) {
+		DEVINFO_LOG("data is NULL\n");
+		return 0;
+	}
+
+	switch(event) {
+	case MTK_DISP_EVENT_BLANK:
+		val = *(int*)data;
+		if (val != ssc_cxt->a_info.blank_mode) {
+			ssc_cxt->a_info.blank_mode = val;
+			if (ssc_cxt->support_bri_to_scp) {
+				ssc_interactive_lcdinfo_to_scp();
+			}
+			if (ssc_cxt->support_bri_to_hal) {
+				ssc_interactive_lcdinfo_to_hal(LCM_BLANK_MODE_TYPE, val);
+				ssc_interactive_lcdinfo_to_hal(LCM_BRIGHTNESS_TYPE, ssc_cxt->a_info.rt_bri);
+			}
+		}
+		break;
+	default:
+		DEVINFO_LOG("event:%d\n", (int)event);
+		break;
+	}
+
+	return 0;
+}
+#endif
+
 static int lcdinfo_callback(struct notifier_block *nb, unsigned long event,
         void *data)
 {
@@ -275,6 +310,9 @@ static int ssc_interactive_parse_dts(void)
 	int support_bri_to_scp = 0;
 	int support_pwm_turbo = 0;
 	int need_to_sync_lcd_rate = 0;
+#if IS_ENABLED(CONFIG_OPLUS_SENSOR_USE_BLANK_MODE)
+	int report_blank_mode = 0;
+#endif
 	struct device_node *node = NULL;
 	struct device_node *ch_node = NULL;
 	struct ssc_interactive *ssc_cxt = g_ssc_cxt;
@@ -325,6 +363,18 @@ static int ssc_interactive_parse_dts(void)
 		ssc_cxt->need_to_sync_lcd_rate = true;
 		DEVINFO_LOG("need_to_sync_lcd_rate\n");
 	}
+
+#if IS_ENABLED(CONFIG_OPLUS_SENSOR_USE_BLANK_MODE)
+	ret = of_property_read_u32(node, "report_blank_mode", &report_blank_mode);
+	if (ret != 0) {
+		DEVINFO_LOG("read report_blank_mode fail\n");
+	}
+
+	if (report_blank_mode == 1) {
+		ssc_cxt->report_blank_mode = true;
+		DEVINFO_LOG("report_blank_mode\n");
+	}
+#endif
 
 	for_each_child_of_node(node, ch_node) {
 		parse_br_level_info_dts(ch_node);
@@ -412,10 +462,24 @@ int ssc_interactive_init(void)
 	INIT_DELAYED_WORK(&ssc_cxt->lcdinfo_work, transfer_lcdinfo_to_scp);
 	ssc_cxt->lcd_nb.notifier_call = lcdinfo_callback;
 	register_lcdinfo_notifier(&ssc_cxt->lcd_nb);
-
+#if IS_ENABLED(CONFIG_OPLUS_SENSOR_USE_BLANK_MODE)
+	if (ssc_cxt->report_blank_mode) {
+		ssc_cxt->mtk_lcd_nb.notifier_call = mtk_lcdinfo_callback;
+		if (mtk_disp_notifier_register("oplus_ssc_interact", &ssc_cxt->mtk_lcd_nb)) {
+			DEVINFO_LOG("mtk_disp_notifier_register failed\n");
+			goto register_mtk_disp_notifier_failed;
+		}
+	}
+#endif
 	DEVINFO_LOG("ssc_interactive_init success!\n");
 	return 0;
 
+#if IS_ENABLED(CONFIG_OPLUS_SENSOR_USE_BLANK_MODE)
+register_mtk_disp_notifier_failed:
+	scp_A_unregister_notify(&ssc_cxt->ready_nb);
+	unregister_lcdinfo_notifier(&ssc_cxt->lcd_nb);
+	mtk_disp_notifier_unregister(&ssc_cxt->mtk_lcd_nb);
+#endif
 register_mdevice_failed:
 	kfifo_free(&ssc_cxt->fifo);
 parse_dts_failed:
@@ -432,6 +496,9 @@ void ssc_interactive_exit(void)
 	struct ssc_interactive *ssc_cxt = g_ssc_cxt;
 	if(ssc_cxt) {
 		unregister_lcdinfo_notifier(&ssc_cxt->lcd_nb);
+#if IS_ENABLED(CONFIG_OPLUS_SENSOR_USE_BLANK_MODE)
+		mtk_disp_notifier_unregister(&ssc_cxt->mtk_lcd_nb);
+#endif
 		scp_A_unregister_notify(&ssc_cxt->ready_nb);
 		misc_deregister(&ssc_cxt->mdev);
 		kfifo_free(&ssc_cxt->fifo);

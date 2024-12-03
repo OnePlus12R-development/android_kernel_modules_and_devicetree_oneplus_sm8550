@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -111,9 +111,7 @@
 #include "wmi_unified_api.h"
 #include <target_if_twt.h>
 
-#ifdef WLAN_FEATURE_11BE_MLO
 #include <target_if_mlo_mgr.h>
-#endif
 
 #ifdef WLAN_FEATURE_COAP
 #include <target_if_coap.h>
@@ -121,7 +119,7 @@
 
 static struct target_if_ctx *g_target_if_ctx;
 
-struct target_if_ctx *target_if_get_ctx()
+struct target_if_ctx *target_if_get_ctx(void)
 {
 	return g_target_if_ctx;
 }
@@ -794,6 +792,7 @@ QDF_STATUS target_if_free_psoc_tgt_info(struct wlan_objmgr_psoc *psoc)
 	init_deinit_dbr_ring_cap_free(tgt_psoc_info);
 	init_deinit_spectral_scaling_params_free(tgt_psoc_info);
 	init_deinit_scan_radio_cap_free(tgt_psoc_info);
+	init_deinit_msdu_idx_qtype_map_free(tgt_psoc_info);
 
 	qdf_event_destroy(&tgt_psoc_info->info.event);
 

@@ -118,9 +118,18 @@ struct chip_mt6375_gauge{
 	struct mutex chip_mutex;
 	atomic_t i2c_err_count;
 	bool i2c_err;
+	bool mtk_gauge_power_sel_support;
 	struct file_operations *authenticate_ops;
 
 	struct delayed_work check_iic_recover;
+	int gauge_type;
+};
+
+enum {
+	CHARGER_NORMAL_CHG_CURVE,
+	CHARGER_FASTCHG_SVOOC_CURVE,
+	CHARGER_FASTCHG_VOOC_AND_QCPD_CURVE,
+	CHARGER_FASTCHG_PPS_AND_UFCS_CURVE,
 };
 
 #endif /* __OPLUS_HAL_GAUGE_MT6375_H__ */

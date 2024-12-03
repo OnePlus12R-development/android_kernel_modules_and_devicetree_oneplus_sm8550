@@ -31,7 +31,7 @@
 #define WRITE_BUF_SIZE                          512
 #define READ_BUF_SIZE                           512
 #define FILE_NAME_LENGTH                        128
-
+#define LIMIT_FW_SIZE              1024 * 400
 struct focal_testdata {
 	int tx_num;
 	int rx_num;
@@ -45,7 +45,6 @@ struct focal_testdata {
 	bool fingerprint_underscreen_support;
 	uint64_t test_item;
 };
-
 /*test item*/
 enum {
 	TYPE_ERROR                                  = 0x00,
@@ -57,7 +56,12 @@ enum {
 	TYPE_SCAP_CB_WATERPROOF_DATA                = 0x06,
 	TYPE_PANEL_DIFFER_DATA                      = 0x07,
 	TYPE_SCAP_RAW_WATERPROOF_DATA               = 0x08,
-
+	TYPE_SHORT_DATA                             = 0x09,
+	TYPE_OPEN_DATA                              = 0x0A,
+	TYPE_CB_DATA                                = 0x0B,
+	TYPE_BLACK_CB_DATA                          = 0x10,
+	TYPE_BLACK_RAW_DATA                         = 0x11,
+	TYPE_BLACK_NOISE_DATA                       = 0x12,
 	TYPE_FACTORY_NOISE_DATA                     = 0x15,            /*limit from panel factory*/
 	TYPE_FACTORY_RAW_DATA                       = 0x16,
 	TYPE_FACTORY_UNIFORMITY_DATA                = 0x17,
@@ -82,6 +86,11 @@ enum {
 	TYPE_TEST7                   = 0x07,
 	TYPE_TEST8                   = 0x08,
 	TYPE_TEST9                   = 0x09,
+	TYPE_TEST10                   = 0x0A,
+	TYPE_TEST11                   = 0x0B,
+	TYPE_TEST16                   = 0x10,
+	TYPE_TEST17                   = 0x11,
+	TYPE_TEST18                   = 0x12,
 	TYPE_TEST_MAX                = 0xFF,
 };
 
@@ -120,12 +129,30 @@ struct focal_auto_test_operations {
 	int (*test9)(struct seq_file *s, void *chip_data,
 	             struct auto_testdata *focal_testdata,
 	             struct test_item_info *p_test_item_info);
+	int (*test10)(struct seq_file *s, void *chip_data,
+	             struct auto_testdata *focal_testdata,
+	             struct test_item_info *p_test_item_info);
+	int (*test11)(struct seq_file *s, void *chip_data,
+	             struct auto_testdata *focal_testdata,
+	             struct test_item_info *p_test_item_info);
+	int (*test16)(struct seq_file *s, void *chip_data,
+	             struct auto_testdata *focal_testdata,
+	             struct test_item_info *p_test_item_info);
+	int (*test17)(struct seq_file *s, void *chip_data,
+	             struct auto_testdata *focal_testdata,
+	             struct test_item_info *p_test_item_info);
+	int (*test18)(struct seq_file *s, void *chip_data,
+	             struct auto_testdata *focal_testdata,
+	             struct test_item_info *p_test_item_info);
 	int (*auto_test_preoperation)(struct seq_file *s, void *chip_data,
 				      struct auto_testdata *focal_testdata,
 				      struct test_item_info *p_test_item_info);
 	int (*auto_test_endoperation)(struct seq_file *s, void *chip_data,
 				      struct auto_testdata *focal_testdata,
 				      struct test_item_info *p_test_item_info);
+	int (*black_screen_test_preoperation)(struct seq_file *s, void *chip_data,
+					      struct auto_testdata *focal_testdata,
+						  struct test_item_info *p_test_item_info);
 };
 
 int fts_create_proc(struct touchpanel_data *ts,
@@ -147,5 +174,5 @@ int focal_create_sysfs(struct i2c_client *client);
 int focal_create_apk_debug_channel(struct touchpanel_data *ts);
 void ft_limit_read_std(struct seq_file *s, struct touchpanel_data *ts);
 int focal_auto_test(struct seq_file *s,  struct touchpanel_data *ts);
-
+int focal_black_screen_test(struct black_gesture_test *p, struct touchpanel_data *ts);
 #endif /*__FOCAL_COMMON_H__*/

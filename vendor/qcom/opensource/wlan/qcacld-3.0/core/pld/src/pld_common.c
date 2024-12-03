@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -1105,6 +1105,35 @@ int pld_request_bus_bandwidth(struct device *dev, int bandwidth)
 		break;
 	default:
 		ret = -EINVAL;
+		break;
+	}
+
+	return ret;
+}
+
+/**
+ * pld_is_direct_link_supported() - Get whether direct_link is supported
+ *                                  by FW or not
+ * @dev: device
+ *
+ * Return: true if supported
+ *         false on failure or if not supported
+ */
+bool pld_is_direct_link_supported(struct device *dev)
+{
+	bool ret = false;
+
+	switch (pld_get_bus_type(dev)) {
+	case PLD_BUS_TYPE_PCIE:
+		ret = pld_pcie_is_direct_link_supported(dev);
+		break;
+	case PLD_BUS_TYPE_PCIE_FW_SIM:
+	case PLD_BUS_TYPE_IPCI_FW_SIM:
+	case PLD_BUS_TYPE_SNOC_FW_SIM:
+	case PLD_BUS_TYPE_SNOC:
+	case PLD_BUS_TYPE_IPCI:
+	case PLD_BUS_TYPE_SDIO:
+	default:
 		break;
 	}
 
@@ -3176,7 +3205,10 @@ int pld_thermal_register(struct device *dev,
 	case PLD_BUS_TYPE_SDIO:
 	case PLD_BUS_TYPE_USB:
 	case PLD_BUS_TYPE_SNOC:
+		break;
 	case PLD_BUS_TYPE_PCIE:
+		errno = pld_pci_thermal_register(dev, max_state, mon_id);
+		break;
 	case PLD_BUS_TYPE_PCIE_FW_SIM:
 		break;
 	case PLD_BUS_TYPE_IPCI_FW_SIM:
@@ -3205,7 +3237,10 @@ void pld_thermal_unregister(struct device *dev, int mon_id)
 	case PLD_BUS_TYPE_SDIO:
 	case PLD_BUS_TYPE_USB:
 	case PLD_BUS_TYPE_SNOC:
+		break;
 	case PLD_BUS_TYPE_PCIE:
+		pld_pci_thermal_unregister(dev, mon_id);
+		break;
 	case PLD_BUS_TYPE_PCIE_FW_SIM:
 		break;
 	case PLD_BUS_TYPE_IPCI_FW_SIM:
@@ -3222,6 +3257,31 @@ void pld_thermal_unregister(struct device *dev, int mon_id)
 	}
 }
 
+int pld_set_wfc_mode(struct device *dev, enum pld_wfc_mode wfc_mode)
+{
+	int errno = -ENOTSUPP;
+	enum pld_bus_type type;
+
+	type = pld_get_bus_type(dev);
+	switch (type) {
+	case PLD_BUS_TYPE_SDIO:
+	case PLD_BUS_TYPE_USB:
+	case PLD_BUS_TYPE_SNOC:
+	case PLD_BUS_TYPE_IPCI_FW_SIM:
+	case PLD_BUS_TYPE_SNOC_FW_SIM:
+	case PLD_BUS_TYPE_IPCI:
+	case PLD_BUS_TYPE_PCIE_FW_SIM:
+		break;
+	case PLD_BUS_TYPE_PCIE:
+		errno = pld_pcie_set_wfc_mode(dev, wfc_mode);
+		break;
+	default:
+		pr_err("Invalid device type %d\n", type);
+		break;
+	}
+
+	return errno;
+}
 const char *pld_bus_width_type_to_str(enum pld_bus_width_type level)
 {
 	switch (level) {
@@ -3236,6 +3296,8 @@ const char *pld_bus_width_type_to_str(enum pld_bus_width_type level)
 		return "MEDIUM";
 	case PLD_BUS_WIDTH_HIGH:
 		return "HIGH";
+	case PLD_BUS_WIDTH_MID_HIGH:
+		return "MID_HIGH";
 	case PLD_BUS_WIDTH_VERY_HIGH:
 		return "VERY_HIGH";
 	case PLD_BUS_WIDTH_ULTRA_HIGH:
@@ -3261,7 +3323,10 @@ int pld_get_thermal_state(struct device *dev, unsigned long *thermal_state,
 	case PLD_BUS_TYPE_SDIO:
 	case PLD_BUS_TYPE_USB:
 	case PLD_BUS_TYPE_SNOC:
+		break;
 	case PLD_BUS_TYPE_PCIE:
+		errno = pld_pci_get_thermal_state(dev, thermal_state, mon_id);
+		break;
 	case PLD_BUS_TYPE_PCIE_FW_SIM:
 		break;
 	case PLD_BUS_TYPE_IPCI_FW_SIM:
@@ -3312,6 +3377,46 @@ int pld_get_wlan_unsafe_channel_sap(
 	return 0;
 }
 #endif
+
+void pld_set_tsf_sync_period(struct device *dev, u32 val)
+{
+	switch (pld_get_bus_type(dev)) {
+	case PLD_BUS_TYPE_PCIE:
+		pld_pcie_set_tsf_sync_period(dev, val);
+		break;
+	case PLD_BUS_TYPE_PCIE_FW_SIM:
+	case PLD_BUS_TYPE_IPCI_FW_SIM:
+	case PLD_BUS_TYPE_SNOC_FW_SIM:
+	case PLD_BUS_TYPE_SNOC:
+	case PLD_BUS_TYPE_IPCI:
+	case PLD_BUS_TYPE_SDIO:
+	case PLD_BUS_TYPE_USB:
+		break;
+	default:
+		pr_err("Invalid device type\n");
+		break;
+	}
+}
+
+void pld_reset_tsf_sync_period(struct device *dev)
+{
+	switch (pld_get_bus_type(dev)) {
+	case PLD_BUS_TYPE_PCIE:
+		pld_pcie_reset_tsf_sync_period(dev);
+		break;
+	case PLD_BUS_TYPE_PCIE_FW_SIM:
+	case PLD_BUS_TYPE_IPCI_FW_SIM:
+	case PLD_BUS_TYPE_SNOC_FW_SIM:
+	case PLD_BUS_TYPE_SNOC:
+	case PLD_BUS_TYPE_IPCI:
+	case PLD_BUS_TYPE_SDIO:
+	case PLD_BUS_TYPE_USB:
+		break;
+	default:
+		pr_err("Invalid device type\n");
+		break;
+	}
+}
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
 /**
@@ -3391,3 +3496,49 @@ int pld_get_audio_wlan_timestamp(struct device *dev,
 	return ret;
 }
 #endif /* FEATURE_WLAN_TIME_SYNC_FTM */
+
+bool pld_is_one_msi(struct device *dev)
+{
+	bool ret = false;
+	enum pld_bus_type type = pld_get_bus_type(dev);
+
+	switch (type) {
+	case PLD_BUS_TYPE_PCIE:
+		ret = pld_pcie_is_one_msi(dev);
+		break;
+	default:
+		break;
+	}
+
+	return ret;
+}
+
+#ifdef FEATURE_DIRECT_LINK
+int pld_audio_smmu_map(struct device *dev, phys_addr_t paddr, dma_addr_t iova,
+		       size_t size)
+{
+	int ret;
+
+	switch (pld_get_bus_type(dev)) {
+	case PLD_BUS_TYPE_PCIE:
+		ret = pld_pcie_audio_smmu_map(dev, paddr, iova, size);
+		break;
+	default:
+		ret = -EINVAL;
+		break;
+	}
+
+	return ret;
+}
+
+void pld_audio_smmu_unmap(struct device *dev, dma_addr_t iova, size_t size)
+{
+	switch (pld_get_bus_type(dev)) {
+	case PLD_BUS_TYPE_PCIE:
+		pld_pcie_audio_smmu_unmap(dev, iova, size);
+		break;
+	default:
+		break;
+	}
+}
+#endif

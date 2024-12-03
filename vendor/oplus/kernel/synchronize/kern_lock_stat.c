@@ -48,31 +48,19 @@ static char *group_str[GRP_TYPES] = {"GRP_UX", "GRP_RT", "GRP_OT",
 };
 
 static char *lock_str[LOCK_TYPES] = {
-#ifdef INCLUDE_UNUSE
-					"spinlock",
-#endif
 					"mutex", "rwsem_read", "rwsem_write",
 #ifdef CONFIG_OPLUS_INTERNAL_VERSION
 					"osq_mutex", "osq_rwsem_read", "osq_rwsem_write",
 #endif
 					"futex_art",
-#ifdef INCLUDE_UNUSE
-					"futex_juc"
-#endif
 };
 
 static char *func_str[LOCK_TYPES] = {
-#ifdef INCLUDE_UNUSE
-					" ",
-#endif
 					"__mutex_lock_slowpath", "rwsem_down_read_slowpath", "rwsem_down_write_slowpath",
 #ifdef CONFIG_OPLUS_INTERNAL_VERSION
 					"__mutex_lock_slowpath", "rwsem_down_read_slowpath", "rwsem_down_write_slowpath",
 #endif
 					"futex_wait",
-#ifdef INCLUDE_UNUSE
-					" "
-#endif
 };
 
 static int get_task_grp_idx(void)
@@ -145,9 +133,6 @@ static __always_inline int fetch_trace_addr(int type, int entries, unsigned long
 		return -1;
 
 	switch (type) {
-#ifdef INCLUDE_UNUSE
-	case SPINLOCK:
-#endif
 	case MUTEX:
 		return stack_trace_save(addr_buf, entries, skipnr + 3);
 #ifdef CONFIG_OPLUS_INTERNAL_VERSION
@@ -161,10 +146,6 @@ static __always_inline int fetch_trace_addr(int type, int entries, unsigned long
 	case RWSEM_WRITE:
 	case FUTEX_ART:
 		return stack_trace_save(addr_buf, entries, skipnr + 2);
-#ifdef INCLUDE_UNUSE
-	case FUTEX_JUC:
-		break;
-#endif
 	default:
 		pr_err("[kern_lock_stat]:Can not handle unknown type!\n");
 		return -1;
@@ -716,9 +697,6 @@ struct lock_stats {
 static __read_mostly u32 thres_array[LIMIT_GRP_TYPES][LOCK_TYPES][MAX_THRES]  = {
 			/* UX */
 			{
-#ifdef INCLUDE_UNUSE
-			{0, 0, 0},  /* spinlock, not yet implement.*/
-#endif
 			{8 * NSEC_PER_MSEC, 15 * NSEC_PER_MSEC, 30 * NSEC_PER_MSEC},
 			{8 * NSEC_PER_MSEC, 15 * NSEC_PER_MSEC, 30 * NSEC_PER_MSEC},
 			{8 * NSEC_PER_MSEC, 15 * NSEC_PER_MSEC, 30 * NSEC_PER_MSEC},
@@ -728,15 +706,9 @@ static __read_mostly u32 thres_array[LIMIT_GRP_TYPES][LOCK_TYPES][MAX_THRES]  = 
 			{1 * NSEC_PER_MSEC, 3 * NSEC_PER_MSEC, 15 * NSEC_PER_MSEC},
 #endif
 			{30 * NSEC_PER_MSEC, 50 * NSEC_PER_MSEC, 100 * NSEC_PER_MSEC},
-#ifdef INCLUDE_UNUSE
-			{0, 0, 0},
-#endif
 			},
 			/* RT */
 			{
-#ifdef INCLUDE_UNUSE
-			{0, 0, 0},
-#endif
 			{2 * NSEC_PER_MSEC, 5 * NSEC_PER_MSEC, 20 * NSEC_PER_MSEC},
 			{2 * NSEC_PER_MSEC, 5 * NSEC_PER_MSEC, 20 * NSEC_PER_MSEC},
 			{2 * NSEC_PER_MSEC, 5 * NSEC_PER_MSEC, 20 * NSEC_PER_MSEC},
@@ -746,15 +718,9 @@ static __read_mostly u32 thres_array[LIMIT_GRP_TYPES][LOCK_TYPES][MAX_THRES]  = 
 			{300 * NSEC_PER_USEC, 1 * NSEC_PER_MSEC, 5 * NSEC_PER_MSEC},
 #endif
 			{2 * NSEC_PER_MSEC, 5 * NSEC_PER_MSEC, 20 * NSEC_PER_MSEC},
-#ifdef INCLUDE_UNUSE
-			{0, 0, 0},
-#endif
 			},
 			/* OTHER */
 			{
-#ifdef INCLUDE_UNUSE
-			{0, 0, 0},
-#endif
 			{12 * NSEC_PER_MSEC, 25 * NSEC_PER_MSEC, 40 * NSEC_PER_MSEC},
 			{12 * NSEC_PER_MSEC, 25 * NSEC_PER_MSEC, 50 * NSEC_PER_MSEC},
 			{12 * NSEC_PER_MSEC, 25 * NSEC_PER_MSEC, 50 * NSEC_PER_MSEC},
@@ -765,9 +731,6 @@ static __read_mostly u32 thres_array[LIMIT_GRP_TYPES][LOCK_TYPES][MAX_THRES]  = 
 			{5 * NSEC_PER_MSEC, 8 * NSEC_PER_MSEC, 30 * NSEC_PER_MSEC},
 #endif
 			{80 * NSEC_PER_MSEC, 160 * NSEC_PER_MSEC, 300 * NSEC_PER_MSEC},
-#ifdef INCLUDE_UNUSE
-			{0, 0, 0},
-#endif
 			}
 };
 
@@ -1386,17 +1349,6 @@ static void android_vh_futex_wait_start_handler(void *unused, unsigned int flags
 
 	app_type = flags >> LOCK_TYPE_SHIFT;
 
-#ifdef INCLUDE_UNUSE
-	kern_type = app_type + LOCK_TYPES - 3;
-	if (kern_type >= LOCK_TYPES) {
-		pr_err("kern_lock_stat : futex pass error type param,"
-			"app_type = %d\n", app_type);
-		return;
-	}
-	if (app_type & (LOCK_ART | LOCK_JUC)) {
-		lk_contended(kern_type);
-	}
-#else
 	kern_type = app_type + LOCK_TYPES - 2;
 	if (kern_type >= LOCK_TYPES) {
 		pr_err("kern_lock_stat : futex pass error type param,"
@@ -1406,7 +1358,6 @@ static void android_vh_futex_wait_start_handler(void *unused, unsigned int flags
 	if (app_type & LOCK_ART) {
 		lk_contended(kern_type);
 	}
-#endif
 }
 
 static void android_vh_futex_wait_end_handler(void *unused, unsigned int flags,
@@ -1416,17 +1367,6 @@ static void android_vh_futex_wait_end_handler(void *unused, unsigned int flags,
 
 	app_type = flags >> LOCK_TYPE_SHIFT;
 
-#ifdef INCLUDE_UNUSE
-	if (!(app_type & (LOCK_ART | LOCK_JUC))) {
-		return;
-	}
-	kern_type = app_type + LOCK_TYPES - 3;
-	if (kern_type >= LOCK_TYPES) {
-		pr_err("kern_lock_stat : futex pass error type param,"
-			"app_type = %d\n", app_type);
-		return;
-	}
-#else
 	if (!(app_type & LOCK_ART)) {
 		return;
 	}
@@ -1436,7 +1376,6 @@ static void android_vh_futex_wait_end_handler(void *unused, unsigned int flags,
 			"app_type = %d\n", app_type);
 		return;
 	}
-#endif
 
 	lk_acquired(kern_type);
 }
@@ -1479,65 +1418,66 @@ int kern_lstat_init(void)
 {
 	int ret;
 
-	REGISTER_HOOKS_HANDLE_RET(register_trace_android_vh_futex_wait_start,
-				android_vh_futex_wait_start_handler, NULL, err);
-	REGISTER_HOOKS_HANDLE_RET(register_trace_android_vh_futex_wait_end,
-				android_vh_futex_wait_end_handler, NULL, err1);
-	REGISTER_HOOKS_HANDLE_RET(register_trace_android_vh_mutex_wait_start,
-				android_vh_mutex_wait_start_handler, NULL, err2);
-	REGISTER_HOOKS_HANDLE_RET(register_trace_android_vh_mutex_wait_finish,
-				android_vh_mutex_wait_finish_handler, NULL, err3);
-	REGISTER_HOOKS_HANDLE_RET(register_trace_android_vh_rwsem_read_wait_start,
-				android_vh_rwsem_read_wait_start_handler, NULL, err4);
-	REGISTER_HOOKS_HANDLE_RET(register_trace_android_vh_rwsem_read_wait_finish,
-				android_vh_rwsem_read_wait_finish_handler, NULL, err5);
-	REGISTER_HOOKS_HANDLE_RET(register_trace_android_vh_rwsem_write_wait_start,
-				android_vh_rwsem_write_wait_start_handler, NULL, err6);
-	REGISTER_HOOKS_HANDLE_RET(register_trace_android_vh_rwsem_write_wait_finish,
-				android_vh_rwsem_write_wait_finish_handler, NULL, err7);
 	fatal_collect_init();
-
-	ret = create_stats_procs();
-	if (ret < 0)
-		goto err8;
 
 #ifdef CONFIG_OPLUS_INTERNAL_VERSION
 	ret = top_lock_hash_init();
 	if (ret)
-		goto err9;
+		return ret;
 #endif
 
+	REGISTER_HOOKS_HANDLE_RET(register_trace_android_vh_futex_wait_start,
+				android_vh_futex_wait_start_handler, NULL, err1);
+	REGISTER_HOOKS_HANDLE_RET(register_trace_android_vh_futex_wait_end,
+				android_vh_futex_wait_end_handler, NULL, err2);
+	REGISTER_HOOKS_HANDLE_RET(register_trace_android_vh_mutex_wait_start,
+				android_vh_mutex_wait_start_handler, NULL, err3);
+	REGISTER_HOOKS_HANDLE_RET(register_trace_android_vh_mutex_wait_finish,
+				android_vh_mutex_wait_finish_handler, NULL, err4);
+	REGISTER_HOOKS_HANDLE_RET(register_trace_android_vh_rwsem_read_wait_start,
+				android_vh_rwsem_read_wait_start_handler, NULL, err5);
+	REGISTER_HOOKS_HANDLE_RET(register_trace_android_vh_rwsem_read_wait_finish,
+				android_vh_rwsem_read_wait_finish_handler, NULL, err6);
+	REGISTER_HOOKS_HANDLE_RET(register_trace_android_vh_rwsem_write_wait_start,
+				android_vh_rwsem_write_wait_start_handler, NULL, err7);
+	REGISTER_HOOKS_HANDLE_RET(register_trace_android_vh_rwsem_write_wait_finish,
+				android_vh_rwsem_write_wait_finish_handler, NULL, err8);
+
+	ret = create_stats_procs();
+	if (ret < 0)
+		goto err9;
 	return 0;
 
-#ifdef CONFIG_OPLUS_INTERNAL_VERSION
 err9:
-	remove_stats_procs();
-#endif
-err8:
 	unregister_trace_android_vh_rwsem_write_wait_finish(
 			android_vh_rwsem_write_wait_finish_handler, NULL);
-err7:
+err8:
 	unregister_trace_android_vh_rwsem_write_wait_start(
 			android_vh_rwsem_write_wait_start_handler, NULL);
-err6:
+err7:
 	unregister_trace_android_vh_rwsem_read_wait_finish(
 			android_vh_rwsem_read_wait_finish_handler, NULL);
-err5:
+err6:
 	unregister_trace_android_vh_rwsem_read_wait_start(
 			android_vh_rwsem_read_wait_start_handler, NULL);
-err4:
+err5:
 	unregister_trace_android_vh_mutex_wait_finish(
 			android_vh_mutex_wait_finish_handler, NULL);
-err3:
+err4:
 	unregister_trace_android_vh_mutex_wait_start(
 			android_vh_mutex_wait_start_handler, NULL);
-err2:
+err3:
 	unregister_trace_android_vh_futex_wait_end(
 			android_vh_futex_wait_end_handler, NULL);
-err1:
+err2:
 	unregister_trace_android_vh_futex_wait_start(
 			android_vh_futex_wait_start_handler, NULL);
-err:
+#ifdef CONFIG_OPLUS_INTERNAL_VERSION
+err1:
+	top_lock_hash_exit();
+#else
+err1:
+#endif
 	return ret;
 }
 

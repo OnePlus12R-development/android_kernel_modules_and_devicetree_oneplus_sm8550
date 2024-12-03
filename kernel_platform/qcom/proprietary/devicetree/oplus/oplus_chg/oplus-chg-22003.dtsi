@@ -686,6 +686,13 @@
 
 	oplus,uart_tx-gpio = <&tlmm 26 0x00>;
 	oplus,uart_rx-gpio = <&tlmm 27 0x00>;
+
+	oplus,protocol_list = <CHG_PROTOCOL_PD 18
+				CHG_PROTOCOL_QC 18
+				CHG_PROTOCOL_VOOC 67>;
+	oplus,default_protocol_list = <CHG_PROTOCOL_PD
+					CHG_PROTOCOL_QC
+					CHG_PROTOCOL_VOOC>;
 };
 
 &tlmm {

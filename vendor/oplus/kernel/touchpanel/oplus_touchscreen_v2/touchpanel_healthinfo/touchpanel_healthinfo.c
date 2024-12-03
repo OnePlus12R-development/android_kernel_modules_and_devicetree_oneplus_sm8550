@@ -1362,6 +1362,121 @@ int tp_report_healthinfo_handle(struct monitor_data *monitor_data, char *report)
 	return ret;
 }
 
+static inline int tp_irq_type_healthinfo_handle(struct monitor_data *monitor_data, u32 cur_event)
+{
+	int ret = 0;
+
+	struct touchpanel_data *ts = container_of(monitor_data, struct touchpanel_data, monitor_data);
+
+	if (!monitor_data) {
+		return 0;
+	}
+
+	if (!monitor_data->p_irq_type_count) {
+		return 0;
+	}
+
+	if (ts->is_suspended) {
+		if (CHK_BIT(cur_event, IRQ_BTN_KEY)) {
+			monitor_data->p_irq_type_count->in_suspend_irq_btn_key_cnt++;
+		}
+
+		if (CHK_BIT(cur_event, IRQ_PEN)) {
+			monitor_data->p_irq_type_count->in_suspend_irq_pen_cnt++;
+		}
+
+		if (CHK_BIT(cur_event, IRQ_PALM)) {
+			monitor_data->p_irq_type_count->abnormal_in_suspend_irq_palm_cnt++;
+		}
+
+		if (CHK_BIT(cur_event, IRQ_TOUCH)) {
+			monitor_data->p_irq_type_count->abnormal_in_suspend_irq_touch_cnt++;
+		}
+
+		if (CHK_BIT(cur_event, IRQ_PEN_REPORT)) {
+			monitor_data->p_irq_type_count->in_suspend_irq_pen_report_cnt++;
+		}
+
+		if (CHK_BIT(cur_event, IRQ_FW_HEALTH)) {
+			monitor_data->p_irq_type_count->abnormal_in_suspend_irq_fw_health_cnt++;
+		}
+
+		if (CHK_BIT(cur_event, IRQ_FACE_STATE)) {
+			monitor_data->p_irq_type_count->abnormal_in_suspend_irq_face_state_cnt++;
+		}
+
+		if (CHK_BIT(cur_event, IRQ_FINGERPRINT)) {
+			monitor_data->p_irq_type_count->in_suspend_irq_fingerprint_cnt++;
+		}
+
+		if (CHK_BIT(cur_event, IRQ_GESTURE)) {
+			monitor_data->p_irq_type_count->in_suspend_irq_gesture_cnt++;
+		}
+
+		if (CHK_BIT(cur_event, IRQ_EXCEPTION)) {
+			monitor_data->p_irq_type_count->in_suspend_irq_exception_cnt++;
+		}
+
+		if (CHK_BIT(cur_event, IRQ_FW_CONFIG)) {
+			monitor_data->p_irq_type_count->in_suspend_irq_fw_config_cnt++;
+		}
+
+		if (CHK_BIT(cur_event, IRQ_FW_AUTO_RESET)) {
+			monitor_data->p_irq_type_count->in_suspend_irq_fw_auto_reset_cnt++;
+		}
+
+		if (cur_event == IRQ_IGNORE) {
+			monitor_data->p_irq_type_count->in_suspend_irq_ignore_cnt++;
+		}
+	} else {
+		if (CHK_BIT(cur_event, IRQ_BTN_KEY)) {
+			monitor_data->p_irq_type_count->in_resume_irq_btn_key_cnt++;
+		}
+
+		if (CHK_BIT(cur_event, IRQ_PALM)) {
+			monitor_data->p_irq_type_count->in_resume_irq_palm_cnt++;
+		}
+
+		if (CHK_BIT(cur_event, IRQ_PEN_REPORT)) {
+			monitor_data->p_irq_type_count->in_resume_irq_pen_report_cnt++;
+		}
+
+		if (CHK_BIT(cur_event, IRQ_FW_HEALTH)) {
+			monitor_data->p_irq_type_count->in_resume_irq_fw_health_cnt++;
+		}
+
+		if (CHK_BIT(cur_event, IRQ_FACE_STATE)) {
+			monitor_data->p_irq_type_count->in_resume_irq_face_state_cnt++;
+		}
+
+		if (CHK_BIT(cur_event, IRQ_FINGERPRINT)) {
+			monitor_data->p_irq_type_count->in_resume_irq_fingerprint_cnt++;
+		}
+
+		if (CHK_BIT(cur_event, IRQ_GESTURE)) {
+			monitor_data->p_irq_type_count->abnormal_in_resume_irq_gesture_cnt++;
+		}
+
+		if (CHK_BIT(cur_event, IRQ_EXCEPTION)) {
+			monitor_data->p_irq_type_count->in_resume_irq_exception_cnt++;
+		}
+
+		if (CHK_BIT(cur_event, IRQ_FW_CONFIG)) {
+			monitor_data->p_irq_type_count->in_resume_irq_fw_config_cnt++;
+		}
+
+		if (CHK_BIT(cur_event, IRQ_FW_AUTO_RESET)) {
+			monitor_data->p_irq_type_count->in_resume_irq_fw_auto_reset_cnt++;
+		}
+
+		if (cur_event == IRQ_IGNORE) {
+			monitor_data->p_irq_type_count->in_resume_irq_ignore_cnt++;
+		}
+	}
+
+	return ret;
+}
+
 void reset_healthinfo_grip_time_record(void *tp_monitor_data, void *tp_grip_info)
 {
 	struct monitor_data *monitor_data = (struct monitor_data *)tp_monitor_data;
@@ -1725,6 +1840,7 @@ int tp_healthinfo_report(void *tp_monitor_data, healthinfo_type type,
 	int *value_int = (int *)value;
 	long *value_long = (long *)value;
 	u64 *value_u64 = (u64 *)value;
+	u32 *value_u32 = (u32 *)value;
 	struct kernel_grip_info *grip_info = (struct kernel_grip_info *)value;
 	struct monitor_data *monitor_data = (struct monitor_data *)tp_monitor_data;
 
@@ -1837,6 +1953,10 @@ int tp_healthinfo_report(void *tp_monitor_data, healthinfo_type type,
 		ret = tp_reclining_healthinfo_handle(monitor_data, grip_info);
 		break;
 
+	case HEALTH_IRQ_TYPE:
+		ret = tp_irq_type_healthinfo_handle(monitor_data, *value_u32);
+		break;
+
 	default:
 		break;
 	}
@@ -1853,6 +1973,7 @@ int tp_healthinfo_read(struct seq_file *s, void *tp_monitor_data)
 	int *vc_value = NULL;
 	u64 screenon_time = 0;
 	struct grip_monitor_data  *grip = NULL;
+	struct irq_type_count  *irq_type = NULL;
 
 	if (!monitor_data->health_monitor_support) {
 		seq_printf(s, "health monitor not supported\n");
@@ -2134,6 +2255,33 @@ int tp_healthinfo_read(struct seq_file *s, void *tp_monitor_data)
 		}
 	}
 
+	/*fod health info*/
+	if (monitor_data->p_finger_health_info) {
+		if (monitor_data->p_finger_health_info->fp_enble_count) {
+			seq_printf(s, "fp_enble_count:%u\n", monitor_data->p_finger_health_info->fp_enble_count);
+		}
+		if (monitor_data->p_finger_health_info->faraway_pressed_fod_count) {
+			seq_printf(s, "faraway_pressed_fod_count:%u\n", monitor_data->p_finger_health_info->faraway_pressed_fod_count);
+		}
+		if (monitor_data->p_finger_health_info->pressed_not_in_area_count) {
+			seq_printf(s, "pressed_not_in_area_count:%u\n", monitor_data->p_finger_health_info->pressed_not_in_area_count);
+		}
+		if (monitor_data->p_finger_health_info->pressed_in_area_count) {
+			seq_printf(s, "pressed_in_area_count:%u\n", monitor_data->p_finger_health_info->pressed_in_area_count);
+		}
+		if (monitor_data->p_finger_health_info->first_detected_effetive_fod_count) {
+			seq_printf(s, "first_detected_effetive_fod_count:%u\n", monitor_data->p_finger_health_info->first_detected_effetive_fod_count);
+		}
+		if (monitor_data->p_finger_health_info->small_touch_fod_invail_count) {
+			seq_printf(s, "small_touch_fod_invail_count:%u\n", monitor_data->p_finger_health_info->small_touch_fod_invail_count);
+		}
+		if (monitor_data->p_finger_health_info->detect_effetive_area_count) {
+			seq_printf(s, "detect_effetive_area_count:%u\n", monitor_data->p_finger_health_info->detect_effetive_area_count);
+		}
+		if (monitor_data->p_finger_health_info->detect_fod_id_pass_count) {
+			seq_printf(s, "detect_fod_id_pass_count:%u\n", monitor_data->p_finger_health_info->detect_fod_id_pass_count);
+		}
+	}
 	/*abnormal touch and swipe*/
 
 	/*if (monitor_data->point_x_zero_count) {
@@ -2305,6 +2453,12 @@ int tp_healthinfo_read(struct seq_file *s, void *tp_monitor_data)
 	if (monitor_data->bus_not_ready_tp_suspend_count) {
 		seq_printf(s, "bus_not_ready_tp_suspend_count:%llu\n", monitor_data->bus_not_ready_tp_suspend_count);
 	}
+	if (monitor_data->bus_not_ready_gesture_write_count) {
+		seq_printf(s, "bus_not_ready_gesture_write_count:%llu\n", monitor_data->bus_not_ready_gesture_write_count);
+	}
+	if (monitor_data->bus_not_ready_temperature_work_count) {
+		seq_printf(s, "bus_not_ready_temperature_work_count:%llu\n", monitor_data->bus_not_ready_temperature_work_count);
+	}
 	if (monitor_data->irq_need_dev_resume_max_count) {
 		seq_printf(s, "irq_need_dev_resume_max_count:%llu\n", monitor_data->irq_need_dev_resume_max_count);
 	}
@@ -2313,6 +2467,92 @@ int tp_healthinfo_read(struct seq_file *s, void *tp_monitor_data)
 	}
 	if (monitor_data->abnormal_temperature_count) {
 		seq_printf(s, "abnormal temperature count:%llu\n", monitor_data->abnormal_temperature_count);
+	}
+	if (monitor_data->p_irq_type_count) {
+		irq_type = monitor_data->p_irq_type_count;
+		if (irq_type->in_suspend_irq_ignore_cnt) {
+			seq_printf(s, "in_suspend_irq_ignore_cnt:%llu\n", irq_type->in_suspend_irq_ignore_cnt);
+		}
+		if (irq_type->in_resume_irq_ignore_cnt) {
+			seq_printf(s, "in_resume_irq_ignore_cnt:%llu\n", irq_type->in_resume_irq_ignore_cnt);
+		}
+		if (irq_type->in_resume_irq_touch_cnt) {
+			seq_printf(s, "in_resume_irq_touch_cnt:%llu\n", irq_type->in_resume_irq_touch_cnt);
+		}
+		if (irq_type->in_suspend_irq_gesture_cnt) {
+			seq_printf(s, "in_suspend_irq_gesture_cnt:%llu\n", irq_type->in_suspend_irq_gesture_cnt);
+		}
+		if (irq_type->in_suspend_irq_btn_key_cnt) {
+			seq_printf(s, "in_suspend_irq_btn_key_cnt:%llu\n", irq_type->in_suspend_irq_btn_key_cnt);
+		}
+		if (irq_type->in_resume_irq_btn_key_cnt) {
+			seq_printf(s, "in_resume_irq_btn_key_cnt:%llu\n", irq_type->in_resume_irq_btn_key_cnt);
+		}
+		if (irq_type->in_suspend_irq_exception_cnt) {
+			seq_printf(s, "in_suspend_irq_exception_cnt:%llu\n", irq_type->in_suspend_irq_exception_cnt);
+		}
+		if (irq_type->in_resume_irq_exception_cnt) {
+			seq_printf(s, "in_resume_irq_exception_cnt:%llu\n", irq_type->in_resume_irq_exception_cnt);
+		}
+		if (irq_type->in_suspend_irq_fw_config_cnt) {
+			seq_printf(s, "in_suspend_irq_fw_config_cnt:%llu\n", irq_type->in_suspend_irq_fw_config_cnt);
+		}
+		if (irq_type->in_resume_irq_fw_config_cnt) {
+			seq_printf(s, "in_resume_irq_fw_config_cnt:%llu\n", irq_type->in_resume_irq_fw_config_cnt);
+		}
+		if (irq_type->in_resume_irq_fw_health_cnt) {
+			seq_printf(s, "in_resume_irq_fw_health_cnt:%llu\n", irq_type->in_resume_irq_fw_health_cnt);
+		}
+		if (irq_type->in_suspend_irq_fw_auto_reset_cnt) {
+			seq_printf(s, "in_suspend_irq_fw_auto_reset_cnt:%llu\n", irq_type->in_suspend_irq_fw_auto_reset_cnt);
+		}
+		if (irq_type->in_resume_irq_fw_auto_reset_cnt) {
+			seq_printf(s, "in_resume_irq_fw_auto_reset_cnt:%llu\n", irq_type->in_resume_irq_fw_auto_reset_cnt);
+		}
+		if (irq_type->in_resume_irq_face_state_cnt) {
+			seq_printf(s, "in_resume_irq_face_state_cnt:%llu\n", irq_type->in_resume_irq_face_state_cnt);
+		}
+		if (irq_type->in_suspend_irq_fingerprint_cnt) {
+			seq_printf(s, "in_suspend_irq_fingerprint_cnt:%llu\n", irq_type->in_suspend_irq_fingerprint_cnt);
+		}
+		if (irq_type->in_resume_irq_fingerprint_cnt) {
+			seq_printf(s, "in_resume_irq_fingerprint_cnt:%llu\n", irq_type->in_resume_irq_fingerprint_cnt);
+		}
+		if (irq_type->in_suspend_irq_pen_cnt) {
+			seq_printf(s, "in_suspend_irq_pen_cnt:%llu\n", irq_type->in_suspend_irq_pen_cnt);
+		}
+		if (irq_type->in_resume_irq_pen_cnt) {
+			seq_printf(s, "in_resume_irq_pen_cnt:%llu\n", irq_type->in_resume_irq_pen_cnt);
+		}
+		if (irq_type->in_resume_irq_palm_cnt) {
+			seq_printf(s, "in_resume_irq_palm_cnt:%llu\n", irq_type->in_resume_irq_palm_cnt);
+		}
+		if (irq_type->in_suspend_irq_pen_report_cnt) {
+			seq_printf(s, "in_suspend_irq_pen_report_cnt:%llu\n", irq_type->in_suspend_irq_pen_report_cnt);
+		}
+		if (irq_type->in_resume_irq_pen_report_cnt) {
+			seq_printf(s, "in_resume_irq_pen_report_cnt:%llu\n", irq_type->in_resume_irq_pen_report_cnt);
+		}
+		if (irq_type->abnormal_in_suspend_irq_palm_cnt) {
+			seq_printf(s, "abnormal_in_suspend_irq_palm_cnt:%llu\n",
+					irq_type->abnormal_in_suspend_irq_palm_cnt);
+		}
+		if (irq_type->abnormal_in_suspend_irq_touch_cnt) {
+			seq_printf(s, "abnormal_in_suspend_irq_touch_cnt:%llu\n",
+					irq_type->abnormal_in_suspend_irq_touch_cnt);
+		}
+		if (irq_type->abnormal_in_suspend_irq_fw_health_cnt) {
+			seq_printf(s, "abnormal_in_suspend_irq_fw_health_cnt:%llu\n",
+					irq_type->abnormal_in_suspend_irq_fw_health_cnt);
+		}
+		if (irq_type->abnormal_in_suspend_irq_face_state_cnt) {
+			seq_printf(s, "abnormal_in_suspend_irq_face_state_cnt:%llu\n",
+					irq_type->abnormal_in_suspend_irq_face_state_cnt);
+		}
+		if (irq_type->abnormal_in_resume_irq_gesture_cnt) {
+			seq_printf(s, "abnormal_in_resume_irq_gesture_cnt:%llu\n",
+					irq_type->abnormal_in_resume_irq_gesture_cnt);
+		}
 	}
 	seq_printf(s, "--last_exception--\n");
 
@@ -2413,6 +2653,18 @@ int tp_healthinfo_clear(void *tp_monitor_data)
 		monitor_data->center_rx_ewr_not_zero_count = 0;
 	}
 
+	/*fod health info*/
+	if (monitor_data->p_finger_health_info) {
+		monitor_data->p_finger_health_info->fp_enble_count = 0;
+		monitor_data->p_finger_health_info->faraway_pressed_fod_count = 0;
+		monitor_data->p_finger_health_info->pressed_not_in_area_count = 0;
+		monitor_data->p_finger_health_info->pressed_in_area_count = 0;
+		monitor_data->p_finger_health_info->first_detected_effetive_fod_count = 0;
+		monitor_data->p_finger_health_info->small_touch_fod_invail_count = 0;
+		monitor_data->p_finger_health_info->detect_effetive_area_count = 0;
+		monitor_data->p_finger_health_info->detect_fod_id_pass_count = 0;
+	}
+
 	/*abnormal touch and swipe*/
 
 	/*monitor_data->point_x_zero_count = 0;*/
@@ -2461,9 +2713,40 @@ int tp_healthinfo_clear(void *tp_monitor_data)
 	monitor_data->bus_not_ready_off_early_event_count = 0;
 	monitor_data->bus_not_ready_off_event_count = 0;
 	monitor_data->bus_not_ready_tp_suspend_count = 0;
+	monitor_data->abnormal_temperature_count = 0;
+	monitor_data->bus_not_ready_gesture_write_count = 0;
+	monitor_data->bus_not_ready_temperature_work_count = 0;
 	monitor_data->irq_need_dev_resume_max_count = 0;
 	monitor_data->irq_need_dev_resume_all_count = 0;
-	monitor_data->abnormal_temperature_count = 0;
+
+	if (monitor_data->p_irq_type_count) {
+		monitor_data->p_irq_type_count->in_suspend_irq_ignore_cnt = 0;
+		monitor_data->p_irq_type_count->in_resume_irq_ignore_cnt = 0;
+		monitor_data->p_irq_type_count->in_resume_irq_touch_cnt = 0;
+		monitor_data->p_irq_type_count->in_suspend_irq_gesture_cnt = 0;
+		monitor_data->p_irq_type_count->in_suspend_irq_btn_key_cnt = 0;
+		monitor_data->p_irq_type_count->in_resume_irq_btn_key_cnt = 0;
+		monitor_data->p_irq_type_count->in_suspend_irq_exception_cnt = 0;
+		monitor_data->p_irq_type_count->in_resume_irq_exception_cnt = 0;
+		monitor_data->p_irq_type_count->in_suspend_irq_fw_config_cnt = 0;
+		monitor_data->p_irq_type_count->in_resume_irq_fw_config_cnt = 0;
+		monitor_data->p_irq_type_count->in_resume_irq_fw_health_cnt = 0;
+		monitor_data->p_irq_type_count->in_suspend_irq_fw_auto_reset_cnt = 0;
+		monitor_data->p_irq_type_count->in_resume_irq_fw_auto_reset_cnt = 0;
+		monitor_data->p_irq_type_count->in_resume_irq_face_state_cnt = 0;
+		monitor_data->p_irq_type_count->in_suspend_irq_fingerprint_cnt = 0;
+		monitor_data->p_irq_type_count->in_resume_irq_fingerprint_cnt = 0;
+		monitor_data->p_irq_type_count->in_suspend_irq_pen_cnt = 0;
+		monitor_data->p_irq_type_count->in_resume_irq_pen_cnt = 0;
+		monitor_data->p_irq_type_count->in_resume_irq_palm_cnt = 0;
+		monitor_data->p_irq_type_count->in_suspend_irq_pen_report_cnt = 0;
+		monitor_data->p_irq_type_count->in_resume_irq_pen_report_cnt = 0;
+		monitor_data->p_irq_type_count->abnormal_in_suspend_irq_palm_cnt = 0;
+		monitor_data->p_irq_type_count->abnormal_in_suspend_irq_touch_cnt = 0;
+		monitor_data->p_irq_type_count->abnormal_in_suspend_irq_fw_health_cnt = 0;
+		monitor_data->p_irq_type_count->abnormal_in_suspend_irq_face_state_cnt = 0;
+		monitor_data->p_irq_type_count->abnormal_in_resume_irq_gesture_cnt = 0;
+	}
 
 	TPD_INFO("Clear health info Finish!\n");
 
@@ -2953,6 +3236,13 @@ int tp_healthinfo_init(struct device *dev, void *tp_monitor_data)
 		ret = -1;
 		goto err;
 	}
+
+	monitor_data->p_finger_health_info = tp_kzalloc(sizeof(struct finger_health_info) * 1, GFP_KERNEL);
+	if (!monitor_data->p_finger_health_info) {
+		TPD_INFO("tp_kzalloc p_finger_health_info failed.\n");
+		ret = -1;
+		goto err;
+	}
 /*
 	monitor_data->click_count_array = tp_kzalloc(sizeof(int32_t) *
 					  CLICK_COUNT_ARRAY_HEIGHT * CLICK_COUNT_ARRAY_WIDTH, GFP_KERNEL);
@@ -3021,6 +3311,15 @@ int tp_healthinfo_init(struct device *dev, void *tp_monitor_data)
 		ret = -1;
 		goto err;
 	}
+
+	monitor_data->p_irq_type_count = tp_kzalloc(sizeof(struct irq_type_count), GFP_KERNEL);
+
+	if (!monitor_data->p_irq_type_count) {
+		TPD_INFO("tp_kzalloc irq_type_count failed.\n");
+		ret = -1;
+		goto err;
+	}
+
 	/*values list init*/
 	INIT_LIST_HEAD(&monitor_data->gesture_values_list);
 	INIT_LIST_HEAD(&monitor_data->invalid_gesture_values_list);
@@ -3053,6 +3352,8 @@ err:
 	tp_kfree((void **)&monitor_data->total_touch_time_in_game);
 	tp_kfree((void **)&monitor_data->total_touch_time_in_game_300);
 	tp_kfree((void **)&monitor_data->total_touch_time_in_game_600);
+	tp_kfree((void **)&monitor_data->p_finger_health_info);
+	tp_kfree((void **)&monitor_data->p_irq_type_count);
 
 	return ret;
 }

@@ -139,6 +139,7 @@ bool ohm_iopanic_mon_trig;
 bool ohm_ionmon_ctrl = true;
 bool ohm_ionmon_logon;
 bool ohm_ionmon_trig;
+bool osi_health_init;
 
 struct sched_stat_para sched_para[OHM_SCHED_TOTAL];
 static char *sched_list[OHM_TYPE_TOTAL] = {
@@ -338,11 +339,11 @@ static inline void _ohm_para_init(struct sched_stat_para *sched_para)
 
 static inline void clear_health_date(struct task_struct *p, struct sched_stat_para *sched_para)
 {
-	int im_flag = IM_FLAG_NONE;
+	unsigned long im_flag = IM_FLAG_NONE;
 
 	if (p && p->group_leader)
 		im_flag = oplus_get_im_flag(p->group_leader);
-	if (im_flag == IM_FLAG_MIDASD)
+	if (test_bit(IM_FLAG_MIDASD, &im_flag))
 		 _ohm_para_init(sched_para);
 }
 
@@ -352,6 +353,8 @@ void ohm_schedstats_record(int sched_type, struct task_struct *task, u64 delta_m
 	static DEFINE_RATELIMIT_STATE(ratelimit, 60*HZ, 1);
 	unsigned long flags;
 
+	if (!osi_health_init)
+		return;
 	spin_lock_irqsave(&sched_stat->lock, flags);
 	if (unlikely(!sched_stat->ctrl)) {
 		spin_unlock_irqrestore(&sched_stat->lock, flags);
@@ -919,8 +922,7 @@ static void update_runnable_time_handler(void *data, bool preempt, struct task_s
 	ohm_schedstats_record(OHM_SCHED_SCHEDLATENCY, next, (delay >> 20));
 }
 
-
-static void enqueue_task_handler(void *unused, struct rq *rq, struct task_struct *p, int flags)
+void update_block_state(struct task_struct *p, int flags)
 {
 	struct oplus_task_struct *ots;
 	u64 delay;
@@ -938,17 +940,6 @@ static void enqueue_task_handler(void *unused, struct rq *rq, struct task_struct
 	}
 }
 
-static void dequeue_task_handler(void *unused, struct rq *rq, struct task_struct *p, int flags)
-{
-	struct oplus_task_struct *ots = get_oplus_task_struct(p);
-	if (!rt_task(p))
-		return;
-	if ((flags & DEQUEUE_SLEEP)) {
-		if (p->__state & TASK_UNINTERRUPTIBLE && ots)
-			ots->block_start_time = sched_clock();
-	}
-}
-
 static int register_healthinfo_vendor_hooks(void)
 {
 	int ret = 0;
@@ -957,8 +948,6 @@ static int register_healthinfo_vendor_hooks(void)
 	REGISTER_TRACE_VH(sched_stat_iowait, probe_sched_stat_iowait_handler);
 	REGISTER_TRACE_VH(android_vh_alloc_pages_slowpath, healthinfo_alloc_pages_slowpath);
 	REGISTER_TRACE_VH(sched_switch, update_runnable_time_handler);
-	REGISTER_TRACE_RVH(android_rvh_enqueue_task, enqueue_task_handler);
-	REGISTER_TRACE_RVH(android_rvh_dequeue_task, dequeue_task_handler);
 	return ret;
 }
 
@@ -970,8 +959,6 @@ static int unregister_healthinfo_vendor_hooks(void)
 	UNREGISTER_TRACE_VH(sched_stat_iowait, probe_sched_stat_iowait_handler);
 	UNREGISTER_TRACE_VH(android_vh_alloc_pages_slowpath, healthinfo_alloc_pages_slowpath);
 	UNREGISTER_TRACE_VH(sched_switch, update_runnable_time_handler);
-	UNREGISTER_TRACE_RVH(android_rvh_enqueue_task, enqueue_task_handler);
-	UNREGISTER_TRACE_RVH(android_rvh_dequeue_task, dequeue_task_handler);
 	return ret;
 }
 
@@ -1176,6 +1163,7 @@ int oplus_healthinfo_proc_fs_init(void)
 		uids_proc_fs_init(fg_dir);
 	}
 	ohm_debug("Success \n");
+	osi_health_init = true;
 	return ret;
 
 ERROR_INIT_VERSION:

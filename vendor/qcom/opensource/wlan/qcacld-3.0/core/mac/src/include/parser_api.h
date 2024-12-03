@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -311,6 +311,7 @@ typedef struct sSirProbeRespBeacon {
 	uint8_t ap_power_type;
 #ifdef WLAN_FEATURE_11BE_MLO
 	struct sir_multi_link_ie mlo_ie;
+	struct wlan_t2lm_context t2lm_ctx;
 #endif
 	tDot11fIEWMMParams wmm_params;
 } tSirProbeRespBeacon, *tpSirProbeRespBeacon;
@@ -511,6 +512,7 @@ typedef struct sSirAssocRsp {
 #endif
 #ifdef WLAN_FEATURE_11BE_MLO
 	struct sir_multi_link_ie mlo_ie;
+	struct wlan_t2lm_context t2lm_ctx;
 #endif
 } tSirAssocRsp, *tpSirAssocRsp;
 
@@ -1435,6 +1437,16 @@ QDF_STATUS populate_dot11f_bcn_mlo_ie(struct mac_context *mac_ctx,
 				      struct pe_session *session);
 
 /**
+ * populate_dot11f_probe_req_mlo_ie() - populate mlo ie for probe req
+ * @mac_ctx: Global MAC context
+ * @session: PE session
+ *
+ * Return: QDF_STATUS_SUCCESS of no error
+ */
+QDF_STATUS populate_dot11f_probe_req_mlo_ie(struct mac_context *mac_ctx,
+					    struct pe_session *session);
+
+/**
  * populate_dot11f_mlo_rnr() - populate rnr for mlo
  * @mac_ctx: Global MAC context
  * @session: PE session
@@ -1673,6 +1685,17 @@ populate_dot11f_assoc_req_mlo_ie(struct mac_context *mac_ctx,
 				 struct pe_session *session,
 				 tDot11fAssocRequest *frm);
 
+/**
+ * populate_dot11f_mlo_ie() - populate MLO Operation IE
+ * @mac_ctx: Global MAC context
+ * @vdev: Pointer to vdev
+ * @mlo_ie: Pointer to MLO Operation IE
+ *
+ * Populate mlo IE for vdev by self capability.
+ */
+QDF_STATUS populate_dot11f_mlo_ie(struct mac_context *mac_ctx,
+				  struct wlan_objmgr_vdev *vdev,
+				  struct wlan_mlo_ie *mlo_ie);
 #endif
 
 /**
@@ -1811,4 +1834,30 @@ void populate_dot11f_rnr_tbtt_info_7(struct mac_context *mac_ctx,
 				     struct pe_session *rnr_session,
 				     tDot11fIEreduced_neighbor_report *dot11f);
 
+/**
+ * populate_dot11f_edca_pifs_param_set() - populate edca/pifs param ie
+ * @mac: Mac context
+ * @qcn_ie: pointer to tDot11fIEqcn_ie
+ *
+ * Return: none
+ */
+void populate_dot11f_edca_pifs_param_set(
+				struct mac_context *mac,
+				tDot11fIEqcn_ie *qcn_ie);
+
+/**
+ * populate_dot11f_bcn_prot_caps() - populate Beacon protection extended caps
+ *
+ * @mac_ctx: Global MAC context.
+ * @pe_session: Pointer to the PE session.
+ * @dot11f: Pointer to the extended capabilities of the session.
+ *
+ * Populate the Beacon protection extended capabilities based on the target and
+ * INI support.
+ *
+ * Return: QDF_STATUS Success or Failure
+ */
+QDF_STATUS populate_dot11f_bcn_prot_extcaps(struct mac_context *mac_ctx,
+					    struct pe_session *pe_session,
+					    tDot11fIEExtCap *dot11f);
 #endif /* __PARSE_H__ */

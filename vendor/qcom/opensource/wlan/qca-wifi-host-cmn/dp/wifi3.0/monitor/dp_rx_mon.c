@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -131,6 +131,8 @@ dp_rx_mon_populate_cfr_ppdu_info(struct dp_pdev *pdev,
 	cdp_rx_ppdu->peer_id = peer->peer_id;
 	cdp_rx_ppdu->vdev_id = peer->vdev->vdev_id;
 	cdp_rx_ppdu->num_users = num_users;
+
+	dp_peer_unref_delete(peer, DP_MOD_ID_RX_PPDU_STATS);
 }
 
 bool
@@ -2035,6 +2037,8 @@ dp_mon_rx_stats_update_rssi_dbm_params(struct dp_mon_pdev *mon_pdev,
 	ppdu_info->rx_status.rssi_offset = mon_pdev->rssi_offsets.rssi_offset;
 	ppdu_info->rx_status.rssi_dbm_conv_support =
 				mon_pdev->rssi_dbm_conv_support;
+	ppdu_info->rx_status.chan_noise_floor =
+		mon_pdev->rssi_offsets.rssi_offset;
 }
 
 #ifdef WLAN_SUPPORT_CTRL_FRAME_STATS

@@ -72,7 +72,7 @@
 #include "../ilitek_common.h"
 #include <soc/oplus/system/oplus_project.h>
 
-#define DRIVER_VERSION          "3.0.4.0.220107"
+#define DRIVER_VERSION                  "3.0.4.0.230913"
 
 /* Options */
 #define TR_BUF_SIZE                 (2*K)  /* Buffer size of touch report */
@@ -323,6 +323,11 @@ extern bool ili_debug_en;
 #define SPI_ACK                             0xA3
 #define P5_X_DEMO_HIGH_RESOLUTION_PACKET_ID		0x5B
 #define P5_X_DEBUG_HIGH_RESOLUTION_PACKET_ID	0xA8
+#define P5_X_DEMO_PALM_PACKET_ID                0xBB
+
+/*differ_mode*/
+#define POSITION_DIFFER_LOW_RESOLUTION		0x03
+#define POSITION_DIFFER_HIGH_RESOLUTION		0x04
 
 /* Chips */
 #define ILI9881_CHIP                    0x9881
@@ -563,7 +568,8 @@ struct report_info_block {
 	u8 nIsSPISLAVE      : 1;
 	u8 nIsI2C           : 1;
 	u8 nReserved00      : 3;
-	u8 nReserved01      : 8;
+	u8 nReportResolutionMode: 3;
+	u8 nReserved01          : 5;
 	u8 nReserved02      : 8;
 	u8 nReserved03      : 8;
 };
@@ -767,7 +773,11 @@ struct ilitek_ts_data {
 	bool pll_clk_wakeup;
 	bool position_high_resolution;
 	bool eng_flow;
+	bool differ_mode;
 
+	u8 glove_mode;
+	u8 water_flag;
+	s16 thr;
 	atomic_t irq_stat;
 	atomic_t tp_reset;
 	atomic_t ice_stat;
@@ -981,7 +991,7 @@ extern int ili_mp_test_handler(char *apk, struct seq_file *s,
 extern struct ilitek_test_operations ilitek_7807_test_ops;
 extern struct engineer_test_operations ilitek_7807_engineer_test_ops;
 
-extern int ili_report_handler(void);
+extern int ili_report_handler(void *chip_data);
 extern int ili_sleep_handler(int mode);
 extern int ili_reset_ctrl(int mode);
 extern int ili_tddi_init(void);

@@ -311,6 +311,7 @@ static void android_vh_do_futex_handler(void *unused, int cmd,
 	struct task_struct *leader;
 	int grp_idx;
 	bool do_something;
+	unsigned long im_flag;
 
 	switch (cmd) {
 	case FUTEX_WAIT:
@@ -344,7 +345,8 @@ static void android_vh_do_futex_handler(void *unused, int cmd,
 
 					rcu_read_lock();
 					leader = current->group_leader;
-					if (leader && oplus_get_im_flag(leader) == IM_FLAG_SYSTEMSERVER_PID)
+					im_flag = leader ? oplus_get_im_flag(leader) : IM_FLAG_NONE;
+					if (im_flag && test_bit(IM_FLAG_SYSTEMSERVER_PID, &im_flag))
 						info.inform_user |= SS_FLAG_BIT;
 					rcu_read_unlock();
 

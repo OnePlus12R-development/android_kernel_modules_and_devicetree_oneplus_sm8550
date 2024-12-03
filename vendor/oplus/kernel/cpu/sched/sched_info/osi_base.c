@@ -73,63 +73,6 @@ int task_cgroup_id(struct task_struct *p)
 }
 #endif
 
-bool is_fg_or_topapp(struct task_struct *p)
-{
-	int class;
-
-	if (!p)
-		return false;
-
-	class = task_cgroup_id(p);
-	if (class == CGROUP_FOREGROUND || class == CGROUP_TOP_APP)
-		return true;
-
-	return false;
-}
-
-bool is_default(struct task_struct *p)
-{
-	if (!p)
-		return false;
-
-	if (task_cgroup_id(p) == CGROUP_DEFAULT)
-		return true;
-
-	return false;
-}
-
-bool is_foreground(struct task_struct *p)
-{
-	if (!p)
-		return false;
-
-	if (task_cgroup_id(p) == CGROUP_FOREGROUND)
-		return true;
-
-	return false;
-}
-
-bool is_background(struct task_struct *p)
-{
-	if (!p)
-		return false;
-
-	if (task_cgroup_id(p) == CGROUP_BACKGROUND)
-		return true;
-
-	return false;
-}
-
-bool is_topapp(struct task_struct *p)
-{
-	if (!p)
-		return false;
-
-	if (task_cgroup_id(p) == CGROUP_TOP_APP)
-		return true;
-
-	return false;
-}
 
 bool is_same_idx(u64 timestamp, u64 now)
 {

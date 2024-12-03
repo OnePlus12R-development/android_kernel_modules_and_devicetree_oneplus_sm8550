@@ -22,6 +22,9 @@
 
 #include "ili7807s.h"
 
+/* #include <linux/hardware_info.h>
+extern char Ctp_name[HARDWARE_MAX_ITEM_LONGTH];  */
+
 #define PROTOCL_VER_NUM     8
 static struct ilitek_protocol_info protocol_info[PROTOCL_VER_NUM] = {
     /* length -> fw, protocol, tp, key, panel, core, func, window, cdc, mp_info */
@@ -748,6 +751,15 @@ out:
     ilits7807s->chip->fw_mp_ver = buf[5] << 24 | buf[6] << 16 | buf[7] << 8 | buf[8];
     snprintf(dev_version, MAX_DEVICE_VERSION_LENGTH, "%02X", buf[3]);
 
+/*    if(strstr(saved_command_line, "oplus23703_ili9883c_hkc_hdp_dsi_vdo")) {
+		sprintf(Ctp_name, "HKC,ILI9883C,FW:0x%x\n", buf[3]);
+        ILI_INFO("ilitek_tddi_ic_get_fw_ver Ctp_name is : %s\n", Ctp_name);
+	}
+	if(strstr(saved_command_line, "oplus23703_ili9883c_dj_hdp_dsi_vdo")) {
+		sprintf(Ctp_name, "DJN,ILI9883C,FW:0x%x\n", buf[3]);
+        ILI_INFO("ilitek_tddi_ic_get_fw_ver Ctp_name is : %s\n", Ctp_name);
+	}
+*/
     if (ilits7807s->ts->panel_data.manufacture_info.version) {
         u8 ver_len = 0;
 

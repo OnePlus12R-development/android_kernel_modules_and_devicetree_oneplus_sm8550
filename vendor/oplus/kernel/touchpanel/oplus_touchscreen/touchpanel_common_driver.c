@@ -2577,6 +2577,30 @@ static const struct file_operations proc_diaphragm_touch_level_fops = {
 	.owner = THIS_MODULE,
 };
 
+static ssize_t proc_force_water_mode_read(struct file *file, char __user *buffer,
+				  size_t count, loff_t *ppos)
+{
+	int ret = 0;
+	char page[PAGESIZE] = {0};
+	struct touchpanel_data *ts = PDE_DATA(file_inode(file));
+	if (!ts) {
+		snprintf(page, PAGESIZE - 1, "%d\n", -1); /*no support*/
+	} else {
+		/*support*/
+		ts->ts_ops->read_water_flag(ts->chip_data);
+		TPD_INFO("%s: read_water_data 0x%x", __func__, ts->read_water_data);
+		snprintf(page, PAGESIZE - 1, "%d\n", ts->read_water_data);
+	}
+	ret = simple_read_from_buffer(buffer, count, ppos, page, strlen(page));
+	return ret;
+}
+
+static const struct file_operations proc_force_water_mode_fops = {
+	.read  = proc_force_water_mode_read,
+	.open  = simple_open,
+	.owner = THIS_MODULE,
+};
+
 //proc/touchpanel/black_screen_test
 static ssize_t proc_black_screen_test_read(struct file *file, char __user *user_buf, size_t count, loff_t *ppos)
 {
@@ -5056,6 +5080,14 @@ static int init_touchpanel_proc(struct touchpanel_data *ts)
 		}
 	}
 
+	if (ts->force_water_mode_support) {
+		prEntry_tmp = proc_create_data("force_water_mode", 0666, prEntry_tp, &proc_force_water_mode_fops, ts);
+		if (prEntry_tmp == NULL) {
+			ret = -ENOMEM;
+			TPD_INFO("%s: Couldn't create proc entry, %d\n", __func__, __LINE__);
+		}
+	}
+
     //proc files-step2-11:/proc/touchpanel/oplus_tp_noise_modetest
     if (ts->noise_modetest_support) {
         prEntry_tmp = proc_create_data("oplus_tp_noise_modetest", 0664, prEntry_tp, &proc_noise_modetest_fops, ts);
@@ -7126,6 +7158,7 @@ static int init_parse_dts(struct device *dev, struct touchpanel_data *ts)
 	ts->tp_data_record_support = of_property_read_bool(np, "tp_data_record_support");
 	ts->palm_to_sleep_support = of_property_read_bool(np, "palm_to_sleep_support");
 	ts->diaphragm_touch_support = of_property_read_bool(np, "diaphragm_touch_support");
+	ts->force_water_mode_support = of_property_read_bool(np, "force_water_mode_support");
 
 	if (!ts->sportify_aod_gesture_support) {
 		TPD_INFO("not support sportify_aod_gesture\n");
@@ -8039,28 +8072,28 @@ int register_common_touch_device(struct touchpanel_data *pdata)
     }
 
     //step6 : touch input dev init
-    ret = init_input_device(ts);
-    if (ret < 0) {
-        ret = -EINVAL;
-        TPD_INFO("tp_input_init failed!\n");
-        goto err_check_functionality_failed;
-    }
+	/*ret = init_input_device(ts);
+	if (ret < 0) {
+		ret = -EINVAL;
+		TPD_INFO("tp_input_init failed!\n");
+		goto err_check_functionality_failed;
+	}*/
 
-    if (ts->int_mode == UNBANNABLE) {
-        ret = tp_register_irq_func(ts);
-        if (ret < 0) {
-            goto free_touch_panel_input;
-        }
-        ts->i2c_ready = true;
-    }
+	/*if (ts->int_mode == UNBANNABLE) {
+		ret = tp_register_irq_func(ts);
+		if (ret < 0) {
+			goto err_check_functionality_failed;
+		}
+		ts->i2c_ready = true;
+	}*/
 
     //step7 : Alloc fw_name/devinfo memory space
-    ts->panel_data.fw_name = kzalloc(MAX_FW_NAME_LENGTH, GFP_KERNEL);
-    if (ts->panel_data.fw_name == NULL) {
-        ret = -ENOMEM;
-        TPD_INFO("panel_data.fw_name kzalloc error\n");
-        goto free_touch_panel_input;
-    }
+	ts->panel_data.fw_name = kzalloc(MAX_FW_NAME_LENGTH, GFP_KERNEL);
+	if (ts->panel_data.fw_name == NULL) {
+		ret = -ENOMEM;
+		TPD_INFO("panel_data.fw_name kzalloc error\n");
+		goto err_check_functionality_failed;
+	}
 
     ts->panel_data.manufacture_info.version = kzalloc(MAX_DEVICE_VERSION_LENGTH, GFP_KERNEL);
     if (ts->panel_data.manufacture_info.version == NULL) {
@@ -8085,6 +8118,20 @@ int register_common_touch_device(struct touchpanel_data *pdata)
     if (ts->health_monitor_v2_support) {
         ts->monitor_data_v2.vendor = ts->panel_data.manufacture_info.manufacture;
     }
+
+	ret = init_input_device(ts);
+	if (ret < 0) {
+		ret = -EINVAL;
+		TPD_INFO("tp_input_init failed!\n");
+		goto manu_info_alloc_err;
+	}
+	if (ts->int_mode == UNBANNABLE) {
+		ret = tp_register_irq_func(ts);
+		if (ret < 0) {
+			goto free_touch_panel_input;
+		}
+		ts->i2c_ready = true;
+	}
 
     //step9 : FTM process
     ts->boot_mode = get_boot_mode();
@@ -8119,42 +8166,42 @@ int register_common_touch_device(struct touchpanel_data *pdata)
     }
 
     //step11 : touchpanel Fw check
-    if(!ts->is_noflash_ic) {            //noflash don't have firmware before fw update
-        if (!ts->ts_ops->fw_check) {
-            ret = -EINVAL;
-            TPD_INFO("tp fw_check NULL!\n");
-            goto manu_info_alloc_err;
-        }
-        ret = ts->ts_ops->fw_check(ts->chip_data, &ts->resolution_info, &ts->panel_data);
-        if (ret == FW_ABNORMAL) {
-            ts->force_update = 1;
-            TPD_INFO("This FW need to be updated!\n");
-        } else {
-            ts->force_update = 0;
-        }
-    }
+	if(!ts->is_noflash_ic) {            /*noflash don't have firmware before fw update*/
+		if (!ts->ts_ops->fw_check) {
+			ret = -EINVAL;
+			TPD_INFO("tp fw_check NULL!\n");
+			goto free_touch_panel_input;
+		}
+		ret = ts->ts_ops->fw_check(ts->chip_data, &ts->resolution_info, &ts->panel_data);
+		if (ret == FW_ABNORMAL) {
+			ts->force_update = 1;
+			TPD_INFO("This FW need to be updated!\n");
+		} else {
+			ts->force_update = 0;
+		}
+	}
 
 
     //step12 : enable touch ic irq output ability
-    if (!ts->ts_ops->mode_switch) {
-        ret = -EINVAL;
-        TPD_INFO("tp mode_switch NULL!\n");
-        goto manu_info_alloc_err;
-    }
-    ret = ts->ts_ops->mode_switch(ts->chip_data, MODE_NORMAL, true);
-    if (ret < 0) {
-        ret = -EINVAL;
-        TPD_INFO("%s:modem switch failed!\n", __func__);
-        goto manu_info_alloc_err;
-    }
+	if (!ts->ts_ops->mode_switch) {
+		ret = -EINVAL;
+		TPD_INFO("tp mode_switch NULL!\n");
+		goto free_touch_panel_input;
+	}
+	ret = ts->ts_ops->mode_switch(ts->chip_data, MODE_NORMAL, true);
+	if (ret < 0) {
+		ret = -EINVAL;
+		TPD_INFO("%s:modem switch failed!\n", __func__);
+		goto free_touch_panel_input;
+	}
 
     //step13 : irq request setting
-    if (ts->int_mode == BANNABLE) {
-        ret = tp_register_irq_func(ts);
-        if (ret < 0) {
-            goto manu_info_alloc_err;
-        }
-    }
+	if (ts->int_mode == BANNABLE) {
+		ret = tp_register_irq_func(ts);
+		if (ret < 0) {
+			goto free_touch_panel_input;
+		}
+	}
 
     //step14 : suspend && resume fuction register
 #if defined(CONFIG_DRM_MSM)
@@ -8350,15 +8397,15 @@ earsense_alloc_free:
 threaded_irq_free:
     free_irq(ts->irq, ts);
 
+free_touch_panel_input:
+	input_unregister_device(ts->input_dev);
+	input_unregister_device(ts->kpd_input_dev);
+
 manu_info_alloc_err:
     kfree(ts->panel_data.manufacture_info.version);
 
 manu_version_alloc_err:
     kfree(ts->panel_data.fw_name);
-
-free_touch_panel_input:
-    input_unregister_device(ts->input_dev);
-    input_unregister_device(ts->kpd_input_dev);
 
 err_check_functionality_failed:
     ts->ts_ops->power_control(ts->chip_data, false);

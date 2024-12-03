@@ -24,3 +24,11 @@ config OPLUS_BINDER_TRANS_CTRL
 	depends on OPLUS_BINDER_STRATEGY
 	help
 	  With this config, binder threads in target proc will deal with important work first.
+
+config OPLUS_BINDER_REF_OPT
+	bool "binder ref optimization"
+	default n
+	depends on OPLUS_BINDER_STRATEGY
+	help
+	  With this config, optimize available descriptor lookup
+

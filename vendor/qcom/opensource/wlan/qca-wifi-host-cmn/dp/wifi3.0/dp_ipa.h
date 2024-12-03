@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -313,6 +313,12 @@ QDF_STATUS dp_ipa_disable_pipes(struct cdp_soc_t *soc_hdl, uint8_t pdev_id,
 				qdf_ipa_wdi_hdl_t hdl);
 QDF_STATUS dp_ipa_set_perf_level(int client, uint32_t max_supported_bw_mbps,
 				 qdf_ipa_wdi_hdl_t hdl);
+#ifdef IPA_OPT_WIFI_DP
+QDF_STATUS dp_ipa_rx_super_rule_setup(struct cdp_soc_t *soc_hdl,
+				      void *flt_params);
+int dp_ipa_pcie_link_up(struct cdp_soc_t *soc_hdl);
+void dp_ipa_pcie_link_down(struct cdp_soc_t *soc_hdl);
+#endif
 
 /**
  * dp_ipa_rx_intrabss_fwd() - Perform intra-bss fwd for IPA RX path
@@ -345,7 +351,6 @@ QDF_STATUS dp_ipa_handle_rx_buf_smmu_mapping(struct dp_soc *soc,
 					     bool create,
 					     const char *func,
 					     uint32_t line);
-
 /**
  * dp_ipa_tx_buf_smmu_mapping() - Create SMMU mappings for IPA
  *				  allocated TX buffers
@@ -373,6 +378,13 @@ QDF_STATUS dp_ipa_tx_buf_smmu_mapping(struct cdp_soc_t *soc_hdl,
 QDF_STATUS dp_ipa_tx_buf_smmu_unmapping(struct cdp_soc_t *soc_hdl,
 					uint8_t pdev_id, const char *func,
 					uint32_t line);
+QDF_STATUS dp_ipa_rx_buf_pool_smmu_mapping(struct cdp_soc_t *soc_hdl,
+					   uint8_t pdev_id,
+					   bool create,
+					   const char *func,
+					   uint32_t line);
+QDF_STATUS dp_ipa_set_smmu_mapped(struct cdp_soc_t *soc, int val);
+int dp_ipa_get_smmu_mapped(struct cdp_soc_t *soc);
 
 #ifndef QCA_OL_DP_SRNG_LOCK_LESS_ACCESS
 static inline void
@@ -468,6 +480,24 @@ dp_ipa_ast_notify_cb(qdf_ipa_wdi_conn_in_params_t *pipe_in,
 }
 #endif
 
+#ifdef IPA_OPT_WIFI_DP
+static inline void dp_ipa_opt_dp_ixo_remap(uint8_t *ix0_map)
+{
+	ix0_map[0] = REO_REMAP_SW1;
+	ix0_map[1] = REO_REMAP_SW1;
+	ix0_map[2] = REO_REMAP_SW2;
+	ix0_map[3] = REO_REMAP_SW3;
+	ix0_map[4] = REO_REMAP_SW4;
+	ix0_map[5] = REO_REMAP_RELEASE;
+	ix0_map[6] = REO_REMAP_FW;
+	ix0_map[7] = REO_REMAP_FW;
+}
+#else
+static inline void dp_ipa_opt_dp_ixo_remap(uint8_t *ix0_map)
+{
+}
+#endif
+
 #else
 static inline int dp_ipa_uc_detach(struct dp_soc *soc, struct dp_pdev *pdev)
 {
@@ -535,6 +565,26 @@ static inline QDF_STATUS dp_ipa_tx_buf_smmu_unmapping(struct cdp_soc_t *soc_hdl,
 						      uint8_t pdev_id,
 						      const char *func,
 						      uint32_t line)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+static inline QDF_STATUS dp_ipa_rx_buf_pool_smmu_mapping(
+						      struct cdp_soc_t *soc_hdl,
+						      uint8_t pdev_id,
+						      bool create,
+						      const char *func,
+						      uint32_t line)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+static inline QDF_STATUS dp_ipa_set_smmu_mapped(struct cdp_soc_t *soc, int val)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+static inline int dp_ipa_get_smmu_mapped(struct cdp_soc_t *soc)
 {
 	return QDF_STATUS_SUCCESS;
 }

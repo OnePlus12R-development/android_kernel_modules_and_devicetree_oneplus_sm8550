@@ -6,9 +6,11 @@
 #include "theia_kevent_kernel.h"
 
 #define BRIGHT_MAX_WRITE_NUMBER             50
-#define BRIGHT_SLOW_TIMEOUT_MS            5000
-#define BRIGHT_ERROR_RECOVERY_MS         20000
+#define BRIGHT_SLOW_TIMEOUT_MS            20000
+#define BRIGHT_ERROR_RECOVERY_MS         200000
 #define PROC_BRIGHT_SWITCH "brightSwitch"
+#define CREATE_TRACE_POINTS
+#include "theia_trace.h"
 
 #define BRIGHT_DEBUG_PRINTK(a, arg...)\
 	do {\
@@ -45,7 +47,6 @@ static char bright_skip_stages[][64] = {
 static int br_start_check_systemid = -1;
 u64 mLastPwkTime = 0;
 u64 FrequencyInterval = 300000;
-bool error_flag = false;
 
 int bright_screen_timer_restart(void)
 {
@@ -62,7 +63,7 @@ int bright_screen_timer_restart(void)
 		return -1;
 	}
 
-	if ((g_bright_data.blank == THEIA_PANEL_UNBLANK_VALUE) && !error_flag) {
+	if (g_bright_data.blank == THEIA_PANEL_UNBLANK_VALUE) {
 		br_start_check_systemid = get_systemserver_pid();
 		mod_timer(&g_bright_data.timer, jiffies + msecs_to_jiffies(g_bright_data.timeout_ms));
 		del_timer(&g_black_data.timer);
@@ -92,6 +93,7 @@ static void get_brightscreen_check_dcs_logmap(char *logmap)
 static void send_bright_screen_dcs_msg(void)
 {
 	char logmap[512] = {0};
+	char stages[512] = {0};
 
 	u64 ts = ktime_to_ms(ktime_get());
 	if (mLastPwkTime > 0 && (ts - mLastPwkTime) < FrequencyInterval) {
@@ -105,6 +107,9 @@ static void send_bright_screen_dcs_msg(void)
 		 | THEIA_LOGINFO_EVENTS_LOG | THEIA_LOGINFO_KERNEL_LOG | THEIA_LOGINFO_ANDROID_LOG
 		 | THEIA_LOGINFO_DUMPSYS_SF | THEIA_LOGINFO_DUMPSYS_POWER,
 		get_systemserver_pid(), logmap);
+	get_pwkey_stages(stages);
+	trace_bright_screen_monitor(get_timestamp_ms(), SYSTEM_ID, PWKKEY_DCS_TAG, PWKKEY_DCS_EVENTID, PWKKEY_BRIGHT_SCREEN_DCS_LOGTYPE, g_bright_data.error_id,
+			g_bright_data.error_count, get_systemserver_pid(), stages);
 }
 
 static void dump_freeze_log(void)
@@ -155,9 +160,6 @@ static bool is_need_skip(void)
 	if (is_bright_contain_skip_stage())
 		return true;
 
-	if (is_slowkernel_skip())
-		return true;
-
 	return false;
 }
 
@@ -180,10 +182,8 @@ static void bright_error_happen_work(struct work_struct *work)
 	struct timespec64 ts;
 
 	/* for bright screen check, check if need skip, we direct return */
-	if (is_need_skip()) {
-		error_flag = false;
+	if (is_need_skip())
 		return;
-	}
 
 	if (bri_data->error_count == 0) {
 		ktime_get_real_ts64(&ts);
@@ -204,7 +204,6 @@ static void bright_error_happen_work(struct work_struct *work)
 		bri_data->error_id, bri_data->error_count);
 
 	set_timer_started(true);
-	error_flag = false;
 	delete_timer_bright("BR_SCREEN_ERROR_HAPPEN", false);
 }
 
@@ -216,21 +215,18 @@ static void bright_timer_func(struct timer_list *t)
 
 	/* stop recored stage when happen work for alm:6864732 */
 	set_timer_started(false);
-	error_flag = true;
+
 #if IS_ENABLED(CONFIG_DRM_PANEL_NOTIFY) || IS_ENABLED(CONFIG_QCOM_PANEL_EVENT_NOTIFIER)
 	if (g_bright_data.active_panel == NULL || g_bright_data.cookie == NULL) {
 		BRIGHT_DEBUG_PRINTK("br check register panel not ready\n");
-		error_flag = false;
 		return;
 	}
 #endif
 
 	if (br_start_check_systemid == get_systemserver_pid())
 		schedule_work(&p->error_happen_work);
-	else {
-		error_flag = false;
+	else
 		BRIGHT_DEBUG_PRINTK("bright_timer_func, not valid for check, skip\n");
-	}
 }
 
 #if IS_ENABLED(CONFIG_DRM_PANEL_NOTIFY) || IS_ENABLED(CONFIG_QCOM_PANEL_EVENT_NOTIFIER)

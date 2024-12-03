@@ -46,7 +46,6 @@ static void sipa_fw_load_retry(sipa_dev_t *si_pa)
 		si_pa->fw_load_count = 0;
 	}
 }
-
 #ifndef LOAD_FW_BY_WORK_DELAY
 static void sipa_container_loaded(
 	const struct firmware *cont,
@@ -161,6 +160,7 @@ static void sipa_fw_load_work_delay(struct work_struct *work)
 	const SIPA_PARAM_FW *param = NULL;
 	sipa_dev_t *si_pa = container_of(work, sipa_dev_t, fw_load_work.work);
 	const struct firmware *cont = NULL;
+	void *fw = NULL;
 
 	pr_debug("[debug][%s] %s: enter load\r\n", LOG_FLAG, __func__);
 
@@ -223,7 +223,8 @@ static void sipa_fw_load_work_delay(struct work_struct *work)
 		goto load_error;
 	}
 
-	memcpy(&sipa_parameters->fw, cont->data, sz);
+	fw = (void*)&sipa_parameters->fw;
+	memcpy(fw, cont->data, sz);
 	release_firmware(cont);
 	sipa_fw_loaded = 1;
 

@@ -648,9 +648,10 @@ static int ilitek_tddi_fw_update_block_info(u8 *pfw)
 	ILI_INFO("report_info_block : nReportByPixel = %d, nIsHostDownload = %d, nIsSPIICE = %d, nIsSPISLAVE = %d\n",
 		 ilits->rib.nReportByPixel, ilits->rib.nIsHostDownload, ilits->rib.nIsSPIICE,
 		 ilits->rib.nIsSPISLAVE);
-	ILI_INFO("report_info_block : nIsI2C = %d, nReserved00 = %d, nReserved01 = %x, nReserved02 = %x,  nReserved03 = %x\n",
-		 ilits->rib.nIsI2C, ilits->rib.nReserved00, ilits->rib.nReserved01,
-		 ilits->rib.nReserved02,
+	ILI_INFO("report_info_block : nIsI2C = %d, nReserved00 = %d, nReportResolutionMode = %d, nReserved01 = %x, nReserved02 = %x,  nReserved03 = %x\n",
+		 ilits->rib.nIsI2C, ilits->rib.nReserved00,
+		 ilits->rib.nReportResolutionMode,
+		 ilits->rib.nReserved01, ilits->rib.nReserved02,
 		 ilits->rib.nReserved03);
 	/* Calculate update address */
 	ILI_INFO("New FW ver = 0x%x\n", tfd.new_fw_cb);

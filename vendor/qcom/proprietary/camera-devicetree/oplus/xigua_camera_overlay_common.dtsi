@@ -637,3 +637,19 @@
 		qcom,drive-strength = <2>;
 	};
 };
+
+&pm8550_torch0 {
+    qcom,ires-ua = <5000>;
+};
+
+&pm8550_torch1 {
+    qcom,ires-ua = <5000>;
+};
+
+&pm8550_torch2 {
+    qcom,ires-ua = <5000>;
+};
+
+&pm8550_torch3 {
+    qcom,ires-ua = <5000>;
+};

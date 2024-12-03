@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -111,7 +111,9 @@ static const struct index_vht_data_rate_type vht_mcs_nss1[] = {
 	{6,  {585,  650}, {1215, 1350}, {2633, 2925}, {5265, 5850} },
 	{7,  {650,  722}, {1350, 1500}, {2925, 3250}, {5850, 6500} },
 	{8,  {780,  867}, {1620, 1800}, {3510, 3900}, {7020, 7800} },
-	{9,  {865,  960}, {1800, 2000}, {3900, 4333}, {7800, 8667} }
+	{9,  {865,  960}, {1800, 2000}, {3900, 4333}, {7800, 8667} },
+	{10, {975, 1083}, {2025, 2250}, {4388, 4875}, {8775, 9750} },
+	{11, {1083, 1204}, {2250, 2500}, {4875, 5417}, {9750, 1083} }
 };
 
 /*MCS parameters with Nss = 2*/
@@ -126,7 +128,9 @@ static const struct index_vht_data_rate_type vht_mcs_nss2[] = {
 	{6,  {1170, 1300}, {2430, 2700}, {5265, 5850}, {10530, 11700} },
 	{7,  {1300, 1444}, {2700, 3000}, {5850, 6500}, {11700, 13000} },
 	{8,  {1560, 1733}, {3240, 3600}, {7020, 7800}, {14040, 15600} },
-	{9,  {1730, 1920}, {3600, 4000}, {7800, 8667}, {15600, 17333} }
+	{9,  {1730, 1920}, {3600, 4000}, {7800, 8667}, {15600, 17333} },
+	{10, {1950, 2167}, {4050, 4500}, {8775, 9750}, {17550, 19500} },
+	{11, {2167, 2407}, {4500, 5000}, {9750, 10833}, {19500, 21667} }
 };
 
 #ifdef WLAN_FEATURE_11AX
@@ -173,15 +177,15 @@ static const struct index_he_data_rate_type he_mcs_nss1[] = {
 	{9,  {{1147, 1083, 975 }, {0} },
 	     {{2294, 2167, 1950}, {0} },
 	     {{4804, 4537, 4083}, {0} },
-	     {{9608, 9074, 8167}, {0} } },
+	     {{9607, 9074, 8166}, {0} } },
 	{10, {{1290, 1219, 1097}, {0} },
 	     {{2581, 2438, 2194}, {0} },
 	     {{5404, 5104, 4594}, {0} },
 	     {{10809, 10208, 9188}, {0} } },
 	{11, {{1434, 1354, 1219}, {0} },
 	     {{2868, 2708, 2438}, {0} },
-	     {{6005, 5671, 5104}, {0} },
-	     {{12010, 11343, 10208}, {0} } },
+	     {{6004, 5671, 5104}, {0} },
+	     {{12010, 11342, 10208}, {0} } },
 	{12, {{1549, 1463, 1316}, {0} },
 	     {{3097, 2925, 2633}, {0} },
 	     {{6485, 6125, 5513}, {0} },
@@ -233,8 +237,8 @@ static const struct index_he_data_rate_type he_mcs_nss2[] = {
 	     {{17294, 16333, 14700}, {0} } },
 	{9,  {{2294,  2167,  1950}, {0} },
 	     {{4588,  4333,  3900}, {0} },
-	     {{9608,  9074,  8167}, {0} },
-	     {{19216, 18148, 16333}, {0} } },
+	     {{9607,  9074,  8166}, {0} },
+	     {{19215, 18148, 16333}, {0} } },
 	{10, {{2581,  2438,  2194}, {0} },
 	     {{5162,  4875,  4388}, {0} },
 	     {{10809, 10208, 9188}, {0} },
@@ -242,7 +246,7 @@ static const struct index_he_data_rate_type he_mcs_nss2[] = {
 	{11, {{2868,  2708,  2438}, {0} },
 	     {{5735,  5417,  4875}, {0} },
 	     {{12010, 11343, 10208}, {0} },
-	     {{24020, 22685, 20417}, {0} } },
+	     {{24019, 22685, 20416}, {0} } },
 	{12, {{3097,  2925,  2633}, {0} },
 	     {{6194,  5850,  5265}, {0} },
 	     {{12971, 12250, 11025}, {0} },
@@ -604,6 +608,7 @@ void wma_lost_link_info_handler(tp_wma_handle wma, uint32_t vdev_id,
 	if (wma_is_vdev_up(vdev_id) &&
 	    (WMI_VDEV_TYPE_STA == wma->interfaces[vdev_id].type) &&
 	    (0 == wma->interfaces[vdev_id].sub_type)) {
+		lim_update_lost_link_rssi(wma->mac_context, rssi);
 		lost_link_info = qdf_mem_malloc(sizeof(*lost_link_info));
 		if (!lost_link_info)
 			return;
@@ -2128,6 +2133,16 @@ static int wma_copy_chan_stats(uint32_t num_chan,
 	return 0;
 }
 
+#define WMI_MAX_RADIO_STATS_LOGS 350
+
+/*
+ * Consider 4 char each for center_freq, channel_width, center_freq0,
+ * center_freq1 and 10 char each for radio_awake_time, cca_busy_time,
+ * tx_time and rx_time 14 char for parenthesis, 1 for space and 1 to
+ * end string, making it a total of 72 chars.
+ */
+#define WMI_MAX_RADIO_SINGLE_STATS_LEN 72
+
 static int
 __wma_unified_link_radio_stats_event_handler(tp_wma_handle wma_handle,
 					     uint8_t *cmd_param_info,
@@ -2148,6 +2163,9 @@ __wma_unified_link_radio_stats_event_handler(tp_wma_handle wma_handle,
 	struct wifi_channel_stats *channels_in_this_event;
 	bool per_chan_rx_tx_time_enabled = false;
 	int32_t status;
+	uint8_t *info;
+	uint32_t stats_len = 0;
+	int ret;
 
 	struct mac_context *mac = cds_get_context(QDF_MODULE_ID_PE);
 
@@ -2309,20 +2327,43 @@ __wma_unified_link_radio_stats_event_handler(tp_wma_handle wma_handle,
 		chn_results =
 			(struct wifi_channel_stats *)&channels_in_this_event[0];
 		next_chan_offset = WMI_TLV_HDR_SIZE;
-		wma_debug("Channel Stats Info, radio id %d",
-			  radio_stats->radio_id);
+		wma_debug("Channel Stats Info, radio id %d, total channels %d",
+			  radio_stats->radio_id, radio_stats->num_channels);
+
+		info = qdf_mem_malloc(WMI_MAX_RADIO_STATS_LOGS);
+		if (!info) {
+			qdf_mem_free(channels_in_this_event);
+			return -ENOMEM;
+		}
+
 		for (count = 0; count < radio_stats->num_channels; count++) {
-			wma_nofl_debug("freq %u width %u freq0 %u freq1 %u awake time %u cca busy time %u",
-				       channel_stats->center_freq,
-				       channel_stats->channel_width,
-				       channel_stats->center_freq0,
-				       channel_stats->center_freq1,
-				       channel_stats->radio_awake_time,
-				       channel_stats->cca_busy_time);
-			if (per_chan_rx_tx_time_enabled) {
-				wma_nofl_debug("tx time %u rx time %u",
-					       channel_stats->tx_time,
-					       channel_stats->rx_time);
+			ret = qdf_scnprintf(info + stats_len,
+					WMI_MAX_RADIO_STATS_LOGS - stats_len,
+					" %d[%d][%d][%d]",
+					channel_stats->center_freq,
+					channel_stats->channel_width,
+					channel_stats->center_freq0,
+					channel_stats->center_freq1);
+			if (ret <= 0)
+				break;
+			stats_len += ret;
+
+			ret = qdf_scnprintf(info + stats_len,
+					WMI_MAX_RADIO_STATS_LOGS - stats_len,
+					"[%d][%d][%d][%d]",
+					channel_stats->radio_awake_time,
+					channel_stats->cca_busy_time,
+					channel_stats->tx_time,
+					channel_stats->rx_time);
+			if (ret <= 0)
+				break;
+			stats_len += ret;
+
+			if (stats_len >= (WMI_MAX_RADIO_STATS_LOGS -
+					WMI_MAX_RADIO_SINGLE_STATS_LEN)) {
+				wmi_nofl_debug("freq[width][freq0][freq1][awake time][cca busy time][rx time][tx time] :%s",
+					       info);
+				stats_len = 0;
 			}
 
 			channel_stats++;
@@ -2330,9 +2371,16 @@ __wma_unified_link_radio_stats_event_handler(tp_wma_handle wma_handle,
 			qdf_mem_copy(chn_results,
 				     t_channel_stats + next_chan_offset,
 				     chan_stats_size);
+
 			chn_results++;
 			next_chan_offset += sizeof(*channel_stats);
 		}
+
+		if (stats_len)
+			wmi_nofl_debug("freq[width][freq0][freq1][awake time][cca busy time][rx time][tx time] :%s",
+				       info);
+
+		qdf_mem_free(info);
 
 		status = wma_copy_chan_stats(num_chan_in_this_event,
 					     channels_in_this_event,
@@ -2724,10 +2772,12 @@ QDF_STATUS wma_process_ll_stats_get_req(tp_wma_handle wma,
 	}
 	qdf_mem_copy(cmd.peer_macaddr.bytes, addr, QDF_MAC_ADDR_SIZE);
 
-	status = wma_update_params_for_mlo_stats(wma, getReq, &cmd);
-	if (QDF_IS_STATUS_ERROR(status)) {
-		wma_err("Failed to update params for mlo_stats");
-		return status;
+	if (getReq->mlo_vdev_id_bitmap) {
+		status = wma_update_params_for_mlo_stats(wma, getReq, &cmd);
+		if (QDF_IS_STATUS_ERROR(status)) {
+			wma_err("Failed to update params for mlo_stats");
+			return status;
+		}
 	}
 
 	ret = wma_send_ll_stats_get_cmd(wma, &cmd);
@@ -2865,16 +2915,18 @@ int wma_unified_link_iface_stats_event_handler(void *handle,
 		iface_link_stats->rssi_data += WMA_TGT_NOISE_FLOOR_DBM;
 		iface_link_stats->rssi_ack += WMA_TGT_NOISE_FLOOR_DBM;
 	}
-	wma_debug("db2dbm: %d, rssi_mgmt: %d, rssi_data: %d, rssi_ack: %d, beacon_rx %u",
-		  db2dbm_enabled, iface_link_stats->rssi_mgmt,
-		  iface_link_stats->rssi_data, iface_link_stats->rssi_ack,
-		  iface_link_stats->beacon_rx);
 
 	/* Copy roaming state */
 	iface_stat->info.roaming = link_stats->roam_state;
 	/* Copy time slicing duty cycle */
 	iface_stat->info.time_slice_duty_cycle =
 		link_stats->time_slice_duty_cycle;
+
+	wma_debug("db2dbm: %d, rssi_mgmt: %d, rssi_data: %d, rssi_ack: %d, beacon_rx %u, time_slice_duty_cycle %u",
+		  db2dbm_enabled, iface_link_stats->rssi_mgmt,
+		  iface_link_stats->rssi_data, iface_link_stats->rssi_ack,
+		  iface_link_stats->beacon_rx,
+		  iface_stat->info.time_slice_duty_cycle);
 
 	iface_ac_stats = &iface_stat->ac_stats[0];
 	for (count = 0; count < link_stats->num_ac; count++) {
@@ -4384,6 +4436,8 @@ QDF_STATUS wma_remove_bss_peer_before_join(
 		return qdf_status;
 	}
 	mac_addr = bssid.bytes;
+
+	wma_delete_peer_mlo(wma->psoc, mac_addr);
 
 	qdf_status = wma_remove_peer(wma, mac_addr, vdev_id, false);
 

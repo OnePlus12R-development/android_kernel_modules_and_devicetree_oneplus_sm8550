@@ -1161,7 +1161,7 @@ int ipa_get_teth_stats(void)
 		goto destroy_imm;
 	}
 
-	stats_all = kzalloc(sizeof(*stats_all), GFP_KERNEL);
+	stats_all = vmalloc(sizeof(*stats_all));
 	if (!stats_all) {
 		IPADBG("failed to alloc memory\n");
 		ret = -ENOMEM;
@@ -1248,7 +1248,7 @@ int ipa_get_teth_stats(void)
 
 	ret = 0;
 free_stats:
-	kfree(stats_all);
+	vfree(stats_all);
 	stats = NULL;
 destroy_imm:
 	for (i = 0; i < num_cmd; i++)
@@ -1873,6 +1873,19 @@ int ipa_drop_stats_init(void)
 
 			mask = ipa_hw_stats_get_ep_bit_n_idx(
 				IPA_CLIENT_ODL_DPL_CONS,
+				&reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
+		}
+
+		/* Add drop stats for WAN & WAN_COAL if IPA_HW >=5.5 */
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_5) {
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_APPS_WAN_CONS,
+				&reg_idx);
+			pipe_bitmask[reg_idx] |= mask;
+
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_APPS_WAN_COAL_CONS,
 				&reg_idx);
 			pipe_bitmask[reg_idx] |= mask;
 		}

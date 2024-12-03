@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -182,6 +182,17 @@ QDF_STATUS scm_scan_register_bcn_cb(struct wlan_objmgr_psoc *psoc,
 	update_beacon_cb cb, enum scan_cb_type type);
 
 /**
+ * scm_scan_register_mbssid_cb() - API to register api to handle bcn/probe
+ * as soon as they are generated
+ * @psoc: psoc object
+ * @cb: callback to be registered
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS scm_scan_register_mbssid_cb(struct wlan_objmgr_psoc *psoc,
+				       update_mbssid_bcn_prb_rsp cb);
+
+/**
  * scm_db_init() - API to init scan db
  * @psoc: psoc
  *
@@ -303,6 +314,22 @@ uint32_t scm_get_last_scan_time_per_channel(struct wlan_objmgr_vdev *vdev,
 					    uint32_t freq);
 
 /**
+ * scm_scan_get_scan_entry_by_mac_freq() - Get scan entry by mac and freq
+ * @pdev: pdev info
+ * @bssid: BSSID of the bcn/probe response to be fetched from scan db
+ * @freq: freq for scan filter
+ * @cache_entry: cache entry to be filled from scan info
+ *
+ * Return: QDF_STATUS_SUCCESS if scan entry is present in scan db
+ */
+QDF_STATUS
+scm_scan_get_scan_entry_by_mac_freq(struct wlan_objmgr_pdev *pdev,
+				    struct qdf_mac_addr *bssid,
+				    uint16_t freq,
+				    struct scan_cache_entry
+				    *cache_entry);
+
+/**
  * scm_scan_get_entry_by_mac_addr() - Get bcn/probe rsp from scan db
  * @pdev: pdev info
  * @bssid: BSSID of the bcn/probe response to be fetched from scan db
@@ -318,4 +345,39 @@ QDF_STATUS
 scm_scan_get_entry_by_mac_addr(struct wlan_objmgr_pdev *pdev,
 			       struct qdf_mac_addr *bssid,
 			       struct element_info *frame);
+
+/**
+ * scm_scan_get_entry_by_bssid() - function to get scan entry by bssid
+ * @pdev: pdev object
+ * @bssid: bssid to be fetched from scan db
+ *
+ * Return : scan entry if found, else NULL
+ */
+struct scan_cache_entry *
+scm_scan_get_entry_by_bssid(struct wlan_objmgr_pdev *pdev,
+			    struct qdf_mac_addr *bssid);
+
+#ifdef WLAN_FEATURE_11BE_MLO
+/**
+ * scm_get_mld_addr_by_link_addr() - function to fetch the peer mld address from
+ * the scan entry for the given link address.
+ * @pdev: pdev object
+ * @link_addr: link address
+ * @mld_mac_addr: pointer to mld_mac_address
+ *
+ * Return : scan entry if found, else NULL
+ */
+QDF_STATUS
+scm_get_mld_addr_by_link_addr(struct wlan_objmgr_pdev *pdev,
+			      struct qdf_mac_addr *link_addr,
+			      struct qdf_mac_addr *mld_mac_addr);
+#else
+static inline QDF_STATUS
+scm_get_mld_addr_by_link_addr(struct wlan_objmgr_pdev *pdev,
+			      struct qdf_mac_addr *link_addr,
+			      struct qdf_mac_addr *mld_mac_addr)
+{
+	return QDF_STATUS_E_NOSUPPORT;
+}
+#endif
 #endif

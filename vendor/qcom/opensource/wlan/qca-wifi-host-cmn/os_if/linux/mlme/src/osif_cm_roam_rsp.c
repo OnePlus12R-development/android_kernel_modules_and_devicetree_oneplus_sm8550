@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2015,2020-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -34,6 +34,7 @@
 #include "wlan_mlme_ucfg_api.h"
 #endif
 #include "wlan_crypto_global_api.h"
+#include <osif_cm_req.h>
 
 #ifdef CONN_MGR_ADV_FEATURE
 #ifdef WLAN_FEATURE_FILS_SK
@@ -366,6 +367,10 @@ osif_send_roam_auth_mlo_links_event(struct sk_buff *skb,
 		return -EINVAL;
 
 	mlo_links  = nla_nest_start(skb, QCA_WLAN_VENDOR_ATTR_ROAM_AUTH_MLO_LINKS);
+	if (!mlo_links) {
+		osif_err("nla_nest_start error");
+		return -EINVAL;
+	}
 
 	for (i = 0; i < rsp->ml_parnter_info.num_partner_links; i++) {
 		mlo_links_info = nla_nest_start(skb, i);
@@ -505,7 +510,7 @@ static int osif_send_roam_auth_event(struct wlan_objmgr_vdev *vdev,
 				(ETH_ALEN * num_of_links) +
 				req_ie_len + resp_ie_len +
 				sizeof(uint8_t) + REPLAY_CTR_LEN +
-				KCK_KEY_LEN + roaming_info->kek_len +
+				roaming_info->kck_len + roaming_info->kek_len +
 				sizeof(uint16_t) + sizeof(uint8_t) +
 				(9 * NLMSG_HDRLEN) + fils_params_len,
 				QCA_NL80211_VENDOR_SUBCMD_KEY_MGMT_ROAM_AUTH_INDEX,
@@ -516,7 +521,7 @@ static int osif_send_roam_auth_event(struct wlan_objmgr_vdev *vdev,
 				ETH_ALEN + req_ie_len +
 				resp_ie_len +
 				sizeof(uint8_t) + REPLAY_CTR_LEN +
-				KCK_KEY_LEN + roaming_info->kek_len +
+				roaming_info->kck_len + roaming_info->kek_len +
 				sizeof(uint16_t) + sizeof(uint8_t) +
 				(9 * NLMSG_HDRLEN) + fils_params_len,
 				QCA_NL80211_VENDOR_SUBCMD_KEY_MGMT_ROAM_AUTH_INDEX,
@@ -558,6 +563,7 @@ static int osif_send_roam_auth_event(struct wlan_objmgr_vdev *vdev,
 		    !QDF_HAS_PARAM(akm, WLAN_CRYPTO_KEY_MGMT_FT_SAE) &&
 		    !QDF_HAS_PARAM(akm, WLAN_CRYPTO_KEY_MGMT_FT_IEEE8021X_SHA384) &&
 		    !QDF_HAS_PARAM(akm, WLAN_CRYPTO_KEY_MGMT_CCKM) &&
+		    !QDF_HAS_PARAM(akm, WLAN_CRYPTO_KEY_MGMT_FT_SAE_EXT_KEY) &&
 		    nla_put(skb,
 			    QCA_WLAN_VENDOR_ATTR_ROAM_AUTH_KEY_REPLAY_CTR,
 			    REPLAY_CTR_LEN,
@@ -567,6 +573,7 @@ static int osif_send_roam_auth_event(struct wlan_objmgr_vdev *vdev,
 			goto nla_put_failure;
 		}
 		if (roaming_info->kek_len > MAX_KEK_LENGTH ||
+		    roaming_info->kck_len > MAX_KCK_LEN ||
 		    nla_put(skb,
 			    QCA_WLAN_VENDOR_ATTR_ROAM_AUTH_PTK_KCK,
 			    roaming_info->kck_len, roaming_info->kck) ||
@@ -595,8 +602,10 @@ static int osif_send_roam_auth_event(struct wlan_objmgr_vdev *vdev,
 		 * into power save state.
 		 */
 		osif_cm_save_gtk(vdev, rsp);
-		osif_debug("roam_info_ptr->replay_ctr 0x%llx",
-			   *((uint64_t *)roaming_info->replay_ctr));
+		osif_debug("replay_ctr 0x%llx kck %d kek %d",
+			   *((uint64_t *)roaming_info->replay_ctr),
+			   roaming_info->kck_len,
+			   roaming_info->kek_len);
 
 	} else {
 		osif_debug("No Auth Params TLV's");
@@ -680,6 +689,7 @@ void osif_indicate_reassoc_results(struct wlan_objmgr_vdev *vdev,
 	struct cfg80211_bss *bss;
 	struct ieee80211_channel *chan;
 	struct wlan_objmgr_psoc *psoc;
+	QDF_STATUS status;
 
 	if (wlan_vdev_mlme_is_mlo_vdev(vdev) &&
 	    wlan_vdev_mlme_is_mlo_link_vdev(vdev))
@@ -692,13 +702,17 @@ void osif_indicate_reassoc_results(struct wlan_objmgr_vdev *vdev,
 	if (!psoc)
 		return;
 
-	chan = ieee80211_get_channel(osif_priv->wdev->wiphy,
-				     rsp->freq);
+	chan = ieee80211_get_channel(osif_priv->wdev->wiphy, rsp->freq);
+
 	bss = wlan_cfg80211_get_bss(osif_priv->wdev->wiphy, chan,
 				    rsp->bssid.bytes, rsp->ssid.ssid,
 				    rsp->ssid.length);
-	if (!bss)
-		osif_warn("not able to find bss");
+	if (!bss) {
+		osif_warn("BSS "QDF_MAC_ADDR_FMT" is null, issue disconnect",
+			  QDF_MAC_ADDR_REF(rsp->bssid.bytes));
+		goto issue_disconnect;
+	}
+
 	if (rsp->is_assoc)
 		osif_cm_get_assoc_req_ie_data(&rsp->connect_ies.assoc_req,
 					      &req_len, &req_ie);
@@ -712,6 +726,12 @@ void osif_indicate_reassoc_results(struct wlan_objmgr_vdev *vdev,
 				  rsp_len);
 
 	osif_update_fils_hlp_data(dev, vdev, rsp);
+	return;
+
+issue_disconnect:
+	status = osif_cm_disconnect(dev, vdev, REASON_UNSPEC_FAILURE);
+	if (QDF_IS_STATUS_ERROR(status))
+		osif_err("Disconnect failed with status %d", status);
 }
 
 QDF_STATUS

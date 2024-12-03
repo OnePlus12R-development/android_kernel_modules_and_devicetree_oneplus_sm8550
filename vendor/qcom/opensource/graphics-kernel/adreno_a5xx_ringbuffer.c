@@ -320,7 +320,7 @@ static u64 a5xx_get_user_profiling_ib(struct adreno_device *adreno_dev,
 	ib = rb->profile_desc->hostptr + offset;
 	gpuaddr = rb->profile_desc->gpuaddr + offset;
 	dwords = a5xx_get_alwayson_counter(adreno_dev, ib,
- 		cmdobj->profiling_buffer_gpuaddr + target_offset);
+		cmdobj->profiling_buffer_gpuaddr + target_offset);
 
 	cmds[0] = cp_type7_packet(CP_INDIRECT_BUFFER_PFE, 3);
 	cmds[1] = lower_32_bits(gpuaddr);

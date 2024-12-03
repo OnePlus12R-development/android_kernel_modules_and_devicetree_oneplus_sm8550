@@ -46,12 +46,14 @@ static int oplus_uprobe_enable = 0;
 static atomic_t uprobe_count = ATOMIC_INIT(0);
 typedef int (*uprobe_register_t)(struct inode *, loff_t, struct uprobe_consumer *);
 typedef void (*uprobe_unregister_t)(struct inode *, loff_t , struct uprobe_consumer *);
-typedef int (*kern_path_t)(const char *name, unsigned int flags, struct path *path);
-typedef void (*path_put_t)(const struct path *path);
 uprobe_register_t uprobe_register_funcptr = NULL;
 uprobe_unregister_t uprobe_unregister_funcptr = NULL;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
+typedef int (*kern_path_t)(const char *name, unsigned int flags, struct path *path);
+typedef void (*path_put_t)(const struct path *path);
 kern_path_t kern_path_funcptr = NULL;
 path_put_t path_put_funcptr = NULL;
+#endif
 DECLARE_RWSEM(oplus_event_sem);
 
 struct ou_param {
@@ -706,8 +708,8 @@ err:
 		kfree(parg->code);
 	return -EINVAL;
 }
-
-static int kern_path_fn(const char *name, unsigned int flags, struct path *path)
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
+static int __nocfi kern_path_fn(const char *name, unsigned int flags, struct path *path)
 {
 	int ret = 0;
 
@@ -716,11 +718,11 @@ static int kern_path_fn(const char *name, unsigned int flags, struct path *path)
 	return ret;
 }
 
-static void path_put_fn(const struct path *path)
+static void __nocfi path_put_fn(const struct path *path)
 {
 	path_put_funcptr(path);
 }
-
+#endif
 static struct oplus_uprobe* parse_uprobe_cmd(int argc, char **argv)
 {
 	char *arg;
@@ -768,8 +770,11 @@ static struct oplus_uprobe* parse_uprobe_cmd(int argc, char **argv)
 		goto err;
 	}
 	*arg++ = '\0';
-
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
 	ret = kern_path_fn(filename, LOOKUP_FOLLOW, &path);
+#else
+	ret = kern_path(filename, LOOKUP_FOLLOW, &path);
+#endif
 	if (ret < 0) {
 		pr_err(OPLUS_UPROBE_LOG_TAG "kern_path failed, ret %d, filename %s\n", ret, filename);
 		goto err;
@@ -891,8 +896,12 @@ err:
 
 	if (filename)
 		kfree(filename);
-
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
 	path_put_fn(&path);
+#else
+	path_put(&path);
+#endif
+
 	return NULL;
 }
 
@@ -950,8 +959,11 @@ static void delete_uprobe_cmd(int argc, char **argv)
 		return;
 	}
 	*arg++ = '\0';
-
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
 	ret = kern_path_fn(filename, LOOKUP_FOLLOW, &path);
+#else
+	ret = kern_path(filename, LOOKUP_FOLLOW, &path);
+#endif
 	if (ret < 0) {
 		pr_err(OPLUS_UPROBE_LOG_TAG "kern_path failed, ret %d, filename %s\n", ret, filename);
 		return;
@@ -1174,14 +1186,14 @@ static struct kprobe uprobe_register_kp = {
 static struct kprobe uprobe_unregister_kp = {
 	.symbol_name = "uprobe_unregister"
 };
-
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
 static struct kprobe kern_path_kp = {
 	.symbol_name = "kern_path"
 };
 static struct kprobe path_put_kp = {
 	.symbol_name = "path_put"
 };
-
+#endif
 static int __init oplus_uprobe_init(void) {
 
 	int ret;
@@ -1204,7 +1216,7 @@ static int __init oplus_uprobe_init(void) {
 		unregister_kprobe(&uprobe_unregister_kp);
 		pr_err(OPLUS_UPROBE_LOG_TAG" uprobe_unregister func addr:0x%lx\n", uprobe_unregister_funcptr);
 	}
-
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
 	ret = register_kprobe(&kern_path_kp);
 	if (ret < 0) {
 		pr_err(OPLUS_UPROBE_LOG_TAG" register_kprobe kern_path_kp failed, return %d\n", ret);
@@ -1224,7 +1236,7 @@ static int __init oplus_uprobe_init(void) {
 		unregister_kprobe(&path_put_kp);
 		pr_err(OPLUS_UPROBE_LOG_TAG" uprobe_unregister func addr:0x%lx\n", path_put_kp);
 	}
-
+#endif
 	if(NULL == uprobe_register_funcptr || NULL == uprobe_unregister_funcptr) {
 		pr_err(OPLUS_UPROBE_LOG_TAG" uprobe_register or uprobe_unregister is NULL\n");
 		return -EFAULT;

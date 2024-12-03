@@ -127,6 +127,22 @@ enum openwrt_driver_type get_openwrt_driver_type(void)
 }
 
 
+enum dev_mode dev_mode_to_enum(const char *mode)
+{
+	if (!mode)
+		return MODE_UNKNOWN;
+
+	if (strcasecmp(mode, "11be") == 0)
+		return MODE_11BE;
+	if (strcasecmp(mode, "11ax") == 0)
+		return MODE_11AX;
+	if (strcasecmp(mode, "11ac") == 0 || strcasecmp(mode, "ac") == 0)
+		return MODE_11AC;
+
+	return MODE_UNKNOWN;
+}
+
+
 enum sigma_program sigma_program_to_enum(const char *prog)
 {
 	if (prog == NULL)
@@ -141,6 +157,8 @@ enum sigma_program sigma_program_to_enum(const char *prog)
 		return PROGRAM_HS2_R2;
 	if (strcasecmp(prog, "HS2-R3") == 0)
 		return PROGRAM_HS2_R3;
+	if (strcasecmp(prog, "HS2-2022") == 0)
+		return PROGRAM_HS2_2022;
 	if (strcasecmp(prog, "HS2-R4") == 0)
 		return PROGRAM_HS2_R4;
 	if (strcasecmp(prog, "WFD") == 0)
@@ -175,8 +193,28 @@ enum sigma_program sigma_program_to_enum(const char *prog)
 		return PROGRAM_HE;
 	if (strcasecmp(prog, "QM") == 0)
 		return PROGRAM_QM;
+	if (strcasecmp(prog, "LOCR2") == 0)
+		return PROGRAM_LOCR2;
+	if (strcasecmp(prog, "EHT") == 0)
+		return PROGRAM_EHT;
 
 	return PROGRAM_UNKNOWN;
+}
+
+
+bool is_passpoint_r2_or_newer(enum sigma_program prog)
+{
+	return prog == PROGRAM_HS2_R2 ||
+		prog == PROGRAM_HS2_R3 ||
+		prog == PROGRAM_HS2_2022 ||
+		prog == PROGRAM_HS2_R4;
+}
+
+
+bool is_passpoint(enum sigma_program prog)
+{
+	return prog == PROGRAM_HS2 ||
+		is_passpoint_r2_or_newer(prog);
 }
 
 
@@ -1165,4 +1203,16 @@ void kill_pid(struct sigma_dut *dut, const char *pid_file)
 
 	unlink(pid_file);
 	sleep(1);
+}
+
+
+bool is_6ghz_freq(int freq)
+{
+	if (freq == 5935)
+		return true;
+
+	if (freq < 5950 || freq > 7115)
+		return false;
+
+	return true;
 }

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -583,6 +583,29 @@ exit:
 	return qdf_status_to_os_return(status);
 }
 
+int init_deinit_populate_sap_coex_capability(struct wlan_objmgr_psoc *psoc,
+					     wmi_unified_t handle,
+					     uint8_t *event)
+{
+	struct wmi_host_coex_fix_chan_cap sap_coex_fixed_chan_cap;
+	struct target_psoc_info *psoc_info;
+	QDF_STATUS status;
+
+	qdf_mem_zero(&sap_coex_fixed_chan_cap,
+		     sizeof(struct wmi_host_coex_fix_chan_cap));
+
+	status = wmi_extract_sap_coex_cap_service_ready_ext2(handle, event,
+					&sap_coex_fixed_chan_cap);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		target_if_err("Extraction of sap_coex_chan_pref cap failed");
+		goto exit;
+	}
+	psoc_info = wlan_psoc_get_tgt_if_handle(psoc);
+	target_psoc_set_sap_coex_fixed_chan_cap(psoc_info,
+				!!sap_coex_fixed_chan_cap.fix_chan_priority);
+exit:
+	return qdf_status_to_os_return(status);
+}
 
 QDF_STATUS init_deinit_dbr_ring_cap_free(
 		struct target_psoc_info *tgt_psoc_info)
@@ -913,6 +936,66 @@ QDF_STATUS init_deinit_scan_radio_cap_free(
 }
 
 qdf_export_symbol(init_deinit_scan_radio_cap_free);
+
+int init_deinit_populate_msdu_idx_qtype_map_ext2(wmi_unified_t wmi_handle,
+						 uint8_t *event,
+						 struct tgt_info *info)
+{
+	uint8_t *msdu_qtype;
+	uint32_t num_msdu_idx_qtype_map;
+	uint8_t msdu_idx;
+	QDF_STATUS status;
+
+	if (!event) {
+		target_if_err("Invalid event buffer");
+		return -EINVAL;
+	}
+
+	num_msdu_idx_qtype_map =
+		info->service_ext2_param.num_msdu_idx_qtype_map;
+	target_if_debug("num msdu_idx to qtype map = %d",
+			num_msdu_idx_qtype_map);
+
+	if (!num_msdu_idx_qtype_map)
+		return 0;
+
+	info->msdu_idx_qtype_map = qdf_mem_malloc(sizeof(uint8_t) *
+						  num_msdu_idx_qtype_map);
+
+	if (!info->msdu_idx_qtype_map) {
+		target_if_err("Failed to allocate memory for msdu idx qtype map");
+		return -EINVAL;
+	}
+
+	for (msdu_idx = 0; msdu_idx < num_msdu_idx_qtype_map; msdu_idx++) {
+		msdu_qtype = &info->msdu_idx_qtype_map[msdu_idx];
+		status = wmi_extract_msdu_idx_qtype_map_service_ready_ext2(
+				wmi_handle, event, msdu_idx, msdu_qtype);
+		if (QDF_IS_STATUS_ERROR(status)) {
+			target_if_err("Extraction of msdu idx qtype map failed");
+			goto free_and_return;
+		}
+	}
+
+	return 0;
+
+free_and_return:
+	qdf_mem_free(info->msdu_idx_qtype_map);
+	info->msdu_idx_qtype_map = NULL;
+
+	return qdf_status_to_os_return(status);
+}
+
+QDF_STATUS init_deinit_msdu_idx_qtype_map_free(
+		struct target_psoc_info *tgt_psoc_info)
+{
+	qdf_mem_free(tgt_psoc_info->info.msdu_idx_qtype_map);
+	tgt_psoc_info->info.msdu_idx_qtype_map = NULL;
+
+	return QDF_STATUS_SUCCESS;
+}
+
+qdf_export_symbol(init_deinit_msdu_idx_qtype_map_free);
 
 static bool init_deinit_regdmn_160mhz_support(
 		struct wlan_psoc_host_hal_reg_capabilities_ext *hal_cap)

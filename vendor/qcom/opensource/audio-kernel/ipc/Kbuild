@@ -55,6 +55,10 @@ ifeq ($(KERNEL_BUILD), 0)
 		include $(AUDIO_ROOT)/config/kalamaauto.conf
 		INCS    +=  -include $(AUDIO_ROOT)/config/kalamaautoconf.h
 	endif
+	ifeq ($(CONFIG_ARCH_CROW), y)
+		include $(AUDIO_ROOT)/config/crowauto.conf
+		INCS    +=  -include $(AUDIO_ROOT)/config/crowautoconf.h
+	endif
 	ifeq ($(CONFIG_ARCH_LITO), y)
 		include $(AUDIO_ROOT)/config/litoauto.conf
 		export
@@ -102,6 +106,11 @@ ifeq ($(KERNEL_BUILD), 0)
 		export
 		INCS    +=  -include $(AUDIO_ROOT)/config/sdxlemurautoconf.h
 	endif
+	ifeq ($(CONFIG_ARCH_SDXPINN), y)
+		include $(AUDIO_ROOT)/config/sdxpinnauto.conf
+		export
+		INCS    +=  -include $(AUDIO_ROOT)/config/sdxpinnautoconf.h
+	endif
 endif
 endif
 
@@ -136,7 +145,11 @@ GPRV_GLINK += gpr-lite.o
 endif
 
 ifdef CONFIG_AUDIO_PKT
+ifdef CONFIG_SND_SOC_PCIE
+AUDIO_PKT += audio-pcie-pkt.o
+else
 AUDIO_PKT += audio-pkt.o
+endif
 endif
 
 LINUX_INC += -Iinclude/linux

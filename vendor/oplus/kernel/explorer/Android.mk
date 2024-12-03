@@ -1,8 +1,8 @@
-ifneq ($(findstring $(TARGET_BOARD_PLATFORM),taro lahaina kalama parrot),)
+ifneq ($(findstring $(TARGET_BOARD_PLATFORM),taro lahaina kalama crow parrot),)
 $(warning explorer uses android.mk for QCOM)
 ###########################################################
 #For explorer on QCOM platform
-MMRM_BOARDS := taro kalama parrot
+MMRM_BOARDS := taro kalama crow parrot
 
 LOCAL_PATH:= $(call my-dir)
 

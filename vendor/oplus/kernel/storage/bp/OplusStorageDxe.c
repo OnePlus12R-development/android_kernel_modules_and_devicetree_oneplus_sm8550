@@ -103,10 +103,10 @@ EFI_STATUS EFIAPI UFSFirmwareOps(
 	in2 = (VOID*)&logo_partition_start_lba;
 	fw_offset = UNIFIED_RESERVE_UFS_FW_OFFSET;
 	if (need_upgrade_ufs_fimware(hUFS, (in1 ? (*(unsigned long long*)in1) : INVALID_LBA),
-						(in2 ? (*(unsigned long long*)in2) : 0),
+						*(unsigned long long*)in2,
 						fw_offset, fw_buff_addr) ||
 						need_upgrade_ufs_fimware(hUFS, (in1 ? (*(unsigned long long*)in1) : INVALID_LBA),
-						(in2 ? (*(unsigned long long*)in2) : 0),
+						*(unsigned long long*)in2,
 						UNIFIED_RESERVE_UFS_FW_OFFSET2,
 						fw_buff_addr))
 	{

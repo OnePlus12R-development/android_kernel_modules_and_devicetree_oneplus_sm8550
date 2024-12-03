@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -17,8 +17,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/**
- * ===========================================================================
+/*
  *                     sap_module.c
  *  OVERVIEW:
  *  This software unit holds the implementation of the WLAN SAP modules
@@ -26,7 +25,6 @@
  *  context gets initialised
  *  DEPENDENCIES:
  *  Are listed for each API below.
- * ===========================================================================
  */
 
 /* $Header$ */
@@ -58,6 +56,7 @@
 #include "wlan_mlme_vdev_mgr_interface.h"
 #include "pld_common.h"
 #include "wlan_pre_cac_api.h"
+#include "target_if.h"
 
 #define SAP_DEBUG
 static struct sap_context *gp_sap_ctx[SAP_MAX_NUM_SESSION];
@@ -613,70 +612,113 @@ enum phy_ch_width wlan_sap_get_concurrent_bw(struct wlan_objmgr_pdev *pdev,
 					     enum phy_ch_width channel_width)
 {
 	enum hw_mode_bandwidth sta_ch_width;
-	enum phy_ch_width sta_chan_width;
-	bool sta_present, is_con_chan_dfs = false;
+	enum phy_ch_width sta_chan_width = CH_WIDTH_20MHZ;
+	bool scc_sta_present, is_con_chan_dfs = false;
+	bool is_con_sta_indoor = false;
 	uint8_t sta_vdev_id;
 	uint8_t sta_sap_scc_on_dfs_chnl;
+	uint8_t sta_count = 0;
+	bool is_hw_dbs_capable = false;
 
 	if (WLAN_REG_IS_24GHZ_CH_FREQ(con_ch_freq))
-		return CH_WIDTH_20MHZ;
+		return channel_width;
 
 	if (wlan_reg_is_6ghz_chan_freq(con_ch_freq))
 		return channel_width;
 
-	sta_present = policy_mgr_is_sta_present_on_freq(psoc,
-							&sta_vdev_id,
-							con_ch_freq,
-							&sta_ch_width);
-	if (sta_present) {
+	/* sta_count is to check if there is STA present on any other
+	 * channel freq irrespective of concurrent channel.
+	 */
+	sta_count = policy_mgr_mode_specific_connection_count(
+							psoc,
+							PM_STA_MODE,
+							NULL);
+	scc_sta_present = policy_mgr_is_sta_present_on_freq(psoc,
+							    &sta_vdev_id,
+							    con_ch_freq,
+							    &sta_ch_width);
+	if (scc_sta_present) {
 		sta_chan_width = policy_mgr_get_ch_width(sta_ch_width);
+		sap_debug("sta_chan_width:%d, channel_width:%d",
+			  sta_chan_width, channel_width);
 		if (wlan_reg_is_dfs_for_freq(pdev, con_ch_freq) ||
 		    sta_chan_width == CH_WIDTH_160MHZ)
 			is_con_chan_dfs = true;
+		else if (WLAN_REG_IS_5GHZ_CH_FREQ(con_ch_freq) &&
+			 wlan_reg_is_freq_indoor(pdev, con_ch_freq))
+			is_con_sta_indoor = true;
 	}
 
-	if (policy_mgr_is_hw_dbs_capable(psoc)) {
-		if (is_con_chan_dfs)
-			channel_width = QDF_MIN(sta_chan_width, channel_width);
-		else if (sta_present && channel_width == CH_WIDTH_160MHZ)
-			channel_width = CH_WIDTH_80MHZ;
+	policy_mgr_get_sta_sap_scc_on_dfs_chnl(psoc, &sta_sap_scc_on_dfs_chnl);
+	is_hw_dbs_capable = policy_mgr_is_hw_dbs_capable(psoc);
+	sap_debug("sta_sap_scc_on_dfs_chnl:%d, is_hw_dbs_capable:%d, sta_count:%d, scc_sta_present:%d",
+		  sta_sap_scc_on_dfs_chnl,
+		  is_hw_dbs_capable, sta_count, scc_sta_present);
 
-		policy_mgr_get_sta_sap_scc_on_dfs_chnl(
-					psoc, &sta_sap_scc_on_dfs_chnl);
-		if (sta_sap_scc_on_dfs_chnl ==
-					PM_STA_SAP_ON_DFS_MASTER_MODE_FLEX) {
-			return channel_width;
-		} else if (sta_sap_scc_on_dfs_chnl ==
-				PM_STA_SAP_ON_DFS_MASTER_MODE_DISABLED) {
-			if (sta_present)
-				return channel_width;
-			/*
-			 * sta_sap_scc_on_dfs_chnl = 1, DFS master is disabled.
-			 * If STA not present (SAP single), the SAP (160Mhz) is
-			 * not allowed on DFS, so limit SAP to 80Mhz.
-			 */
-			return QDF_MIN(channel_width, CH_WIDTH_80MHZ);
-		}
-		/*
-		 * sta_sap_scc_on_dfs_chnl = 0, not allow STA+SAP SCC
-		 * on DFS. Limit SAP to 80Mhz if STA present.
-		 */
-		if (sta_present)
-			return QDF_MIN(channel_width, CH_WIDTH_80MHZ);
+	if (!is_hw_dbs_capable)
+		goto dfs_master_mode_check;
 
+	/*
+	 * In indoor concurrency cases, limit the channel width with the STA
+	 * interface bandwidth. Since, only the bonded channels are active
+	 * channels.
+	 */
+	if (is_con_sta_indoor) {
+		channel_width = QDF_MIN(sta_chan_width, channel_width);
+		sap_debug("STA + SAP on indoor channels");
+		return channel_width;
+	} else if (is_con_chan_dfs) {
+		channel_width = QDF_MIN(sta_chan_width, channel_width);
+		sap_debug("STA + SAP on dfs channels");
+		goto dfs_master_mode_check;
+	} else {
+		/* Handle "DBS + active channel" concurrency/standalone SAP */
+		sap_debug("STA + SAP/GO or standalone SAP on active channel");
+		if (scc_sta_present)
+			return  QDF_MAX(sta_chan_width, CH_WIDTH_80MHZ);
+		else if (sta_count)
+			return  QDF_MIN(channel_width, CH_WIDTH_80MHZ);
 		return channel_width;
 	}
 
-	/* if no STA present return max of BW and 80MHZ */
-	if (!sta_present)
-		return CH_WIDTH_80MHZ;
+dfs_master_mode_check:
+	/* Handle "DBS/non-DBS + dfs channels" concurrency */
+	if (sta_sap_scc_on_dfs_chnl == PM_STA_SAP_ON_DFS_MASTER_MODE_FLEX) {
+		if (scc_sta_present) {
+			sap_debug("STA+SAP/GO: limit the SAP channel width");
+			return QDF_MIN(sta_chan_width, channel_width);
+		}
 
-	/* if STA not on DFS return max of BW and 80MHZ */
-	if (!is_con_chan_dfs)
-		return  QDF_MAX(sta_chan_width, CH_WIDTH_80MHZ);
+		sap_debug("Standalone SAP/GO: set BW coming in start req");
+		return channel_width;
+	} else if (sta_sap_scc_on_dfs_chnl ==
+		   PM_STA_SAP_ON_DFS_MASTER_MODE_DISABLED) {
+		if (scc_sta_present) {
+			sap_debug("STA present: Limit the SAP channel width");
+			channel_width = QDF_MIN(sta_chan_width, channel_width);
+			return channel_width;
+		}
+		/*
+		 * sta_sap_scc_on_dfs_chnl = 1, DFS master is disabled.
+		 * If STA not present (SAP single), the SAP (160Mhz) is
+		 * not allowed on DFS, so limit SAP to 80Mhz.
+		 */
+		sap_debug("Limit Standalone SAP/GO to 80Mhz");
+		return QDF_MIN(channel_width, CH_WIDTH_80MHZ);
+	}
 
-	/* If sta channel is DFS return min of 80 and STA BW */
-	return QDF_MIN(sta_chan_width, CH_WIDTH_80MHZ);
+	/*
+	 * sta_sap_scc_on_dfs_chnl = 0, not allow STA+SAP SCC on DFS.
+	 * Limit SAP to 80Mhz if STA present.
+	 */
+	if (sta_count) {
+		sap_debug("STA present, Limit SAP/GO to 80Mhz");
+		return QDF_MIN(channel_width, CH_WIDTH_80MHZ);
+	}
+
+	sap_debug("Single SAP/GO: set BW coming in SAP/GO start req");
+	return channel_width;
+
 }
 
 uint32_t wlan_sap_get_vht_ch_width(struct sap_context *sap_ctx)
@@ -705,7 +747,7 @@ bool wlan_sap_get_ch_params(struct sap_context *sap_ctx,
  * wlan_sap_validate_channel_switch() - validate target channel switch w.r.t
  *      concurreny rules set to avoid channel interference.
  * @mac_handle: Opaque handle to the global MAC context
- * @sap_ch: channel to switch
+ * @sap_ch_freq: channel to switch
  * @sap_context: sap session context
  *
  * Return: true if there is no channel interference else return false
@@ -768,6 +810,7 @@ QDF_STATUS wlansap_start_bss(struct sap_context *sap_ctx,
 	}
 
 	sap_ctx->fsm_state = SAP_INIT;
+	sap_debug("sap_fsm: vdev %d:  => SAP_INIT", sap_ctx->vdev_id);
 
 	qdf_status = wlan_set_vdev_crypto_prarams_from_ie(
 			sap_ctx->vdev,
@@ -1385,7 +1428,7 @@ wlansap_get_csa_chanwidth_from_phymode(struct sap_context *sap_context,
 
 /**
  * sap_start_csa_restart() - send csa start event
- * @mac_ctx: mac ctx
+ * @mac: mac ctx
  * @sap_ctx: SAP context
  *
  * Return: QDF_STATUS
@@ -1570,7 +1613,11 @@ QDF_STATUS wlansap_set_channel_change_with_csa(struct sap_context *sap_ctx,
 	}
 	mac_handle = MAC_HANDLE(mac);
 
-	if (!policy_mgr_is_sap_freq_allowed(mac->psoc, target_chan_freq)) {
+	if (((sap_ctx->acs_cfg && sap_ctx->acs_cfg->acs_mode) ||
+	     !target_psoc_get_sap_coex_fixed_chan_cap(
+			wlan_psoc_get_tgt_if_handle(mac->psoc)) ||
+	     sap_ctx->csa_reason != CSA_REASON_USER_INITIATED) &&
+	    !policy_mgr_is_sap_freq_allowed(mac->psoc, target_chan_freq)) {
 		sap_err("%u is unsafe channel freq", target_chan_freq);
 		return QDF_STATUS_E_FAULT;
 	}
@@ -1864,7 +1911,7 @@ wlansap_fill_channel_change_request(struct sap_context *sap_ctx,
 	if (dot11_cfg.ext_rates.numRates) {
 		qdf_mem_copy(req->ext_rates.rate,
 			     dot11_cfg.ext_rates.rate,
-			     sizeof(dot11_cfg.ext_rates.numRates));
+			     dot11_cfg.ext_rates.numRates);
 		qdf_mem_copy(sap_ctx->sap_bss_cfg.extendedRateSet.rate,
 			     dot11_cfg.ext_rates.rate,
 			     dot11_cfg.ext_rates.numRates);
@@ -1970,6 +2017,12 @@ QDF_STATUS wlansap_channel_change_request(struct sap_context *sap_ctx,
 		  sap_ctx->chan_freq, phy_mode, ch_params->ch_width,
 		  ch_params->sec_ch_offset, ch_params->center_freq_seg0,
 		  ch_params->center_freq_seg1);
+	if (policy_mgr_update_indoor_concurrency(mac_ctx->psoc,
+						wlan_vdev_get_id(sap_ctx->vdev),
+						sap_ctx->freq_before_ch_switch,
+						DISCONNECT_WITH_CONCURRENCY))
+		wlan_reg_recompute_current_chan_list(mac_ctx->psoc,
+						     mac_ctx->pdev);
 
 	return status;
 }
@@ -2855,9 +2908,10 @@ wlansap_get_max_bw_by_phymode(struct sap_context *sap_ctx)
 			ch_width = CH_WIDTH_160MHZ;
 		else
 			ch_width = CH_WIDTH_80MHZ;
-
-		ch_width = QDF_MAX(
-				wlansap_get_target_eht_phy_ch_width(),
+		if (CSR_IS_DOT11_PHY_MODE_11BE(sap_ctx->phyMode) ||
+		    CSR_IS_DOT11_PHY_MODE_11BE_ONLY(sap_ctx->phyMode))
+			ch_width =
+			QDF_MAX(wlansap_get_target_eht_phy_ch_width(),
 				ch_width);
 	} else if (sap_ctx->phyMode == eCSR_DOT11_MODE_11n ||
 		   sap_ctx->phyMode == eCSR_DOT11_MODE_11n_ONLY) {
@@ -3481,6 +3535,7 @@ qdf_freq_t wlansap_get_chan_band_restrict(struct sap_context *sap_ctx,
 	enum reg_wifi_band sap_band;
 	enum band_info band;
 	bool sta_sap_scc_on_indoor_channel;
+	struct ch_params ch_params = {0};
 
 	if (!sap_ctx) {
 		sap_err("sap_ctx NULL parameter");
@@ -3585,6 +3640,22 @@ qdf_freq_t wlansap_get_chan_band_restrict(struct sap_context *sap_ctx,
 		sap_debug("channel is unsafe");
 		*csa_reason = CSA_REASON_UNSAFE_CHANNEL;
 		return wlansap_get_safe_channel_from_pcl_and_acs_range(sap_ctx);
+	} else if (sap_band == REG_BAND_6G &&
+		   wlan_reg_get_keep_6ghz_sta_cli_connection(mac->pdev)) {
+		ch_params.ch_width = sap_ctx->ch_params.ch_width;
+		wlan_reg_set_channel_params_for_pwrmode(mac->pdev,
+						sap_ctx->chan_freq,
+						0, &ch_params,
+						REG_CURRENT_PWR_MODE);
+		if (sap_ctx->ch_params.ch_width != ch_params.ch_width) {
+			sap_debug("Bonded 6GHz channels are disabled");
+			*csa_reason = CSA_REASON_BAND_RESTRICTED;
+			return wlansap_get_safe_channel_from_pcl_and_acs_range(
+								sap_ctx);
+		} else {
+			sap_debug("No need switch SAP/Go channel");
+			return 0;
+		}
 	} else {
 		sap_debug("No need switch SAP/Go channel");
 		return 0;
@@ -3700,7 +3771,7 @@ QDF_STATUS wlansap_dcs_set_wlan_interference_mitigation_on_band(
 	QDF_STATUS status = QDF_STATUS_SUCCESS;
 	bool wlan_interference_mitigation_enable = false;
 
-	if (WLAN_REG_IS_5GHZ_CH_FREQ(sap_cfg->acs_cfg.pri_ch_freq))
+	if (!WLAN_REG_IS_24GHZ_CH_FREQ(sap_cfg->acs_cfg.pri_ch_freq))
 		wlan_interference_mitigation_enable = true;
 
 	status = wlansap_dcs_set_vdev_wlan_interference_mitigation(

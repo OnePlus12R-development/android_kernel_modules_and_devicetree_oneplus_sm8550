@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -120,6 +120,34 @@ util_scan_entry_macaddr(struct scan_cache_entry *scan_entry)
 {
 	return &(scan_entry->mac_addr.bytes[0]);
 }
+
+#ifdef WLAN_FEATURE_11BE_MLO
+/**
+ * util_scan_entry_mldaddr() - Function to get MLD address
+ * @scan_entry: Scan entry
+ *
+ * API will return the MLD address of the scan entry.
+ *
+ * Return: Pointer to MLD address.
+ */
+
+static inline struct qdf_mac_addr *
+util_scan_entry_mldaddr(struct scan_cache_entry *scan_entry)
+{
+	struct qdf_mac_addr *mld_addr = &scan_entry->ml_info.mld_mac_addr;
+
+	if (qdf_is_macaddr_zero(mld_addr))
+		return NULL;
+
+	return mld_addr;
+}
+#else
+static inline struct qdf_mac_addr *
+util_scan_entry_mldaddr(struct scan_cache_entry *scan_entry)
+{
+	return NULL;
+}
+#endif
 
 /**
  * util_scan_entry_bssid() - function to read bssid
@@ -738,10 +766,16 @@ util_scan_copy_beacon_data(struct scan_cache_entry *new_entry,
 	/* This macro will be removed once 11be is enabled */
 	ie_lst->ehtcap = conv_ptr(ie_lst->ehtcap, old_ptr, new_ptr);
 	ie_lst->ehtop = conv_ptr(ie_lst->ehtop, old_ptr, new_ptr);
+	ie_lst->bw_ind =
+		conv_ptr(ie_lst->bw_ind, old_ptr, new_ptr);
 #endif
 #ifdef WLAN_FEATURE_11BE_MLO
 	ie_lst->multi_link_bv =
 			conv_ptr(ie_lst->multi_link_bv, old_ptr, new_ptr);
+	ie_lst->multi_link_rv =
+			conv_ptr(ie_lst->multi_link_rv, old_ptr, new_ptr);
+	for (i = 0; i < WLAN_MAX_T2LM_IE; i++)
+		ie_lst->t2lm[i] = conv_ptr(ie_lst->t2lm[i], old_ptr, new_ptr);
 #endif
 	ie_lst->qcn = conv_ptr(ie_lst->qcn, old_ptr, new_ptr);
 
@@ -1582,10 +1616,36 @@ util_scan_entry_ehtop(struct scan_cache_entry *scan_entry)
 {
 	return scan_entry->ie_list.ehtop;
 }
+
+static inline uint8_t*
+util_scan_entry_bw_ind(struct scan_cache_entry *scan_entry)
+{
+	return scan_entry->ie_list.bw_ind;
+}
 #else
 
 static inline uint8_t*
 util_scan_entry_ehtcap(struct scan_cache_entry *scan_entry)
+{
+	return NULL;
+}
+
+static inline uint8_t*
+util_scan_entry_bw_ind(struct scan_cache_entry *scan_entry)
+{
+	return NULL;
+}
+#endif
+
+#ifdef WLAN_FEATURE_11BE_MLO
+static inline uint8_t*
+util_scan_entry_t2lm(struct scan_cache_entry *scan_entry)
+{
+	return scan_entry->ie_list.t2lm[0];
+}
+#else
+static inline uint8_t*
+util_scan_entry_t2lm(struct scan_cache_entry *scan_entry)
 {
 	return NULL;
 }

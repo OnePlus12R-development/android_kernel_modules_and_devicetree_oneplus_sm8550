@@ -31,7 +31,7 @@ static int task_cpustats_enable;
 
 struct acct_cpustat {
 	pid_t tgid;
-	unsigned int pwr;
+	atomic64_t pwr;
 	char comm[TASK_COMM_LEN];
 };
 
@@ -60,7 +60,8 @@ static int task_cpustats_show(struct seq_file *m, void *v)
 {
 	int *idx = (int *) v;
 
-	seq_printf(m, "%d\t%d\t%d\t%s\n", *idx, cpustats[*idx].tgid, cpustats[*idx].pwr, cpustats[*idx].comm);
+	seq_printf(m, "%d\t%d\t%d\t%s\n", *idx, cpustats[*idx].tgid,
+		atomic64_read(&cpustats[*idx].pwr), cpustats[*idx].comm);
 	return 0;
 }
 
@@ -71,7 +72,7 @@ static void *task_cpustats_next(struct seq_file *m, void *v, loff_t *ppos)
 	(*idx)++;
 	(*ppos)++;
 	for (; *idx < MAX_PID; (*idx)++, (*ppos)++) {
-		if (cpustats[*idx].pwr)
+		if (atomic64_read(&cpustats[*idx].pwr))
 			return idx;
 	}
 	return NULL;
@@ -90,7 +91,7 @@ static void *task_cpustats_start(struct seq_file *m, loff_t *ppos)
 		goto start_error;
 
 	for (; *idx < MAX_PID; (*idx)++, (*ppos)++) {
-		if (cpustats[*idx].pwr)
+		if (atomic64_read(&cpustats[*idx].pwr))
 			return idx;
 	}
 start_error:
@@ -159,11 +160,12 @@ static int task_cpustats_open(struct inode *inode, struct file *file)
 			if (ktask_cpustat[i].cpustat[j].pid >= MAX_PID)
 				continue;
 			if (ktask_cpustat[i].cpustat[j].begin >= begin && ktask_cpustat[i].cpustat[j].end <= end) {
-				if (cpustats[ktask_cpustat[i].cpustat[j].pid].pwr == 0) {
+				if (atomic64_read(&cpustats[ktask_cpustat[i].cpustat[j].pid].pwr) == 0) {
 					memcpy(cpustats[ktask_cpustat[i].cpustat[j].pid].comm, ktask_cpustat[i].cpustat[j].comm, TASK_COMM_LEN);
 					cpustats[ktask_cpustat[i].cpustat[j].pid].tgid = ktask_cpustat[i].cpustat[j].tgid;
 				}
-				cpustats[ktask_cpustat[i].cpustat[j].pid].pwr += get_power(i, ktask_cpustat[i].cpustat[j].freq) * jiffies_to_msecs(r_time);
+				atomic64_add(get_power(i, ktask_cpustat[i].cpustat[j].freq) * jiffies_to_msecs(r_time),
+						&cpustats[ktask_cpustat[i].cpustat[j].pid].pwr);
 			}
 		}
 		i++;

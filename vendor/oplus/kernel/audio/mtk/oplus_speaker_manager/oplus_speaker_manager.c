@@ -10,7 +10,6 @@
 **
 ** --------------------------- Revision History: --------------------------------
 **    <author>       <date>          <desc>
-**  Jianqing.Liao   2020.11.27     Add this file
 ** OPLUS Coding Static Checking Skip
 ************************************************************************************/
 

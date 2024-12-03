@@ -160,6 +160,21 @@ struct fp_key {
 #define FP_IOC_FAULT_INJECT_BLOCK_MSG_DOWN    _IO(FP_IOC_MAGIC, 403)
 #define FP_IOC_FAULT_INJECT_BLOCK_MSG_UIREADY _IO(FP_IOC_MAGIC, 404)
 
+// uiready notify
+/************************************************/
+#if (IS_ENABLED(CONFIG_DRM_PANEL_NOTIFY) || IS_ENABLED(CONFIG_QCOM_PANEL_EVENT_NOTIFIER))
+#ifndef PANEL_EVENT_NOTIFIER_CLIENT_PRIMARY_ONSCREENFINGERPRINT
+#define PANEL_EVENT_NOTIFIER_CLIENT_PRIMARY_ONSCREENFINGERPRINT 3
+#endif
+#ifndef DRM_PANEL_EVENT_ONSCREENFINGERPRINT_UI_READY
+#define DRM_PANEL_EVENT_ONSCREENFINGERPRINT_UI_READY 0x10
+#endif
+#ifndef DRM_PANEL_EVENT_ONSCREENFINGERPRINT_UI_DISAPPEAR
+#define DRM_PANEL_EVENT_ONSCREENFINGERPRINT_UI_DISAPPEAR 0x11
+#endif
+#endif
+/************************************************/
+
 // netlink function
 /************************************************/
 #define FP_NETLINK_ENABLE 1
@@ -201,6 +216,7 @@ struct fp_dev {
     fp_power_info_t pwr_list[FP_MAX_PWR_LIST_LEN];
     uint32_t        notify_tpinfo_flag;
     uint32_t        ftm_poweroff_flag;
+    uint32_t        optical_irq_disable_flag;
 
 #if defined(MTK_PLATFORM)
     struct pinctrl *pinctrl;

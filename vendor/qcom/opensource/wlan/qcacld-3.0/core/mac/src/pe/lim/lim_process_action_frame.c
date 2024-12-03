@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -54,12 +54,19 @@
 #include "dot11f.h"
 #include "wlan_p2p_cfg_api.h"
 #include "son_api.h"
+#include "wlan_t2lm_api.h"
+#include "wlan_mlo_mgr_public_structs.h"
 
 #define SA_QUERY_REQ_MIN_LEN \
 (DOT11F_FF_CATEGORY_LEN + DOT11F_FF_ACTION_LEN + DOT11F_FF_TRANSACTIONID_LEN)
 #define SA_QUERY_RESP_MIN_LEN \
 (DOT11F_FF_CATEGORY_LEN + DOT11F_FF_ACTION_LEN + DOT11F_FF_TRANSACTIONID_LEN)
 #define SA_QUERY_IE_OFFSET (4)
+
+#define MIN_OCI_IE_LEN 6
+#define OCI_IE_OUI_SIZE 1
+#define OCI_IE_OP_CLS_OFFSET 3
+#define ELE_ID_EXT_LEN 1
 
 static last_processed_msg rrm_link_action_frm;
 
@@ -246,7 +253,7 @@ static void __lim_process_operating_mode_action_frame(struct mac_context *mac_ct
 	uint32_t status;
 	tpDphHashNode sta_ptr;
 	uint16_t aid;
-	uint8_t ch_bw = 0;
+	enum phy_ch_width ch_bw = 0;
 
 	mac_hdr = WMA_GET_RX_MAC_HEADER(rx_pkt_info);
 	body_ptr = WMA_GET_RX_MPDU_DATA(rx_pkt_info);
@@ -1217,16 +1224,22 @@ static bool
 lim_check_oci_match(struct mac_context *mac, struct pe_session *pe_session,
 		    uint8_t *ie, uint8_t *peer, uint32_t ie_len)
 {
-	const uint8_t *oci_ie;
-	tDot11fIEoci self_oci, *peer_oci;
+	const uint8_t *oci_ie, ext_id_param = WLAN_EXTN_ELEMID_OCI;
+	tDot11fIEoci self_oci, peer_oci = {0};
 	uint16_t peer_chan_width;
 	uint16_t local_peer_chan_width = 0;
 	uint8_t country_code[CDS_COUNTRY_CODE_LEN + 1];
+	uint32_t status = DOT11F_PARSE_SUCCESS;
 
 	if (!lim_is_self_and_peer_ocv_capable(mac, peer, pe_session))
 		return true;
 
-	oci_ie = wlan_get_ie_ptr_from_eid(DOT11F_EID_OCI, ie, ie_len);
+	if (ie_len < MIN_OCI_IE_LEN)
+		return false;
+
+	oci_ie = wlan_get_ext_ie_ptr_from_ext_id(&ext_id_param,
+						 OCI_IE_OUI_SIZE,
+						 ie, ie_len);
 	if (!oci_ie) {
 		pe_err("OCV not found OCI in SA Query frame!");
 		return false;
@@ -1240,29 +1253,35 @@ lim_check_oci_match(struct mac_context *mac, struct pe_session *pe_session,
 	 * Primary channel      : 1 byte
 	 * Freq_seg_1_ch_num    : 1 byte
 	 */
-	peer_oci = (tDot11fIEoci *)&oci_ie[2];
+	status = dot11f_unpack_ie_oci(mac,
+				      (uint8_t *)&oci_ie[OCI_IE_OP_CLS_OFFSET],
+				      oci_ie[SIR_MAC_IE_LEN_OFFSET] -
+				      ELE_ID_EXT_LEN,
+				      &peer_oci, false);
+	if (!DOT11F_SUCCEEDED(status) || !peer_oci.present)
+		return false;
 
 	wlan_reg_read_current_country(mac->psoc, country_code);
 	peer_chan_width =
 	wlan_reg_dmn_get_chanwidth_from_opclass_auto(
 			country_code,
-			peer_oci->prim_ch_num,
-			peer_oci->op_class);
+			peer_oci.prim_ch_num,
+			peer_oci.op_class);
 
 	lim_fill_oci_params(mac, pe_session, &self_oci, peer,
 			    &local_peer_chan_width);
-	if (((self_oci.op_class != peer_oci->op_class) &&
-	     (local_peer_chan_width > peer_chan_width)) ||
-	    (self_oci.prim_ch_num != peer_oci->prim_ch_num) ||
-	    (self_oci.freq_seg_1_ch_num != peer_oci->freq_seg_1_ch_num)) {
+	if ((self_oci.op_class != peer_oci.op_class &&
+	     local_peer_chan_width > peer_chan_width) ||
+	    self_oci.prim_ch_num != peer_oci.prim_ch_num ||
+	    self_oci.freq_seg_1_ch_num != peer_oci.freq_seg_1_ch_num) {
 		pe_err("OCI mismatch,self %d %d %d %d, peer %d %d %d %d",
 		       self_oci.op_class,
 		       self_oci.prim_ch_num,
 		       self_oci.freq_seg_1_ch_num,
 		       local_peer_chan_width,
-		       peer_oci->op_class,
-		       peer_oci->prim_ch_num,
-		       peer_oci->freq_seg_1_ch_num,
+		       peer_oci.op_class,
+		       peer_oci.prim_ch_num,
+		       peer_oci.freq_seg_1_ch_num,
 		       peer_chan_width);
 		return false;
 	}
@@ -1607,7 +1626,7 @@ static void lim_process_addba_req(struct mac_context *mac_ctx, uint8_t *rx_pkt_i
 			session,
 			addba_req->addba_extn_element.present,
 			addba_req->addba_param_set.amsdu_supp,
-			mac_hdr->fc.wep, buff_size);
+			mac_hdr->fc.wep, buff_size, mac_hdr->bssId);
 		if (qdf_status != QDF_STATUS_SUCCESS) {
 			pe_err("Failed to send addba response frame");
 			cdp_addba_resp_tx_completion(
@@ -1702,6 +1721,9 @@ void lim_process_action_frame(struct mac_context *mac_ctx,
 	tpSirMacVendorSpecificFrameHdr vendor_specific;
 	uint8_t dpp_oui[] = { 0x50, 0x6F, 0x9A, 0x1A };
 	tpSirMacVendorSpecificPublicActionFrameHdr pub_action;
+	enum wlan_t2lm_resp_frm_type status_code;
+	uint8_t token = 0;
+	struct wlan_objmgr_peer *peer = NULL;
 
 	if (frame_len < sizeof(*action_hdr)) {
 		pe_debug("frame_len %d less than Action Frame Hdr size",
@@ -2136,11 +2158,65 @@ void lim_process_action_frame(struct mac_context *mac_ctx,
 			break;
 		}
 		break;
+	case ACTION_CATEGORY_PROTECTED_EHT:
+		pe_debug("EHT T2LM action category: %d action: %d",
+			 action_hdr->category, action_hdr->actionID);
+		mac_hdr = WMA_GET_RX_MAC_HEADER(rx_pkt_info);
+		body_ptr = WMA_GET_RX_MPDU_DATA(rx_pkt_info);
+		frame_len = WMA_GET_RX_PAYLOAD_LEN(rx_pkt_info);
+		peer = wlan_objmgr_get_peer_by_mac(mac_ctx->psoc,
+						   mac_hdr->sa,
+						   WLAN_LEGACY_MAC_ID);
+		if (!peer) {
+			pe_err("Peer is null");
+			break;
+		}
+		switch (action_hdr->actionID) {
+		case EHT_T2LM_REQUEST:
+			if (wlan_t2lm_deliver_event(
+				session->vdev, peer,
+				WLAN_T2LM_EV_ACTION_FRAME_RX_REQ,
+				(void *)body_ptr, frame_len,
+				&token) == QDF_STATUS_SUCCESS)
+				status_code = WLAN_T2LM_RESP_TYPE_SUCCESS;
+			else
+				status_code =
+				WLAN_T2LM_RESP_TYPE_DENIED_TID_TO_LINK_MAPPING;
+
+			if (lim_send_t2lm_action_rsp_frame(
+					mac_ctx, mac_hdr->sa, session, token,
+					status_code) != QDF_STATUS_SUCCESS)
+				pe_err("T2LM action response frame not sent");
+			else
+				wlan_send_peer_level_tid_to_link_mapping(
+								session->vdev,
+								peer);
+			break;
+		case EHT_T2LM_RESPONSE:
+			wlan_t2lm_deliver_event(
+					session->vdev, peer,
+					WLAN_T2LM_EV_ACTION_FRAME_RX_RESP,
+					(void *)body_ptr, frame_len, &token);
+			break;
+		case EHT_T2LM_TEARDOWN:
+			wlan_t2lm_deliver_event(
+					session->vdev, peer,
+					WLAN_T2LM_EV_ACTION_FRAME_RX_TEARDOWN,
+					(void *)body_ptr, frame_len, NULL);
+			break;
+		default:
+			pe_err("Unhandled T2LM action frame");
+			break;
+		}
+		break;
 	default:
-		pe_warn("Action category: %d not handled",
+		pe_warn_rl("Action category: %d not handled",
 			action_hdr->category);
 		break;
 	}
+
+	if (peer)
+		wlan_objmgr_peer_release_ref(peer, WLAN_LEGACY_MAC_ID);
 }
 
 /**
@@ -2222,8 +2298,8 @@ void lim_process_action_frame_no_session(struct mac_context *mac, uint8_t *pBd)
 					RXMGMT_FLAG_NONE);
 			break;
 		default:
-			pe_warn("Unhandled public action frame: %x",
-				       action_hdr->actionID);
+			pe_info_rl("Unhandled public action frame: %x",
+				   action_hdr->actionID);
 			break;
 		}
 		break;

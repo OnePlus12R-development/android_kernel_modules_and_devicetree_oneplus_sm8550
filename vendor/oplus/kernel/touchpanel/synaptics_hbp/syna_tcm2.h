@@ -688,6 +688,10 @@ struct syna_tcm {
 	int daemon_state;
 	int primary_timestamp_enabled;
 	int driver_current_state;
+	bool differ_read_every_frame;
+	bool tp_data_record_support;
+	bool enter_force_doze;
+	int boot_mode;                                      /*boot up mode */
 
 	unsigned int waiting_frame;
 	unsigned int wait_for_ioctl_operation;

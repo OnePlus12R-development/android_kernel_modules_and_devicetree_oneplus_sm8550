@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -21,9 +21,6 @@
  * DOC: qdf_nbuf.c
  * QCA driver framework(QDF) network buffer management APIs
  */
-#ifdef IPA_OFFLOAD
-#include <i_qdf_ipa_wdi3.h>
-#endif
 #include <linux/hashtable.h>
 #include <linux/kernel.h>
 #include <linux/version.h>
@@ -44,6 +41,7 @@
 #include <qdf_types.h>
 #include <net/ieee80211_radiotap.h>
 #include <pld_common.h>
+#include <qdf_crypto.h>
 
 #if defined(FEATURE_TSO)
 #include <net/ipv6.h>
@@ -52,6 +50,10 @@
 #include <linux/if_vlan.h>
 #include <linux/ip.h>
 #endif /* FEATURE_TSO */
+
+#ifdef IPA_OFFLOAD
+#include <i_qdf_ipa_wdi3.h>
+#endif /* IPA_OFFLOAD */
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 13, 0)
 
@@ -527,6 +529,40 @@ qdf_export_symbol(qdf_nbuf_frag_count_dec);
 
 #endif
 
+static inline void
+qdf_nbuf_set_defaults(struct sk_buff *skb, int align, int reserve)
+{
+	unsigned long offset;
+
+	memset(skb->cb, 0x0, sizeof(skb->cb));
+	skb->dev = NULL;
+
+	/*
+	 * The default is for netbuf fragments to be interpreted
+	 * as wordstreams rather than bytestreams.
+	 */
+	QDF_NBUF_CB_TX_EXTRA_FRAG_WORDSTR_EFRAG(skb) = 1;
+	QDF_NBUF_CB_TX_EXTRA_FRAG_WORDSTR_NBUF(skb) = 1;
+
+	/*
+	 * XXX:how about we reserve first then align
+	 * Align & make sure that the tail & data are adjusted properly
+	 */
+
+	if (align) {
+		offset = ((unsigned long)skb->data) % align;
+		if (offset)
+			skb_reserve(skb, align - offset);
+	}
+
+	/*
+	 * NOTE:alloc doesn't take responsibility if reserve unaligns the data
+	 * pointer
+	 */
+	skb_reserve(skb, reserve);
+	qdf_nbuf_count_inc(skb);
+}
+
 #if defined(CONFIG_WIFI_EMULATION_WIFI_3_0) && defined(BUILD_X86) && \
 	!defined(QCA_WIFI_QCN9000)
 struct sk_buff *__qdf_nbuf_alloc(qdf_device_t osdev, size_t size, int reserve,
@@ -534,7 +570,6 @@ struct sk_buff *__qdf_nbuf_alloc(qdf_device_t osdev, size_t size, int reserve,
 				 uint32_t line)
 {
 	struct sk_buff *skb;
-	unsigned long offset;
 	uint32_t lowmem_alloc_tries = 0;
 
 	if (align)
@@ -572,32 +607,8 @@ skb_alloc:
 			goto realloc;
 		}
 	}
-	memset(skb->cb, 0x0, sizeof(skb->cb));
 
-	/*
-	 * The default is for netbuf fragments to be interpreted
-	 * as wordstreams rather than bytestreams.
-	 */
-	QDF_NBUF_CB_TX_EXTRA_FRAG_WORDSTR_EFRAG(skb) = 1;
-	QDF_NBUF_CB_TX_EXTRA_FRAG_WORDSTR_NBUF(skb) = 1;
-
-	/*
-	 * XXX:how about we reserve first then align
-	 * Align & make sure that the tail & data are adjusted properly
-	 */
-
-	if (align) {
-		offset = ((unsigned long)skb->data) % align;
-		if (offset)
-			skb_reserve(skb, align - offset);
-	}
-
-	/*
-	 * NOTE:alloc doesn't take responsibility if reserve unaligns the data
-	 * pointer
-	 */
-	skb_reserve(skb, reserve);
-	qdf_nbuf_count_inc(skb);
+	qdf_nbuf_set_defaults(skb, align, reserve);
 
 	return skb;
 }
@@ -608,7 +619,6 @@ struct sk_buff *__qdf_nbuf_alloc(qdf_device_t osdev, size_t size, int reserve,
 				 uint32_t line)
 {
 	struct sk_buff *skb;
-	unsigned long offset;
 	int flags = GFP_KERNEL;
 
 	if (align)
@@ -644,32 +654,7 @@ struct sk_buff *__qdf_nbuf_alloc(qdf_device_t osdev, size_t size, int reserve,
 	}
 
 skb_alloc:
-	memset(skb->cb, 0x0, sizeof(skb->cb));
-
-	/*
-	 * The default is for netbuf fragments to be interpreted
-	 * as wordstreams rather than bytestreams.
-	 */
-	QDF_NBUF_CB_TX_EXTRA_FRAG_WORDSTR_EFRAG(skb) = 1;
-	QDF_NBUF_CB_TX_EXTRA_FRAG_WORDSTR_NBUF(skb) = 1;
-
-	/*
-	 * XXX:how about we reserve first then align
-	 * Align & make sure that the tail & data are adjusted properly
-	 */
-
-	if (align) {
-		offset = ((unsigned long)skb->data) % align;
-		if (offset)
-			skb_reserve(skb, align - offset);
-	}
-
-	/*
-	 * NOTE:alloc doesn't take responsibility if reserve unaligns the data
-	 * pointer
-	 */
-	skb_reserve(skb, reserve);
-	qdf_nbuf_count_inc(skb);
+	qdf_nbuf_set_defaults(skb, align, reserve);
 
 	return skb;
 }
@@ -743,6 +728,78 @@ __qdf_nbuf_t __qdf_nbuf_clone(__qdf_nbuf_t skb)
 }
 
 qdf_export_symbol(__qdf_nbuf_clone);
+
+struct sk_buff *
+__qdf_nbuf_page_frag_alloc(qdf_device_t osdev, size_t size, int reserve,
+			   int align, __qdf_frag_cache_t *pf_cache,
+			   const char *func, uint32_t line)
+{
+	struct sk_buff *skb;
+	qdf_frag_t frag_data;
+	size_t orig_size = size;
+	int flags = GFP_KERNEL;
+
+	if (align)
+		size += (align - 1);
+
+	size += NET_SKB_PAD;
+	size += SKB_DATA_ALIGN(sizeof(struct skb_shared_info));
+	size = SKB_DATA_ALIGN(size);
+
+	if (in_interrupt() || irqs_disabled() || in_atomic())
+		flags = GFP_ATOMIC;
+
+	frag_data = page_frag_alloc(pf_cache, size, flags);
+	if (!frag_data) {
+		qdf_rl_nofl_err("page frag alloc failed %zuB @ %s:%d",
+				size, func, line);
+		return __qdf_nbuf_alloc(osdev, orig_size, reserve, align, 0,
+					func, line);
+	}
+
+	skb = build_skb(frag_data, size);
+	if (skb) {
+		skb_reserve(skb, NET_SKB_PAD);
+		goto skb_alloc;
+	}
+
+	/* Free the data allocated from pf_cache */
+	page_frag_free(frag_data);
+
+	size = orig_size + align - 1;
+
+	skb = pld_nbuf_pre_alloc(size);
+	if (!skb) {
+		qdf_rl_nofl_err("NBUF alloc failed %zuB @ %s:%d",
+				size, func, line);
+		__qdf_nbuf_start_replenish_timer();
+		return NULL;
+	}
+
+	__qdf_nbuf_stop_replenish_timer();
+
+skb_alloc:
+	qdf_nbuf_set_defaults(skb, align, reserve);
+
+	return skb;
+}
+
+qdf_export_symbol(__qdf_nbuf_page_frag_alloc);
+
+#ifdef QCA_DP_TX_NBUF_LIST_FREE
+void
+__qdf_nbuf_dev_kfree_list(__qdf_nbuf_queue_head_t *nbuf_queue_head)
+{
+	dev_kfree_skb_list_fast(nbuf_queue_head);
+}
+#else
+void
+__qdf_nbuf_dev_kfree_list(__qdf_nbuf_queue_head_t *nbuf_queue_head)
+{
+}
+#endif
+
+qdf_export_symbol(__qdf_nbuf_dev_kfree_list);
 
 #ifdef NBUF_MEMORY_DEBUG
 struct qdf_nbuf_event {
@@ -843,6 +900,7 @@ void qdf_nbuf_map_check_for_smmu_leaks(void)
 	qdf_tracker_check_for_leaks(&qdf_nbuf_smmu_map_tracker);
 }
 
+#ifdef IPA_OFFLOAD
 QDF_STATUS qdf_nbuf_smmu_map_debug(qdf_nbuf_t nbuf,
 				   uint8_t hdl,
 				   uint8_t num_buffers,
@@ -889,6 +947,7 @@ QDF_STATUS qdf_nbuf_smmu_unmap_debug(qdf_nbuf_t nbuf,
 }
 
 qdf_export_symbol(qdf_nbuf_smmu_unmap_debug);
+#endif /* IPA_OFFLOAD */
 
 static void qdf_nbuf_panic_on_free_if_smmu_mapped(qdf_nbuf_t nbuf,
 						  const char *func,
@@ -917,7 +976,7 @@ static inline void qdf_net_buf_update_smmu_params(QDF_NBUF_TRACK *p_node)
 	p_node->smmu_map_iova_addr = 0;
 	p_node->smmu_map_pa_addr = 0;
 }
-#else
+#else /* !NBUF_SMMU_MAP_UNMAP_DEBUG */
 #ifdef NBUF_MEMORY_DEBUG
 static void qdf_nbuf_smmu_map_tracking_init(void)
 {
@@ -936,7 +995,7 @@ static void qdf_nbuf_panic_on_free_if_smmu_mapped(qdf_nbuf_t nbuf,
 static inline void qdf_net_buf_update_smmu_params(QDF_NBUF_TRACK *p_node)
 {
 }
-#endif
+#endif /* NBUF_MEMORY_DEBUG */
 
 #ifdef IPA_OFFLOAD
 QDF_STATUS qdf_nbuf_smmu_map_debug(qdf_nbuf_t nbuf,
@@ -962,8 +1021,8 @@ QDF_STATUS qdf_nbuf_smmu_unmap_debug(qdf_nbuf_t nbuf,
 }
 
 qdf_export_symbol(qdf_nbuf_smmu_unmap_debug);
-#endif
-#endif
+#endif /* IPA_OFFLOAD */
+#endif /* NBUF_SMMU_MAP_UNMAP_DEBUG */
 
 #ifdef NBUF_MAP_UNMAP_DEBUG
 #define qdf_nbuf_map_tracker_bits 11 /* 2048 buckets */
@@ -1486,14 +1545,90 @@ __qdf_nbuf_data_get_dhcp_subtype(uint8_t *data)
 	return subtype;
 }
 
-#define EAPOL_MASK				0x8002
-#define EAPOL_M1_BIT_MASK			0x8000
-#define EAPOL_M2_BIT_MASK			0x0000
-#define EAPOL_M3_BIT_MASK			0x8002
-#define EAPOL_M4_BIT_MASK			0x0002
+#define EAPOL_WPA_KEY_INFO_ACK BIT(7)
+#define EAPOL_WPA_KEY_INFO_MIC BIT(8)
+#define EAPOL_WPA_KEY_INFO_ENCR_KEY_DATA BIT(12) /* IEEE 802.11i/RSN only */
+
 /**
- * __qdf_nbuf_data_get_eapol_subtype() - get the subtype
- *            of EAPOL packet.
+ * __qdf_nbuf_data_get_eapol_key() - Get EAPOL key
+ * @data: Pointer to EAPOL packet data buffer
+ *
+ * We can distinguish M1/M3 from M2/M4 by the ack bit in the keyinfo field
+ * The ralationship between the ack bit and EAPOL type is as follows:
+ *
+ *  EAPOL type  |   M1    M2   M3  M4
+ * --------------------------------------
+ *     Ack      |   1     0    1   0
+ * --------------------------------------
+ *
+ * Then, we can differentiate M1 from M3, M2 from M4 by below methods:
+ * M2/M4: by keyDataLength or Nonce value being 0 for M4.
+ * M1/M3: by the mic/encrKeyData bit in the keyinfo field.
+ *
+ * Return: subtype of the EAPOL packet.
+ */
+static inline enum qdf_proto_subtype
+__qdf_nbuf_data_get_eapol_key(uint8_t *data)
+{
+	uint16_t key_info, key_data_length;
+	enum qdf_proto_subtype subtype;
+	uint64_t *key_nonce;
+
+	key_info = qdf_ntohs((uint16_t)(*(uint16_t *)
+			(data + EAPOL_KEY_INFO_OFFSET)));
+
+	key_data_length = qdf_ntohs((uint16_t)(*(uint16_t *)
+				(data + EAPOL_KEY_DATA_LENGTH_OFFSET)));
+	key_nonce = (uint64_t *)(data + EAPOL_WPA_KEY_NONCE_OFFSET);
+
+	if (key_info & EAPOL_WPA_KEY_INFO_ACK)
+		if (key_info &
+		    (EAPOL_WPA_KEY_INFO_MIC | EAPOL_WPA_KEY_INFO_ENCR_KEY_DATA))
+			subtype = QDF_PROTO_EAPOL_M3;
+		else
+			subtype = QDF_PROTO_EAPOL_M1;
+	else
+		if (key_data_length == 0 ||
+		    !((*key_nonce) || (*(key_nonce + 1)) ||
+		      (*(key_nonce + 2)) || (*(key_nonce + 3))))
+			subtype = QDF_PROTO_EAPOL_M4;
+		else
+			subtype = QDF_PROTO_EAPOL_M2;
+
+	return subtype;
+}
+
+/**
+ * __qdf_nbuf_data_get_eap_code() - Get EAPOL code
+ * @data: Pointer to EAPOL packet data buffer
+ *
+ * Return: subtype of the EAPOL packet.
+ */
+static inline enum qdf_proto_subtype
+__qdf_nbuf_data_get_eap_code(uint8_t *data)
+{
+	uint8_t code = *(data + EAP_CODE_OFFSET);
+
+	switch (code) {
+	case QDF_EAP_REQUEST:
+		return QDF_PROTO_EAP_REQUEST;
+	case QDF_EAP_RESPONSE:
+		return QDF_PROTO_EAP_RESPONSE;
+	case QDF_EAP_SUCCESS:
+		return QDF_PROTO_EAP_SUCCESS;
+	case QDF_EAP_FAILURE:
+		return QDF_PROTO_EAP_FAILURE;
+	case QDF_EAP_INITIATE:
+		return QDF_PROTO_EAP_INITIATE;
+	case QDF_EAP_FINISH:
+		return QDF_PROTO_EAP_FINISH;
+	default:
+		return QDF_PROTO_INVALID;
+	}
+}
+
+/**
+ * __qdf_nbuf_data_get_eapol_subtype() - get the subtype of EAPOL packet.
  * @data: Pointer to EAPOL packet data buffer
  *
  * This func. returns the subtype of EAPOL packet.
@@ -1503,31 +1638,22 @@ __qdf_nbuf_data_get_dhcp_subtype(uint8_t *data)
 enum qdf_proto_subtype
 __qdf_nbuf_data_get_eapol_subtype(uint8_t *data)
 {
-	uint16_t eapol_key_info;
-	enum qdf_proto_subtype subtype = QDF_PROTO_INVALID;
-	uint16_t mask;
+	uint8_t pkt_type = *(data + EAPOL_PACKET_TYPE_OFFSET);
 
-	eapol_key_info = (uint16_t)(*(uint16_t *)
-			(data + EAPOL_KEY_INFO_OFFSET));
-
-	mask = eapol_key_info & EAPOL_MASK;
-
-	switch (mask) {
-	case EAPOL_M1_BIT_MASK:
-		subtype = QDF_PROTO_EAPOL_M1;
-		break;
-	case EAPOL_M2_BIT_MASK:
-		subtype = QDF_PROTO_EAPOL_M2;
-		break;
-	case EAPOL_M3_BIT_MASK:
-		subtype = QDF_PROTO_EAPOL_M3;
-		break;
-	case EAPOL_M4_BIT_MASK:
-		subtype = QDF_PROTO_EAPOL_M4;
-		break;
+	switch (pkt_type) {
+	case EAPOL_PACKET_TYPE_EAP:
+		return __qdf_nbuf_data_get_eap_code(data);
+	case EAPOL_PACKET_TYPE_START:
+		return QDF_PROTO_EAPOL_START;
+	case EAPOL_PACKET_TYPE_LOGOFF:
+		return QDF_PROTO_EAPOL_LOGOFF;
+	case EAPOL_PACKET_TYPE_KEY:
+		return __qdf_nbuf_data_get_eapol_key(data);
+	case EAPOL_PACKET_TYPE_ASF:
+		return QDF_PROTO_EAPOL_ASF;
+	default:
+		return QDF_PROTO_INVALID;
 	}
-
-	return subtype;
 }
 
 qdf_export_symbol(__qdf_nbuf_data_get_eapol_subtype);
@@ -2797,13 +2923,15 @@ qdf_export_symbol(__qdf_nbuf_is_bcast_pkt);
  */
 bool __qdf_nbuf_is_mcast_replay(qdf_nbuf_t nbuf)
 {
-	struct ethhdr *eh = (struct ethhdr *)qdf_nbuf_data(nbuf);
+	struct sk_buff *skb = (struct sk_buff *)nbuf;
+	struct ethhdr *eth = eth_hdr(skb);
 
-	if (unlikely(nbuf->pkt_type == PACKET_MULTICAST)) {
-		if (unlikely(ether_addr_equal(eh->h_source,
-					      nbuf->dev->dev_addr)))
-			return true;
-	}
+	if (qdf_likely(skb->pkt_type != PACKET_MULTICAST))
+		return false;
+
+	if (qdf_unlikely(ether_addr_equal(eth->h_source, skb->dev->dev_addr)))
+		return true;
+
 	return false;
 }
 
@@ -2853,6 +2981,80 @@ bool __qdf_nbuf_is_arp_local(struct sk_buff *skb)
 	}
 
 	return false;
+}
+
+/**
+ * __qdf_nbuf_data_get_tcp_hdr_len() - get TCP header length
+ * @data: pointer to data of network buffer
+ * @tcp_hdr_len_offset: bytes offset for tcp header length of ethernet packets
+ *
+ * Return: TCP header length in unit of byte
+ */
+static inline
+uint8_t __qdf_nbuf_data_get_tcp_hdr_len(uint8_t *data,
+					uint8_t tcp_hdr_len_offset)
+{
+	uint8_t tcp_hdr_len;
+
+	tcp_hdr_len =
+		*((uint8_t *)(data + tcp_hdr_len_offset));
+
+	tcp_hdr_len = ((tcp_hdr_len & QDF_NBUF_PKT_TCP_HDR_LEN_MASK) >>
+		       QDF_NBUF_PKT_TCP_HDR_LEN_LSB) *
+		       QDF_NBUF_PKT_TCP_HDR_LEN_UNIT;
+
+	return tcp_hdr_len;
+}
+
+bool __qdf_nbuf_is_ipv4_v6_pure_tcp_ack(struct sk_buff *skb)
+{
+	bool is_tcp_ack = false;
+	uint8_t op_code, tcp_hdr_len;
+	uint16_t ip_payload_len;
+	uint8_t *data = skb->data;
+
+	/*
+	 * If packet length > TCP ACK max length or it's nonlinearized,
+	 * then it must not be TCP ACK.
+	 */
+	if (qdf_nbuf_len(skb) > QDF_NBUF_PKT_TCP_ACK_MAX_LEN ||
+	    qdf_nbuf_is_nonlinear(skb))
+		return false;
+
+	if (qdf_nbuf_is_ipv4_tcp_pkt(skb)) {
+		ip_payload_len =
+			QDF_SWAP_U16(*((uint16_t *)(data +
+				     QDF_NBUF_TRAC_IPV4_TOTAL_LEN_OFFSET)))
+					- QDF_NBUF_TRAC_IPV4_HEADER_SIZE;
+
+		tcp_hdr_len = __qdf_nbuf_data_get_tcp_hdr_len(
+					data,
+					QDF_NBUF_PKT_IPV4_TCP_HDR_LEN_OFFSET);
+
+		op_code = (uint8_t)(*(uint8_t *)(data +
+				QDF_NBUF_PKT_IPV4_TCP_OPCODE_OFFSET));
+
+		if (ip_payload_len == tcp_hdr_len &&
+		    op_code == QDF_NBUF_PKT_TCPOP_ACK)
+			is_tcp_ack = true;
+
+	} else if (qdf_nbuf_is_ipv6_tcp_pkt(skb)) {
+		ip_payload_len =
+			QDF_SWAP_U16(*((uint16_t *)(data +
+				QDF_NBUF_TRAC_IPV6_PAYLOAD_LEN_OFFSET)));
+
+		tcp_hdr_len = __qdf_nbuf_data_get_tcp_hdr_len(
+					data,
+					QDF_NBUF_PKT_IPV6_TCP_HDR_LEN_OFFSET);
+		op_code = (uint8_t)(*(uint8_t *)(data +
+				QDF_NBUF_PKT_IPV6_TCP_OPCODE_OFFSET));
+
+		if (ip_payload_len == tcp_hdr_len &&
+		    op_code == QDF_NBUF_PKT_TCPOP_ACK)
+			is_tcp_ack = true;
+	}
+
+	return is_tcp_ack;
 }
 
 #ifdef NBUF_MEMORY_DEBUG
@@ -3771,6 +3973,33 @@ qdf_nbuf_t qdf_nbuf_clone_debug(qdf_nbuf_t buf, const char *func, uint32_t line)
 }
 qdf_export_symbol(qdf_nbuf_clone_debug);
 
+qdf_nbuf_t
+qdf_nbuf_page_frag_alloc_debug(qdf_device_t osdev, qdf_size_t size, int reserve,
+			       int align, __qdf_frag_cache_t *pf_cache,
+			       const char *func, uint32_t line)
+{
+	qdf_nbuf_t nbuf;
+
+	if (is_initial_mem_debug_disabled)
+		return __qdf_nbuf_page_frag_alloc(osdev, size, reserve, align,
+						  pf_cache, func, line);
+
+	nbuf = __qdf_nbuf_page_frag_alloc(osdev, size, reserve, align,
+					  pf_cache, func, line);
+
+	/* Store SKB in internal QDF tracking table */
+	if (qdf_likely(nbuf)) {
+		qdf_net_buf_debug_add_node(nbuf, size, func, line);
+		qdf_nbuf_history_add(nbuf, func, line, QDF_NBUF_ALLOC);
+	} else {
+		qdf_nbuf_history_add(nbuf, func, line, QDF_NBUF_ALLOC_FAILURE);
+	}
+
+	return nbuf;
+}
+
+qdf_export_symbol(qdf_nbuf_page_frag_alloc_debug);
+
 qdf_nbuf_t qdf_nbuf_copy_debug(qdf_nbuf_t buf, const char *func, uint32_t line)
 {
 	qdf_nbuf_t copied_buf = __qdf_nbuf_copy(buf);
@@ -3880,6 +4109,23 @@ unshare_buf:
 
 qdf_export_symbol(qdf_nbuf_unshare_debug);
 
+void
+qdf_nbuf_dev_kfree_list_debug(__qdf_nbuf_queue_head_t *nbuf_queue_head,
+			      const char *func, uint32_t line)
+{
+	qdf_nbuf_t  buf;
+
+	if (qdf_nbuf_queue_empty(nbuf_queue_head))
+		return;
+
+	if (is_initial_mem_debug_disabled)
+		return __qdf_nbuf_dev_kfree_list(nbuf_queue_head);
+
+	while ((buf = qdf_nbuf_queue_head_dequeue(nbuf_queue_head)) != NULL)
+		qdf_nbuf_free_debug(buf, func, line);
+}
+
+qdf_export_symbol(qdf_nbuf_dev_kfree_list_debug);
 #endif /* NBUF_MEMORY_DEBUG */
 
 #if defined(FEATURE_TSO)
@@ -5429,7 +5675,9 @@ qdf_nbuf_update_radiotap_eht_flags(struct mon_rx_status *rx_status,
 	put_unaligned_le32(rx_status->eht_data[5], &rtap_buf[rtap_len]);
 	rtap_len += 4;
 
-	for (user = 0; user < rx_status->num_eht_user_info_valid; user++) {
+	for (user = 0; user < EHT_USER_INFO_LEN &&
+	     rx_status->num_eht_user_info_valid &&
+	     user < rx_status->num_eht_user_info_valid; user++) {
 		put_unaligned_le32(rx_status->eht_user_info[user],
 				   &rtap_buf[rtap_len]);
 		rtap_len += 4;
@@ -6138,7 +6386,7 @@ void qdf_nbuf_add_rx_frag_debug(qdf_frag_t buf, qdf_nbuf_t nbuf,
 	fragp = qdf_nbuf_get_frag_addr(nbuf, num_nr_frags - 1);
 
 	/* Update frag address in frag debug tracking table */
-	if (fragp != buf)
+	if (fragp != buf && !take_frag_ref)
 		qdf_frag_debug_update_addr(buf, fragp, func, line);
 
 	/* Update frag refcount in frag debug tracking table */

@@ -9,11 +9,13 @@ def define_oplus_local_modules():
         name = "oplus_bsp_uff_fp_driver",
         srcs = native.glob([
             "**/*.h",
+            "*.h",
             "fp_driver.c",
             "fp_platform.c",
             "fingerprint_event.c",
             "fp_health.c",
             "fp_netlink.c",
+            "fp_fault_inject.c",
         ]),
         ko_deps = [
 #            "//vendor/oplus/kernel/touchpanel/oplus_touchscreen_v2:oplus_bsp_tp_notify",	#built in-tree
@@ -28,6 +30,7 @@ def define_oplus_local_modules():
             "//vendor/oplus/kernel/touchpanel/oplus_touchscreen_v2:config_headers",
         ],
     )
+
     ddk_copy_to_dist_dir(
         name = "oplus_bsp_fp",
         module_list = [

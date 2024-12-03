@@ -15,8 +15,8 @@
 
 extern struct proc_dir_entry *game_opt_dir;
 
-extern atomic_t have_valid_game_pid;
-extern atomic_t have_valid_render_pid;
+extern atomic_t need_stat_util;
+extern atomic_t need_stat_wake;
 
 int cpu_load_init(void);
 int cpufreq_limits_init(void);
@@ -25,6 +25,5 @@ int rt_info_init(void);
 int fake_cpufreq_init(void);
 
 bool get_task_name(pid_t pid, struct task_struct *in_task, char *name);
-void ui_assist_threads_wake_stat(struct task_struct *task);
 
 #endif /*__GAME_CTRL_H__*/

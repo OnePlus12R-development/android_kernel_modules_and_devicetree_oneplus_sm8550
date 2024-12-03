@@ -18,6 +18,7 @@
 #include <linux/of_gpio.h>
 #include <linux/bitops.h>
 #include <linux/mutex.h>
+#include <linux/pinctrl/consumer.h>
 #include <linux/regulator/driver.h>
 #include <linux/regulator/of_regulator.h>
 #include <linux/regulator/machine.h>
@@ -7341,7 +7342,11 @@ struct oplus_wpc_operations p922x_ops = {
 	.wpc_print_log = p922x_wpc_print_log,
 };
 
-static int p922x_driver_probe(struct i2c_client *client, const struct i2c_device_id *id) 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0))
+static int p922x_driver_probe(struct i2c_client *client)
+#else
+static int p922x_driver_probe(struct i2c_client *client, const struct i2c_device_id *id)
+#endif
 {
 	struct oplus_p922x_ic	*chip;
 	struct oplus_wpc_chip *wpc_chip;

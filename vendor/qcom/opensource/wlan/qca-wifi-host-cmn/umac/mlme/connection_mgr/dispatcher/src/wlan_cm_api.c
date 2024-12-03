@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2015, 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -25,6 +25,11 @@
 #include "connection_mgr/core/src/wlan_cm_main_api.h"
 #include "connection_mgr/core/src/wlan_cm_roam.h"
 #include <wlan_vdev_mgr_utils_api.h>
+#ifdef WLAN_FEATURE_11BE_MLO
+#ifdef WLAN_FEATURE_11BE_MLO_ADV_FEATURE
+#include "wlan_mlo_mgr_roam.h"
+#endif
+#endif
 
 QDF_STATUS wlan_cm_start_connect(struct wlan_objmgr_vdev *vdev,
 				 struct wlan_cm_connect_req *req)
@@ -373,6 +378,33 @@ struct reduced_neighbor_report *wlan_cm_get_rnr(struct wlan_objmgr_vdev *vdev,
 	return NULL;
 }
 
+void
+wlan_cm_connect_resp_fill_mld_addr_from_cm_id(struct wlan_objmgr_vdev *vdev,
+					     wlan_cm_id cm_id,
+					     struct wlan_cm_connect_resp *rsp)
+{
+	return cm_connect_resp_fill_mld_addr_from_cm_id(vdev, cm_id, rsp);
+}
+
+#ifdef WLAN_FEATURE_11BE_MLO
+void
+wlan_cm_connect_resp_fill_mld_addr_from_vdev_id(struct wlan_objmgr_psoc *psoc,
+						uint8_t vdev_id,
+						struct scan_cache_entry *entry,
+						struct wlan_cm_connect_resp *rsp)
+{
+	struct wlan_objmgr_vdev *vdev;
+
+	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, vdev_id,
+						    WLAN_MLME_CM_ID);
+	if (!vdev)
+		return;
+
+	cm_connect_resp_fill_mld_addr_from_candidate(vdev, entry, rsp);
+	wlan_objmgr_vdev_release_ref(vdev, WLAN_MLME_CM_ID);
+}
+#endif
+
 QDF_STATUS
 wlan_cm_disc_cont_after_rso_stop(struct wlan_objmgr_vdev *vdev,
 				 struct wlan_cm_vdev_discon_req *req)
@@ -395,7 +427,7 @@ QDF_STATUS wlan_cm_sta_set_chan_param(struct wlan_objmgr_vdev *vdev,
 	qdf_freq_t center_freq_320 = 0;
 	qdf_freq_t center_freq_40 = 0;
 	uint8_t band_mask;
-	uint16_t new_punc;
+	uint16_t new_punc = 0;
 
 	if (!vdev || !chan_param) {
 		mlme_err("invalid input parameters");
@@ -508,3 +540,14 @@ QDF_STATUS wlan_cm_sta_update_bw_puncture(struct wlan_objmgr_vdev *vdev,
 						  bw_puncture);
 }
 #endif /* WLAN_FEATURE_11BE */
+
+#ifdef WLAN_FEATURE_11BE_MLO
+#ifdef WLAN_FEATURE_11BE_MLO_ADV_FEATURE
+bool
+wlan_cm_check_mlo_roam_auth_status(struct wlan_objmgr_vdev *vdev)
+{
+	return mlo_roam_is_auth_status_connected(wlan_vdev_get_psoc(vdev),
+					  wlan_vdev_get_id(vdev));
+}
+#endif
+#endif

@@ -16,6 +16,11 @@
 #include <linux/notifier.h>
 #include "scp.h"
 
+#if IS_ENABLED(CONFIG_OPLUS_SENSOR_USE_BLANK_MODE)
+#include <linux/mtk_panel_ext.h>
+#include <linux/mtk_disp_notify.h>
+#endif
+
 #define DEV_TAG					 "[sensor_devinfo] "
 #define DEVINFO_LOG(fmt, args...)   pr_err(DEV_TAG"%s %d : "fmt, __func__, __LINE__, ##args)
 
@@ -29,6 +34,9 @@ struct als_info{
 	uint16_t pwm_turbo;
 	uint16_t rt_bri;
 	uint16_t fps;
+#if IS_ENABLED(CONFIG_OPLUS_SENSOR_USE_BLANK_MODE)
+	uint16_t blank_mode;
+#endif
 } __packed __aligned(4);
 
 struct cali_data {
@@ -77,6 +85,9 @@ enum {
 	NONE_TYPE = 0,
 	LCM_DC_MODE_TYPE,
 	LCM_BRIGHTNESS_TYPE,
+#if IS_ENABLED(CONFIG_OPLUS_SENSOR_USE_BLANK_MODE)
+	LCM_BLANK_MODE_TYPE,
+#endif
 	LCM_PWM_TURBO = 0x14,
 	LCM_ADFR_MIN_FPS = 0x15,
 	MAX_INFO_TYPE,
@@ -113,6 +124,9 @@ struct ssc_interactive{
 	struct als_info a_info;
 	struct miscdevice mdev;
 	struct notifier_block lcd_nb;
+#if IS_ENABLED(CONFIG_OPLUS_SENSOR_USE_BLANK_MODE)
+	struct notifier_block mtk_lcd_nb;
+#endif
 	struct notifier_block ready_nb;
 	struct delayed_work lcdinfo_work;
 	struct delayed_work ready_work;
@@ -122,6 +136,9 @@ struct ssc_interactive{
 	bool support_bri_to_scp;
 	bool support_bri_to_hal;
 	bool need_to_sync_lcd_rate;
+#if IS_ENABLED(CONFIG_OPLUS_SENSOR_USE_BLANK_MODE)
+	bool report_blank_mode;
+#endif
 };
 
 void init_sensorhub_interface(struct sensorhub_interface **si);

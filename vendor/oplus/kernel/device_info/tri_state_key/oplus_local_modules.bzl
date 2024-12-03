@@ -9,6 +9,9 @@ def define_oplus_local_modules():
         srcs = native.glob([
             "**/*.h",
             "oplus_tri_key.c",
+            "tri_key_exception.c",
+            "tri_key_healthinfo.c",
+            "tri_key_common_api.c",
         ]),
         includes = ["."],
         conditional_defines = {
@@ -62,7 +65,17 @@ def define_oplus_local_modules():
         ],
         includes = ["."],
     )
-    
+    define_oplus_ddk_module(
+        name = "oplus_ak09970",
+        srcs = native.glob([
+            "**/*.h",
+            "digital_hall_ic/oplus_ak09970.c"
+        ]),
+        ko_deps = [
+            "//vendor/oplus/kernel/device_info/tri_state_key:oplus_bsp_tri_key",
+        ],
+        includes = ["."],
+    )
     ddk_copy_to_dist_dir(
         name = "oplus_bsp_tri_key",
         module_list = [
@@ -71,5 +84,6 @@ def define_oplus_local_modules():
             "oplus_bsp_mxm_down",
             "oplus_bsp_ist_up",
             "oplus_bsp_ist_down",
+            "oplus_ak09970",
         ],
     )

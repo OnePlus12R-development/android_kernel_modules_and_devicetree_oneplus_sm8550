@@ -4167,11 +4167,17 @@ static int ft3681_spi_resume(struct device *dev)
 
 static const struct spi_device_id tp_id[] = {
 	{ TPD_DEVICE, 0 },
+#ifdef CONFIG_TOUCHPANEL_MTK_PLATFORM
+	{ "oplus,tp_noflash", 0 },
+#endif
 	{ }
 };
 
 static struct of_device_id tp_match_table[] = {
 	{ .compatible = TPD_DEVICE, },
+#ifdef CONFIG_TOUCHPANEL_MTK_PLATFORM
+	{ .compatible = "oplus,tp_noflash", },
+#endif
 	{ },
 };
 

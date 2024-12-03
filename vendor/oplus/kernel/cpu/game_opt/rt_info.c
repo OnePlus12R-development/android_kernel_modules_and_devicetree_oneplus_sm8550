@@ -29,7 +29,7 @@ static int total_num = 0;
 static pid_t game_tgid = -1;
 
 static DEFINE_RWLOCK(rt_info_rwlock);
-atomic_t have_valid_render_pid = ATOMIC_INIT(0);
+atomic_t need_stat_wake = ATOMIC_INIT(0);
 
 static inline bool same_rt_thread_group(struct task_struct *waker,
 	struct task_struct *wakee)
@@ -66,9 +66,7 @@ static void try_to_wake_up_success_hook(void *unused, struct task_struct *task)
 	struct render_related_thread *wakee;
 	struct render_related_thread *waker;
 
-	ui_assist_threads_wake_stat(task);
-
-	if (atomic_read(&have_valid_render_pid) == 0)
+	if (atomic_read(&need_stat_wake) == 0)
 		return;
 
 	/*
@@ -139,7 +137,7 @@ static int rt_info_show(struct seq_file *m, void *v)
 	char task_name[TASK_COMM_LEN];
 	ssize_t len = 0;
 
-	if (atomic_read(&have_valid_render_pid) == 0)
+	if (atomic_read(&need_stat_wake) == 0)
 		return -ESRCH;
 
 	page = kzalloc(RESULT_PAGE_SIZE, GFP_KERNEL);
@@ -221,7 +219,7 @@ static ssize_t rt_info_proc_write(struct file *file, const char __user *buf,
 	if (ret <= 0)
 		return ret;
 
-	atomic_set(&have_valid_render_pid, 0);
+	atomic_set(&need_stat_wake, 0);
 
 	write_lock(&rt_info_rwlock);
 
@@ -273,7 +271,7 @@ static ssize_t rt_info_proc_write(struct file *file, const char __user *buf,
 
 	if (rt_num) {
 		total_num = rt_num;
-		atomic_set(&have_valid_render_pid, 1);
+		atomic_set(&need_stat_wake, 1);
 	}
 
 	write_unlock(&rt_info_rwlock);

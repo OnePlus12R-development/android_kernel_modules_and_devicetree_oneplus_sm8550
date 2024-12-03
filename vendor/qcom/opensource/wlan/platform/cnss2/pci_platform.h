@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
-/* Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved. */
+/* Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved. */
 
 #ifndef _CNSS_PCI_PLATFORM_H
 #define _CNSS_PCI_PLATFORM_H
@@ -105,8 +105,15 @@ int cnss_set_pci_link(struct cnss_pci_data *pci_priv, bool link_up);
 int cnss_pci_prevent_l1(struct device *dev);
 void cnss_pci_allow_l1(struct device *dev);
 int cnss_pci_get_msi_assignment(struct cnss_pci_data *pci_priv);
+int cnss_pci_get_one_msi_assignment(struct cnss_pci_data *pci_priv);
+bool cnss_pci_fallback_one_msi(struct cnss_pci_data *pci_priv,
+			       int *num_vectors);
+bool cnss_pci_is_one_msi(struct cnss_pci_data *pci_priv);
+int cnss_pci_get_one_msi_mhi_irq_array_size(struct cnss_pci_data *pci_priv);
+bool cnss_pci_is_force_one_msi(struct cnss_pci_data *pci_priv);
 int cnss_pci_init_smmu(struct cnss_pci_data *pci_priv);
-bool cnss_pci_is_drv_supported(struct cnss_pci_data *pci_priv);
+void cnss_pci_update_drv_supported(struct cnss_pci_data *pci_priv);
+
 /**
  * _cnss_pci_get_reg_dump() - Dump PCIe RC registers for debug
  * @pci_priv: driver PCI bus context pointer
@@ -192,11 +199,17 @@ int _cnss_pci_get_reg_dump(struct cnss_pci_data *pci_priv,
 	return 0;
 }
 
-bool cnss_pci_is_drv_supported(struct cnss_pci_data *pci_priv)
+void cnss_pci_update_drv_supported(struct cnss_pci_data *pci_priv)
 {
-	return false;
+	pci_priv->drv_supported = false;
 }
+
 #endif /* CONFIG_PCI_MSM */
+
+static inline bool cnss_pci_get_drv_supported(struct cnss_pci_data *pci_priv)
+{
+	return pci_priv->drv_supported;
+}
 
 #if IS_ENABLED(CONFIG_ARCH_QCOM)
 int cnss_pci_of_reserved_mem_device_init(struct cnss_pci_data *pci_priv);

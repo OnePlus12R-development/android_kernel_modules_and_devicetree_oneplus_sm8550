@@ -106,7 +106,7 @@ enum {
 #define MAX_OWI_PULSE_GAP_TIME_US			(160)
 #define MAX_OWI_RETRY_TIMES					(10)
 #define MIN_OWI_MODE						(1)
-#define MAX_OWI_MODE						(16)
+#define MAX_OWI_MODE						(35)
 #define DEFAULT_OWI_MODE					(6)
 /* OWI_POLARITY 0 : pulse level == high, 1 : pulse level == low */
 #define OWI_POLARITY						(SIA81XX_DISABLE_LEVEL)
@@ -152,10 +152,13 @@ static const char *support_chip_type_name_table[] = {
 	[CHIP_TYPE_SIA8152]  = "sia8152",
 	[CHIP_TYPE_SIA8152S] = "sia8152s",
 	[CHIP_TYPE_SIA8100X] = "sia8100x",
+	[CHIP_TYPE_SIA8001]  = "sia8001",
+	[CHIP_TYPE_SIA8102]  = "sia8102",
 	[CHIP_TYPE_SIA8159]  = "sia8159",
 	[CHIP_TYPE_SIA8159A] = "sia8159a",
 	[CHIP_TYPE_SIA81X9]  = "sia81x9",
 	[CHIP_TYPE_SIA8152X] = "sia8152x",
+	[CHIP_TYPE_SIA815T]  = "sia815T",
 	[CHIP_TYPE_SIA9195]  = "sia9195",
 	[CHIP_TYPE_SIA9196]  = "sia9196",
 	[CHIP_TYPE_SIA9175]  = "sia9175"
@@ -252,24 +255,42 @@ static __inline void gpio_flipping(
 void distinguish_chip_type(sipa_dev_t *si_pa)
 {
 #ifdef DISTINGUISH_CHIP_TYPE
+	int ret = 0;
 	/* check sia81xx is available */
-	if (CHIP_TYPE_UNKNOWN == si_pa->chip_type ||
-		0 != check_sipa_status(si_pa)) {
-
-		si_pa->chip_type = CHIP_TYPE_UNKNOWN;
+	if (CHIP_TYPE_UNKNOWN == si_pa->chip_type) {
 		si_pa->en_dyn_ud_pvdd = 0;
 		pr_info("[ info][%s] %s: there is no si_pa device \r\n",
 			LOG_FLAG, __func__);
 	} else {
-		int ret = device_create_file(&si_pa->pdev->dev, &dev_attr_sipa_device);
-		if (ret) {
-			pr_err("[  err][%s] %s: failed to create device file: %d\n",
-				LOG_FLAG, __func__, ret);
+		if (1 == si_pa->en_dyn_id) {
+			if (1 == check_sipa_status(si_pa))
+				si_pa->chip_type = CHIP_TYPE_SIA8001;
+			ret = device_create_file(&si_pa->pdev->dev, &dev_attr_sipa_device);
+			if (ret) {
+				pr_err("[ err][%s] %s: sipa device is available, chip_type = %d .\r\n",
+					LOG_FLAG, __func__, si_pa->chip_type);
+			} else {
+				pr_info("[ info][%s] %s: sipa device is available \r\n",
+					LOG_FLAG, __func__);
+			 }
 		} else {
-			pr_info("[ info][%s] %s: sipa device is available \r\n",
-				LOG_FLAG, __func__);
-		}
-	}
+			if (0 != check_sipa_status(si_pa)) {
+				si_pa->chip_type = CHIP_TYPE_UNKNOWN;
+				si_pa->en_dyn_ud_pvdd = 0;
+				pr_info("[ info][%s] %s: there is no si_pa device \r\n",
+					LOG_FLAG, __func__);
+			} else {
+				ret = device_create_file(&si_pa->pdev->dev, &dev_attr_sipa_device);
+				if (ret) {
+					pr_err("[ err][%s] %s: sipa device is available, chip_type = %d .\r\n",
+						LOG_FLAG, __func__, si_pa->chip_type);
+				} else {
+					pr_info("[ info][%s] %s: sipa device is available \r\n",
+						LOG_FLAG, __func__);
+				 }
+                           }
+	            }
+	      }
 #endif
 }
 
@@ -749,8 +770,16 @@ static bool sipa_is_chip_en(sipa_dev_t *si_pa)
 			&& sipa_regmap_get_chip_en(si_pa))
 			return true;
 #else
-		if (SIA81XX_ENABLE_LEVEL == gpio_get_value(si_pa->rst_pin))
-			return true;
+		if (si_pa->chip_type == CHIP_TYPE_SIA815T ||
+					si_pa->chip_type == CHIP_TYPE_SIA8159 ||
+					si_pa->chip_type == CHIP_TYPE_SIA8159A) {
+			if ((SIA81XX_ENABLE_LEVEL == gpio_get_value(si_pa->rst_pin))
+				&& sipa_regmap_get_chip_en(si_pa))
+				return true;
+		} else {
+			if (SIA81XX_ENABLE_LEVEL == gpio_get_value(si_pa->rst_pin))
+				return true;
+		}
 #endif
 	} else {
 		if (sipa_regmap_get_chip_en(si_pa))
@@ -2081,6 +2110,7 @@ static unsigned int get_chip_type(const char *name)
 
 /* CHIP_TYPE_SIA81X9 */
 static const uint32_t sia81x9_list[] = {
+	CHIP_TYPE_SIA815T,
 	CHIP_TYPE_SIA8159,
 	CHIP_TYPE_SIA8159A,
 	CHIP_TYPE_SIA8109
@@ -2814,7 +2844,9 @@ static int sipa_probe(struct platform_device *pdev)
 	if (!si_pa->sia91xx_wq)
 		return -ENOMEM;
 
-	if (CHIP_TYPE_SIA8100X == si_pa->chip_type) {
+	if (CHIP_TYPE_SIA8100X == si_pa->chip_type ||
+	    CHIP_TYPE_SIA8001 == si_pa->chip_type  ||
+	    CHIP_TYPE_SIA8102 == si_pa->chip_type) {
 		/* load firmware */
 		sipa_param_load_fw(&pdev->dev);
 	}
@@ -2825,7 +2857,8 @@ static int sipa_probe(struct platform_device *pdev)
 			pr_info("%s():speaker_device == null ,oplus_register start\r\n", LOG_FLAG, __func__);
 		}
 		pr_info("%s():,oplus_register start\r\n", LOG_FLAG, __func__);
-	if ((check_sipa_status(si_pa) == 0) && (speaker_device == NULL)) {
+	if (((check_sipa_status(si_pa) == 0) || ((check_sipa_status(si_pa) == 1) && (CHIP_TYPE_SIA8001 == si_pa->chip_type)))
+		&& (speaker_device == NULL)) {
 
 		speaker_device = kzalloc(sizeof(struct oplus_speaker_device), GFP_KERNEL);
 

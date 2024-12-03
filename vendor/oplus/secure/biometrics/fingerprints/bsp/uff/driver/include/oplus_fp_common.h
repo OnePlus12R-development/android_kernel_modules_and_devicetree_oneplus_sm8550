@@ -20,6 +20,7 @@
 #define FP_POWERON_LEVEL_NODE           "poweron-level"
 #define FP_NOTIFY_TPINFO_FLAG           "notify_tpinfo_flag"
 #define FP_FTM_POWEROFF_FLAG            "ftm_poweroff_flag"
+#define FP_OPTICAL_IRQ_DISABLE_FLAG     "optical_irq_disable_flag"
 
 #define LDO_POWER_NODE                  "ldo"
 #define LDO_CONFIG_NODE                 "ldo-config"
@@ -101,6 +102,7 @@ typedef enum {
     FP_POWER_MODE_GPIO,
     FP_POWER_MODE_AUTO,
     FP_POWER_MODE_WL2868C,
+    FP_POWER_MODE_DIO8018,
 } fp_power_mode_t;
 
 typedef struct {

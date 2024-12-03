@@ -92,7 +92,35 @@ static struct panel_node g_panel_node[PANEL_NUM] = {
 		.id = P_3,
 		.lcm_name = "P_3",
 	},
+	{
+		.id = P_B,
+		.lcm_name = "P_B",
+	},
+	{
+		.id = P_7,
+		.lcm_name = "P_7",
+	},
 	/* add from here */
+	{
+		.id = TD4377,
+		.lcm_name = "td4377",
+	},
+	{
+		.id = ILI9883C,
+		.lcm_name = "ili9883c",
+	},
+	{
+		.id = FT8057P,
+		.lcm_name = "ft8057p",
+	},
+	{
+		.id = ILI7807S,
+		.lcm_name = "ili7807s",
+	},
+	{
+		.id = DJN,
+		.lcm_name = "djn",
+	},
 	{
 		.id = PANEL_NUM,
 		.lcm_name = "panel_num",
@@ -122,10 +150,14 @@ enum {
 	REAR_SPECTRUM_GAIN,
 	GOLD_CCT_CHANNELS,
 	ACC_GYRO_NAME,
+	REAR_CCT_NAME,
 	GOLD_REAR_SPECTRUM_FACTOR_512GAIN,
 	GOLD_REAR_SPECTRUM_FACTOR_2048GAIN,
 	SUPPORT_PANEL,
 	FOLD_HALL_LIMIT,
+	CCT_GAIN_CALI,
+	MULTI_OFFSET_LEVEL,
+	MULTI_OFFSET_COEF,
 };
 
 #define ID_REAR_ALS     97
@@ -150,14 +182,14 @@ static int cct_type = CCT_NORMAL;
 static int support_panel = 0;
 static int g_reg_address = 0;
 static int g_reg_value = 0;
-static char acc_cali_range[16] = {0};
+static char acc_cali_range[64] = {0};
 static int gyro_cali_range = 200;
-static char gold_rear_cct_3k[35] = {0};
-static char gold_rear_cct_6k[35] = {0};
-static char gold_rear_cct_factor[35] = {0};
-static char gold_cct_3k[35] = {0};
-static char gold_cct_6k[35] = {0};
-static char gold_cct_factor[35] = {0};
+static char gold_rear_cct_3k[64] = {0};
+static char gold_rear_cct_6k[64] = {0};
+static char gold_rear_cct_factor[64] = {0};
+static char gold_cct_3k[64] = {0};
+static char gold_cct_6k[64] = {0};
+static char gold_cct_factor[64] = {0};
 static uint32_t gold_als_factor = 1001;
 static uint32_t gold_rear_als_factor = 1001;
 static uint32_t lb_bri_max = 1500;
@@ -165,9 +197,13 @@ static char gold_rear_spectrum_3k[84] = {0};
 static char gold_rear_spectrum_6k[84] = {0};
 static int gold_cct_channels = 4;
 static char *g_acc_gyro_name = NULL;
+static char *g_rear_cct_name = NULL;
 static char g_gold_rear_spectrum_factor_512gain[70] = {0};
 static char g_gold_rear_spectrum_factor_2048gain[70] = {0};
 static char g_fold_hall_limit[70] = {0};
+static int g_cct_gain_cali = 0;
+static uint32_t g_multi_offset_level = 0;
+static char g_multi_offset_coef[16] = {0};
 atomic_t utc_suspend;
 
 struct als_info g_als_info;
@@ -216,8 +252,8 @@ int oplus_get_dts_feature(struct device_node *p_node, char *node_name, char *fea
 					DEVINFO_LOG("error:read feature_name:%s %d element but length is %d\n", feature_name, ret, len);
 					return -1;
 				} else {
-					DEVINFO_LOG("read %s:%s,successful\n", device_name, feature_name);
-					return 0;
+					DEVINFO_LOG("read %s:%s, len %d, successful\n", device_name, feature_name, len);
+					return ret;
 				}
 			}
 			break;
@@ -457,6 +493,11 @@ static void get_front_cct_feature(void)
 		sprintf(gold_cct_factor, "%u %u %u %u %u %u",
 			 gold_cct[0], gold_cct[1], gold_cct[2],
 			 gold_cct[3], gold_cct[4], gold_cct[5]);
+	}
+
+	ret = oplus_get_dts_feature(parent_node, "light", "need_gain_cali", &g_cct_gain_cali);
+	if (ret < 0) {
+		DEVINFO_LOG("g_cct_gain_cali fail, use default\n");
 	}
 }
 
@@ -787,6 +828,33 @@ static void get_gold_rear_cct(void)
 	}
 }
 
+static void get_proximity_paras(void)
+{
+	int ret = 0;
+	uint32_t multi_offset_coef[3] = {0};
+	uint32_t multi_offset_level[1] = {0};
+	ret = oplus_get_dts_feature(parent_node, "proximity", "multi_oft_level", multi_offset_level);
+	if (ret < 0) {
+		DEVINFO_LOG("multi_oft_level fail\n");
+		return;
+	} else {
+		g_multi_offset_level = multi_offset_level[0];
+		DEVINFO_LOG("g_multi_offset_level %d\n", g_multi_offset_level);
+	}
+
+	ret = oplus_get_dts_feature(parent_node, "proximity", "multi_oft_coef", multi_offset_coef);
+	if (ret < 0) {
+		DEVINFO_LOG("multi_oft_coef fail\n");
+		return;
+	} else if (ret == g_multi_offset_level) {
+		DEVINFO_LOG("g_multi_offset_coef [%d %d %d]\n", multi_offset_coef[0],
+				multi_offset_coef[1], multi_offset_coef[2]);
+		sprintf(g_multi_offset_coef, "%d %d %d", multi_offset_coef[0],
+				multi_offset_coef[1], multi_offset_coef[2]);
+	} else {
+		DEVINFO_LOG("multi_oft_coef ret %d\n", ret);
+	}
+}
 
 static void sensor_devinfo_work(struct work_struct *dwork)
 {
@@ -795,6 +863,7 @@ static void sensor_devinfo_work(struct work_struct *dwork)
 		si->init_sensorlist();
 		g_als_info.senstype = si->get_lcdinfo_brocast_type();
 		si->get_sensor_name(SENSOR_TYPE_GYROSCOPE, &g_acc_gyro_name);
+		si->get_sensor_name(SENSOR_TYPE_REAR_ALS, &g_rear_cct_name);
 	}
 
 	oplus_als_cali_data_init();
@@ -803,7 +872,7 @@ static void sensor_devinfo_work(struct work_struct *dwork)
 	get_gold_rear_cct();
 	get_gold_rear_spectrum();
 	get_fold_hall_limit();
-
+	get_proximity_paras();
 
 	DEVINFO_LOG("success \n");
 }
@@ -945,7 +1014,8 @@ static int sensor_feature_read_func(struct seq_file *s, void *v)
 	DEVINFO_LOG("Ptr2UINT32(p) = %d \n", Ptr2UINT32(p));
 	switch (Ptr2UINT32(p)) {
 	case IS_SUPPROT_HWCALI:
-		if (si && si->is_sensor_available && si->is_sensor_available("tcs3701")) {
+		if (si && si->is_sensor_available && (si->is_sensor_available("tcs3701")
+			|| si->is_sensor_available("sip3625"))) {
 			seq_printf(s, "%d", 1);
 		} else {
 			seq_printf(s, "%d", 0);
@@ -1027,6 +1097,10 @@ static int sensor_feature_read_func(struct seq_file *s, void *v)
 		DEVINFO_LOG("acc_gyro_name = %s \n", g_acc_gyro_name);
 		seq_printf(s, "%s", g_acc_gyro_name);
 		break;
+	case REAR_CCT_NAME:
+		DEVINFO_LOG("rear_cct_name = %s \n", g_rear_cct_name);
+		seq_printf(s, "%s", g_rear_cct_name);
+		break;
 	case GOLD_REAR_SPECTRUM_FACTOR_512GAIN:
 		DEVINFO_LOG("gold_rear_spectrum_factor_512gain = %s \n", g_gold_rear_spectrum_factor_512gain);
 		seq_printf(s, "%s", g_gold_rear_spectrum_factor_512gain);
@@ -1041,6 +1115,18 @@ static int sensor_feature_read_func(struct seq_file *s, void *v)
 	case FOLD_HALL_LIMIT:
 		DEVINFO_LOG("fold_hall_limit = %s \n", g_fold_hall_limit);
 		seq_printf(s, "%s", g_fold_hall_limit);
+		break;
+	case CCT_GAIN_CALI:
+		DEVINFO_LOG("g_cct_gain_cali = %d \n", g_cct_gain_cali);
+		seq_printf(s, "%d", g_cct_gain_cali);
+		break;
+	case MULTI_OFFSET_LEVEL:
+		DEVINFO_LOG("g_multi_offset_level = %d \n", g_multi_offset_level);
+		seq_printf(s, "%d", g_multi_offset_level);
+		break;
+	case MULTI_OFFSET_COEF:
+		DEVINFO_LOG("g_multi_offset_coef = %s \n", g_multi_offset_coef);
+		seq_printf(s, "%s", g_multi_offset_coef);
 		break;
 	default:
 		seq_printf(s, "not support chendai\n");
@@ -1139,6 +1225,18 @@ static ssize_t sensor_feature_write(struct file *filp, const char *ubuf, size_t 
 		case LEAK_CALI_NORMAL_MODE:
 			ret = si->send_factory_mode(SENSOR_TYPE_PWM_RGB, 0, &result);
 			break;
+		case CCT_FACTORY_512_GAIN:
+			ret = si->send_factory_mode(SENSOR_TYPE_PWM_RGB, 2, &result);
+			break;
+		case CCT_FACTORY_1024_GAIN:
+			ret = si->send_factory_mode(SENSOR_TYPE_PWM_RGB, 3, &result);
+			break;
+		case CCT_FACTORY_2048_GAIN:
+			ret = si->send_factory_mode(SENSOR_TYPE_PWM_RGB, 4, &result);
+			break;
+		case CCT_FACTORY_GAIN_NORMAL:
+			ret = si->send_factory_mode(SENSOR_TYPE_PWM_RGB, 5, &result);
+			break;
 		default:
 			DEVINFO_LOG("ivalid sensor mode\n");
 		}
@@ -1204,11 +1302,15 @@ static struct proc_node sensor_feature_file[] = {
 	{"gold_rear_spectrum_6k", GOLD_REAR_SPECTRUM_6K},
 	{"gold_cct_channels", GOLD_CCT_CHANNELS},
 	{"acc_gyro_name", ACC_GYRO_NAME},
+	{"rear_cct_name", REAR_CCT_NAME},
 	{"gold_rear_spectrum_factor_512gain", GOLD_REAR_SPECTRUM_FACTOR_512GAIN},
 	{"gold_rear_spectrum_factor_2048gain", GOLD_REAR_SPECTRUM_FACTOR_2048GAIN},
 	{"gold_cct_factor", GOLD_CCT_FACTOR},
 	{"support_panel", SUPPORT_PANEL},
 	{"fold_hall_limit", FOLD_HALL_LIMIT},
+	{"cct_gain_cali", CCT_GAIN_CALI},
+	{"multi_offset_level", MULTI_OFFSET_LEVEL},
+	{"multi_offset_coef", MULTI_OFFSET_COEF},
 };
 
 static int oplus_sensor_feature_init(void)
@@ -1335,11 +1437,9 @@ static int oplus_devinfo_probe(struct platform_device *pdev)
 		if (strstr(ch_node->name, "msensor") != NULL) {
 			mag_soft_parameter_init(ch_node, index);
 			index++;
-		}
-		else if (0 == strncmp(ch_node->name, "cali_arch", 10)) {
+		} else if (0 == strncmp(ch_node->name, "cali_arch", 10)) {
 			get_new_arch_info(ch_node);
-		}
-		else if (strstr(ch_node->name, "light") != NULL) {
+		} else if (strstr(ch_node->name, "light") != NULL) {
 			is_support_lb_algo(ch_node);
 			get_lb_max_brightness(ch_node);
 			get_gold_cct_channels(ch_node);

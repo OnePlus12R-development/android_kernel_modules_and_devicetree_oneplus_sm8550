@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2006-2007, 2014-2018, 2020-2021 The Linux Foundation.
  * All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -2737,6 +2737,10 @@ IE TimeAdvertisement (EID_TIME_ADVERTISEMENT)   // 8.4.2.63
     time_error[5];
 }
 
+/**
+ * This all attributes are defined under qcn_attribute_id enum of
+ * cmn code in wlan_cmn_ieee80211.h file.
+ */
 const TLV_VERSION_ATTR_ID                 = 1;
 const TLV_VHT_MCS_10_11_ATTR_ID           = 2;
 const TLV_HE_400NS_SGI_SUPP_ATTR_ID       = 3;
@@ -2746,6 +2750,7 @@ const TLV_TRANSITION_REASONP_ATTR_ID      = 6;
 const TLV_TRANSITION_REJECTIONP_ATTR_ID   = 7;
 const TLV_HE_DL_MUMIMO_SUPPP_ATTR_ID      = 8;
 const TLV_HE_MCS_11_12_ATTR_ID            = 9;
+const TLV_EDCA_PIFS_PARAM_ATTR_ID         = 13;
 
 TLV qcn_version(TLV_VERSION_ATTR_ID) ( 1 : 1 ) LSB
 {
@@ -2794,6 +2799,13 @@ TLV he_mcs13_attr (TLV_HE_MCS_11_12_ATTR_ID) ( 1 : 1 ) LSB
    he_mcs_12_13_supp_160, 1;
 }
 
+TLV edca_pifs_param_attr (TLV_EDCA_PIFS_PARAM_ATTR_ID) ( 1 : 1 ) LSB
+{
+   // Configure EDCA or PIFS param based on edca_param_type
+   edca_param_type, 1;
+   data[3..4];
+}
+
 MULTIIE qcn_ie (EID_VENDOR_SPECIFIC) OUI ( 0x8C, 0xFD, 0xF0, 0x01 )
 {
    OPTIONALTLV qcn_version;
@@ -2805,6 +2817,7 @@ MULTIIE qcn_ie (EID_VENDOR_SPECIFIC) OUI ( 0x8C, 0xFD, 0xF0, 0x01 )
    OPTIONALTLV trans_rejectp_attr;
    OPTIONALTLV he_dl_mumimo_attr;
    OPTIONALTLV he_mcs13_attr;
+   OPTIONALTLV edca_pifs_param_attr;
 }
 
 IE esp_information (EID_EXTN_ID_ELEMENT) OUI ( 0x0B )
@@ -3293,7 +3306,9 @@ IE eht_cap (EID_EXTN_ID_ELEMENT) OUI (0x6C)
 	max_a_mpdu_len_exponent_ext: 1;
 	eht_trs_support: 1;
 	txop_return_support_txop_share_m2: 1;
-	reserved: 5;
+	two_bqrs_support: 1;
+	eht_link_adaptation_support: 2;
+	reserved: 2;
     }
     {
 	reserved2: 1;
@@ -3343,7 +3358,10 @@ IE eht_cap (EID_EXTN_ID_ELEMENT) OUI (0x6C)
     {
 	rx_1k_qam_in_wider_bw_dl_ofdma: 1;
 	rx_4k_qam_in_wider_bw_dl_ofdma: 1;
-	reserved3: 6;
+	limited_cap_support_20mhz: 1;
+	triggered_mu_bf_full_bw_fb_and_dl_mumimo: 1;
+	mru_support_20mhz: 1;
+	reserved3: 3;
     }
     {
 	bw_20_rx_max_nss_for_mcs_0_to_7: 4;
@@ -4139,7 +4157,7 @@ FRAME AssocRequest                        // 7.2.3.4
     OPTIE  dh_parameter_element;
     OPTIE  eht_cap;
     OPTIE  mlo_ie;
-    OPTIE  t2lm_ie;
+    OPTIE  t2lm_ie[0..2];
 
     OPTIE  WPAOpaque;
     OPTIE  WMMCaps;
@@ -4197,7 +4215,7 @@ FRAME AssocResponse                       // 7.2.3.5
     OPTIE  eht_cap;
     OPTIE  eht_op;
     OPTIE  mlo_ie;
-    OPTIE  t2lm_ie;
+    OPTIE  t2lm_ie[0..2];
 
     OPTIE  WPA;
     OPTIE  WMMParams;
@@ -4244,7 +4262,7 @@ FRAME ReAssocRequest                      // 7.2.3.6
     OPTIE  ESECckmOpaque;
     OPTIE  eht_cap;
     OPTIE  mlo_ie;
-    OPTIE  t2lm_ie;
+    OPTIE  t2lm_ie[0..2];
 
     OPTIE  WPAOpaque;
     OPTIE  WMMCaps;
@@ -4296,7 +4314,7 @@ FRAME ReAssocResponse                     // 7.2.3.7
     OPTIE  eht_cap;
     OPTIE  eht_op;
     OPTIE  mlo_ie;
-    OPTIE  t2lm_ie;
+    OPTIE  t2lm_ie[0..2];
 
     OPTIE  WPA;
     OPTIE  WMMParams;
@@ -4860,6 +4878,28 @@ FRAME delba_req
     FF    Action;
     FF    delba_param_set;
     FF    Reason;
+}
+
+FRAME t2lm_neg_req
+{
+    FF    Category;
+    FF    Action;
+    FF    DialogToken;
+    OPTIE t2lm_ie[0..2];
+}
+
+FRAME t2lm_neg_rsp
+{
+    FF    Category;
+    FF    Action;
+    FF    DialogToken;
+    FF    Status;
+}
+
+FRAME t2lm_teardown
+{
+    FF    Category;
+    FF    Action;
 }
 
 FRAME vendor_action_frame

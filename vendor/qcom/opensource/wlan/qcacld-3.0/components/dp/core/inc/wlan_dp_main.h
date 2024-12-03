@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -262,7 +262,7 @@ dp_psoc_obj_create_notification(struct wlan_objmgr_psoc *psoc, void *arg);
 /**
  * dp_psoc_obj_destroy_notification() - Free psoc private object
  * @psoc: psoc context
- * @data: Pointer to data
+ * @arg: Pointer to arguments
  *
  * This function gets called from object manager when psoc is being
  * deleted and delete DP soc context.
@@ -273,7 +273,7 @@ QDF_STATUS
 dp_psoc_obj_destroy_notification(struct wlan_objmgr_psoc *psoc, void *arg);
 
 /**
- * dp_ttach_ctx() - Api to attach dp ctx
+ * dp_attach_ctx() - Api to attach dp ctx
  * @dp_ctx : DP Context
  *
  * Helper function to attach dp ctx
@@ -428,7 +428,7 @@ void dp_send_rps_disable_ind(struct wlan_dp_intf *dp_intf);
  */
 void dp_set_rps(uint8_t vdev_id, bool enable);
 #else
-void dp_set_rps(uint8_t vdev_id, bool enable)
+static inline void dp_set_rps(uint8_t vdev_id, bool enable)
 {
 }
 #endif
@@ -549,7 +549,7 @@ struct wlan_dp_psoc_nb_ops *dp_intf_get_rx_ops(struct wlan_objmgr_psoc *psoc)
 }
 
 /**
- * dp_intf_get_rx_ops: get ARP req context from the DP context
+ * dp_get_arp_request_ctx: get ARP req context from the DP context
  * @psoc: pointer to psoc object
  *
  * Return: pointer to ARP request ctx.
@@ -657,4 +657,95 @@ void dp_clear_net_dev_stats(struct wlan_dp_intf *dp_intf)
 	qdf_mem_set(&dp_intf->stats, sizeof(dp_intf->stats), 0);
 }
 
+#ifdef FEATURE_DIRECT_LINK
+/**
+ * dp_direct_link_init() - Initializes Direct Link datapath
+ * @dp_ctx: DP private context
+ *
+ * Return: QDF status
+ */
+QDF_STATUS dp_direct_link_init(struct wlan_dp_psoc_context *dp_ctx);
+
+/**
+ * dp_direct_link_deinit() - De-initializes Direct Link datapath
+ * @dp_ctx: DP private context
+ * @is_ssr: true if SSR is in progress else false
+ *
+ * Return: None
+ */
+void dp_direct_link_deinit(struct wlan_dp_psoc_context *dp_ctx, bool is_ssr);
+
+/**
+ * dp_config_direct_link: Set direct link config of vdev
+ * @dp_intf: DP interface handle
+ * @config_direct_link: Flag to enable direct link path
+ * @enable_low_latency: Flag to enable low link latency
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS dp_config_direct_link(struct wlan_dp_intf *dp_intf,
+				 bool config_direct_link,
+				 bool enable_low_latency);
+
+#else
+static inline
+QDF_STATUS dp_direct_link_init(struct wlan_dp_psoc_context *dp_ctx)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+static inline
+void dp_direct_link_deinit(struct wlan_dp_psoc_context *dp_ctx, bool is_ssr)
+{
+}
+
+static inline
+QDF_STATUS dp_config_direct_link(struct wlan_dp_intf *dp_intf,
+				 bool config_direct_link,
+				 bool enable_low_latency)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
+
+#ifdef WLAN_DP_PROFILE_SUPPORT
+/**
+ * wlan_dp_get_profile_info() - Get DP memory profile info
+ *
+ * Return: None
+ */
+struct wlan_dp_memory_profile_info *wlan_dp_get_profile_info(void);
+
+/**
+ * wlan_dp_select_profile_cfg() - Select DP profile configuration
+ * @psoc: psoc context
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS wlan_dp_select_profile_cfg(struct wlan_objmgr_psoc *psoc);
+
+/**
+ * wlan_dp_soc_cfg_sync_profile() - Sync DP soc cfg items with profile
+ * @cdp_soc: cdp soc context
+ *
+ * Return: None
+ */
+void wlan_dp_soc_cfg_sync_profile(struct cdp_soc_t *cdp_soc);
+
+/**
+ * wlan_dp_pdev_cfg_sync_profile() - Sync DP pdev cfg items with profile
+ * @cdp_soc: cdp soc context
+ * @pdev_id: pdev id
+ *
+ * Return: QDF_STATUS
+ */
+void wlan_dp_pdev_cfg_sync_profile(struct cdp_soc_t *cdp_soc, uint8_t pdev_id);
+#else
+
+static inline
+QDF_STATUS wlan_dp_select_profile_cfg(struct wlan_objmgr_psoc *psoc)
+{
+	return QDF_STATUS_E_NOSUPPORT;
+}
+#endif
 #endif

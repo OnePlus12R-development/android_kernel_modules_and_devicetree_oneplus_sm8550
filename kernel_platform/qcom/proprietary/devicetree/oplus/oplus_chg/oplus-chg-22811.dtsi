@@ -3,6 +3,7 @@
 #include "oplus_chg_8550.h"
 #include <dt-bindings/phy/qcom,usb3-4nm-qmp-combo.h>
 
+//#ifdef OPLUS_FEATURE_CHG_BASIC
 &soc {
 	oplus,adsp-voocphy {
 		compatible = "oplus,adsp-voocphy";
@@ -699,6 +700,7 @@
 //#endif OPLUS_FEATURE_CHG_BASIC
 
 
+//#ifdef OPLUS_FEATURE_CHG_BASIC
 &battery_charger {
 	oplus,ic_type = <OPLUS_CHG_IC_BUCK>;
 	oplus,ic_index = <0>;

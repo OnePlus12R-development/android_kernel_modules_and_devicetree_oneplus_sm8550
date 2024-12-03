@@ -9,7 +9,7 @@
 
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_CPU_JANKINFO)
 typedef void (*jank_callback_t)(struct task_struct *p,
-			unsigned long type);
+			unsigned long type, int flags);
 extern jank_callback_t jank_update_task_status;
 
 void jankinfo_android_rvh_enqueue_task_handler(void *unused,

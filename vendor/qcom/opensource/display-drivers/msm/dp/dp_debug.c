@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -119,6 +119,8 @@ static void dp_debug_disable_sim_mode(struct dp_debug_private *debug,
 	/* update sim mode */
 	debug->sim_mode &= ~mode_mask;
 	dp_sim_set_sim_mode(debug->sim_bridge, debug->sim_mode);
+
+	dp_sim_update_port_num(debug->sim_bridge, 0);
 
 	/* switch to normal mode */
 	if (!debug->sim_mode)
@@ -391,6 +393,7 @@ static ssize_t dp_debug_read_crc(struct file *file, char __user *user_buff, size
 
 		sde_conn = to_sde_connector(drm_conn);
 		panel = sde_conn->drv_panel;
+		drm_connector_put(drm_conn);
 	} else {
 		panel = debug->panel;
 	}

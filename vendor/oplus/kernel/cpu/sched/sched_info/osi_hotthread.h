@@ -20,7 +20,6 @@ struct task_track {
 	uid_t uid;
 	char comm[TASK_COMM_LEN];
 	char leader_comm[TASK_COMM_LEN];
-	struct task_record record;
 };
 
 struct hot_thread_struct {

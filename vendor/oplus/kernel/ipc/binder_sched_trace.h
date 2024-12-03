@@ -415,6 +415,30 @@ TRACE_EVENT(binder_set_async_afterpending,
 		__entry->ots_ux_enable, __entry->ots_ux_sts, __entry->obs_ux_enable,
 		__entry->t, __entry->obs, __entry->info)
 );
+
+#ifdef CONFIG_OPLUS_BINDER_REF_OPT
+TRACE_EVENT(binder_ref_desc,
+	TP_PROTO(char *info, unsigned int desc, struct binder_proc *proc),
+	TP_ARGS(info, desc, proc),
+
+	TP_STRUCT__entry(
+		__array(char, info, T_INFO_LEN)
+		__field(unsigned int, desc)
+		__field(char *, proc_comm)
+		__field(int, proc_pid)
+	),
+	TP_fast_assign(
+		memcpy(__entry->info, info, T_INFO_LEN);
+		__entry->desc = desc;
+		__entry->proc_comm = (proc ? proc->tsk->comm : "null");
+		__entry->proc_pid = (proc ? proc->tsk->pid : 0);
+	),
+	TP_printk("%s desc=%u comm=%s(%d)",
+		__entry->info, __entry->desc,
+		__entry->proc_comm, __entry->proc_pid)
+);
+#endif
+
 #endif /* _BINDER_SCHED_TRACE_H */
 
 #undef TRACE_INCLUDE_PATH

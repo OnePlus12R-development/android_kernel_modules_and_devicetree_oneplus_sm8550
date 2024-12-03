@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -24,6 +24,7 @@
 #include "qdf_module.h"
 #include "wcss_version.h"
 #include <qdf_tracepoint.h>
+#include "qdf_ssr_driver_dump.h"
 
 struct tcl_data_cmd gtcl_data_symbol __attribute__((used));
 
@@ -1160,14 +1161,29 @@ void *hal_attach(struct hif_opaque_softc *hif_handle, qdf_device_t qdf_dev)
 
 	qdf_minidump_log(hal, sizeof(*hal), "hal_soc");
 
-	qdf_atomic_init(&hal->active_work_cnt);
-	hal_delayed_reg_write_init(hal);
+	qdf_ssr_driver_dump_register_region("hal_soc", hal, sizeof(*hal));
 
-	hal_reo_shared_qaddr_setup((hal_soc_handle_t)hal);
+	qdf_atomic_init(&hal->active_work_cnt);
+	if (hal_delayed_reg_write_init(hal) != QDF_STATUS_SUCCESS) {
+		hal_err("unable to initialize delayed reg write");
+		goto fail4;
+	}
+
+	if (hal_reo_shared_qaddr_setup((hal_soc_handle_t)hal)
+	    != QDF_STATUS_SUCCESS) {
+		hal_err("unable to setup reo shared qaddr");
+		goto fail5;
+	}
 
 	hif_rtpm_register(HIF_RTPM_ID_HAL_REO_CMD, NULL);
 
 	return (void *)hal;
+fail5:
+	hal_delayed_reg_write_deinit(hal);
+fail4:
+	qdf_ssr_driver_dump_unregister_region("hal_soc");
+	qdf_minidump_remove(hal, sizeof(*hal), "hal_soc");
+	qdf_mem_free(hal->ops);
 fail3:
 	qdf_mem_free_consistent(qdf_dev, qdf_dev->dev,
 				sizeof(*hal->shadow_wrptr_mem_vaddr) *
@@ -1224,6 +1240,8 @@ extern void hal_detach(void *hal_soc)
 	hif_rtpm_deregister(HIF_RTPM_ID_HAL_REO_CMD);
 	hal_delayed_reg_write_deinit(hal);
 	hal_reo_shared_qaddr_detach((hal_soc_handle_t)hal);
+	qdf_ssr_driver_dump_unregister_region("hal_soc");
+	qdf_minidump_remove(hal, sizeof(*hal), "hal_soc");
 	qdf_mem_free(hal->ops);
 
 	qdf_mem_free_consistent(hal->qdf_dev, hal->qdf_dev->dev,
@@ -1232,8 +1250,6 @@ extern void hal_detach(void *hal_soc)
 	qdf_mem_free_consistent(hal->qdf_dev, hal->qdf_dev->dev,
 		sizeof(*(hal->shadow_wrptr_mem_vaddr)) * HAL_MAX_LMAC_RINGS,
 		hal->shadow_wrptr_mem_vaddr, hal->shadow_wrptr_mem_paddr, 0);
-	qdf_minidump_remove(hal, sizeof(*hal), "hal_soc");
-
 	qdf_mem_free(hal);
 
 	return;
@@ -1407,10 +1423,9 @@ void hal_srng_dst_init_hp(struct hal_soc_handle *hal_soc,
 	if (vaddr) {
 		*srng->u.dst_ring.hp_addr = srng->u.dst_ring.cached_hp;
 		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_ERROR,
-			  "hp_addr=%pK, cached_hp=%d, hp=%d",
+			  "hp_addr=%pK, cached_hp=%d",
 			  (void *)srng->u.dst_ring.hp_addr,
-			  srng->u.dst_ring.cached_hp,
-			  *srng->u.dst_ring.hp_addr);
+			  srng->u.dst_ring.cached_hp);
 	}
 }
 
@@ -1421,23 +1436,16 @@ qdf_export_symbol(hal_srng_dst_init_hp);
  * @hal_soc: HAL SOC handle
  * @srng: SRNG ring pointer
  * @idle_check: Check if ring is idle
+ * @idx: ring index
  */
 static inline void hal_srng_hw_init(struct hal_soc *hal,
-	struct hal_srng *srng, bool idle_check)
+	struct hal_srng *srng, bool idle_check, uint32_t idx)
 {
 	if (srng->ring_dir == HAL_SRNG_SRC_RING)
-		hal_srng_src_hw_init(hal, srng, idle_check);
+		hal_srng_src_hw_init(hal, srng, idle_check, idx);
 	else
-		hal_srng_dst_hw_init(hal, srng, idle_check);
+		hal_srng_dst_hw_init(hal, srng, idle_check, idx);
 }
-
-#if defined(CONFIG_SHADOW_V2) || defined(CONFIG_SHADOW_V3)
-#define ignore_shadow false
-#define CHECK_SHADOW_REGISTERS true
-#else
-#define ignore_shadow true
-#define CHECK_SHADOW_REGISTERS false
-#endif
 
 #ifdef WLAN_FEATURE_NEAR_FULL_IRQ
 /**
@@ -1578,7 +1586,7 @@ static inline void hal_srng_update_high_wm_thresholds(struct hal_srng *srng)
 #endif
 
 /**
- * hal_srng_setup - Initialize HW SRNG ring.
+ * hal_srng_setup_idx - Initialize HW SRNG ring.
  * @hal_soc: Opaque HAL SOC handle
  * @ring_type: one of the types from hal_ring_type
  * @ring_num: Ring number if there are multiple rings of same type (staring
@@ -1586,6 +1594,7 @@ static inline void hal_srng_update_high_wm_thresholds(struct hal_srng *srng)
  * @mac_id: valid MAC Id should be passed if ring type is one of lmac rings
  * @ring_params: SRNG ring params in hal_srng_params structure.
  * @idle_check: Check if ring is idle
+ * @idx: Ring index to be programmed as init value in HP/TP based on srng type
  *
  * Callers are expected to allocate contiguous ring memory of size
  * 'num_entries * entry_size' bytes and pass the physical and virtual base
@@ -1597,11 +1606,13 @@ static inline void hal_srng_update_high_wm_thresholds(struct hal_srng *srng)
  * Return: Opaque pointer to ring on success
  *		 NULL on failure (if given ring is not available)
  */
-void *hal_srng_setup(void *hal_soc, int ring_type, int ring_num,
-	int mac_id, struct hal_srng_params *ring_params, bool idle_check)
+void *hal_srng_setup_idx(void *hal_soc, int ring_type, int ring_num, int mac_id,
+			 struct hal_srng_params *ring_params, bool idle_check,
+			 uint32_t idx)
 {
 	int ring_id;
 	struct hal_soc *hal = (struct hal_soc *)hal_soc;
+	hal_soc_handle_t hal_hdl = (hal_soc_handle_t)hal;
 	struct hal_srng *srng;
 	struct hal_hw_srng_config *ring_config =
 		HAL_SRNG_CONFIG(hal, ring_type);
@@ -1637,6 +1648,11 @@ void *hal_srng_setup(void *hal_soc, int ring_type, int ring_num,
 	srng->intr_timer_thres_us = ring_params->intr_timer_thres_us;
 	srng->intr_batch_cntr_thres_entries =
 		ring_params->intr_batch_cntr_thres_entries;
+	srng->pointer_timer_threshold =
+		ring_params->pointer_timer_threshold;
+	srng->pointer_num_threshold =
+		ring_params->pointer_num_threshold;
+
 	if (!idle_check)
 		srng->prefetch_timer = ring_params->prefetch_timer;
 	srng->hal_soc = hal_soc;
@@ -1767,7 +1783,18 @@ void *hal_srng_setup(void *hal_soc, int ring_type, int ring_num,
 	}
 
 	if (!(ring_config->lmac_ring)) {
-		hal_srng_hw_init(hal, srng, idle_check);
+		if (idx) {
+			hal->ops->hal_tx_ring_halt_set(hal_hdl);
+			do {
+				hal_info("Waiting for ring reset\n");
+			} while (!(hal->ops->hal_tx_ring_halt_poll(hal_hdl)));
+		}
+		hal_srng_hw_init(hal, srng, idle_check, idx);
+
+		if (idx) {
+			hal->ops->hal_tx_ring_halt_reset(hal_hdl);
+		}
+
 
 		if (ring_type == CE_DST) {
 			srng->u.dst_ring.max_buffer_length = ring_params->max_buffer_length;
@@ -1782,6 +1809,35 @@ void *hal_srng_setup(void *hal_soc, int ring_type, int ring_num,
 	srng->initialized = true;
 
 	return (void *)srng;
+}
+qdf_export_symbol(hal_srng_setup_idx);
+
+/**
+ * hal_srng_setup - Initialize HW SRNG ring.
+ * @hal_soc: Opaque HAL SOC handle
+ * @ring_type: one of the types from hal_ring_type
+ * @ring_num: Ring number if there are multiple rings of same type (staring
+ * from 0)
+ * @mac_id: valid MAC Id should be passed if ring type is one of lmac rings
+ * @ring_params: SRNG ring params in hal_srng_params structure.
+ * @idle_check: Check if ring is idle
+ *
+ * Callers are expected to allocate contiguous ring memory of size
+ * 'num_entries * entry_size' bytes and pass the physical and virtual base
+ * addresses through 'ring_base_paddr' and 'ring_base_vaddr' in
+ * hal_srng_params structure. Ring base address should be 8 byte aligned
+ * and size of each ring entry should be queried using the API
+ * hal_srng_get_entrysize
+ *
+ * Return: Opaque pointer to ring on success
+ *		 NULL on failure (if given ring is not available)
+ */
+void *hal_srng_setup(void *hal_soc, int ring_type, int ring_num,
+		     int mac_id, struct hal_srng_params *ring_params,
+		     bool idle_check)
+{
+	return hal_srng_setup_idx(hal_soc, ring_type, ring_num, mac_id,
+				  ring_params, idle_check, 0);
 }
 qdf_export_symbol(hal_srng_setup);
 

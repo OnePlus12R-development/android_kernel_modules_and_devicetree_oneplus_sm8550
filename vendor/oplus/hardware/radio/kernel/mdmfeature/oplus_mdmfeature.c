@@ -46,20 +46,22 @@ static DEFINE_MUTEX(g_mutex);
 /*this write interface just use for test*/
 static bool write_mdmfeature_to_smem(char __user * buf, size_t count)
 {
-    size_t smem_size;
+#ifdef CONFIG_OPLUS_SYSTEM_KERNEL_QCOM
+    size_t smem_size = 0;
     void *smem_addr;
     /*get mdmfeature info from smem*/
-    #ifdef CONFIG_OPLUS_SYSTEM_KERNEL_QCOM
     smem_addr = qcom_smem_get(QCOM_SMEM_HOST_ANY,
     SMEM_OPLUS_FEATURE_MAP,
     &smem_size);
-    #endif
     if (IS_ERR_OR_NULL(smem_addr)) {
         pr_debug("%s: get mdmfeature failure\n", __func__);
         return false;
     }
     memcpy(smem_addr, buf, count);
     return true;
+#else
+    return false;
+#endif
 }
 
 static bool read_mdmfeature_from_smem(char __user * buf, size_t* smem_size)
@@ -190,7 +192,7 @@ static void update_manifest(unsigned int update_type)
 #endif
     static struct proc_dir_entry *telephony_manifest_ssss = NULL;
     static struct proc_dir_entry *telephony_manifest_dsds = NULL;
-    printk("update_manifest update_type %d\n", update_type - MDMFEATURE_UPDATE_DSDS);
+    printk("update_manifest update_type %ld\n", update_type - MDMFEATURE_UPDATE_DSDS);
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 12, 0))
     fs = get_fs();
     set_fs(KERNEL_DS);
@@ -218,7 +220,7 @@ static void update_manifest(unsigned int update_type)
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 12, 0))
     set_fs(fs);
 #endif
-    printk("update_manifest update_type %d done\n", update_type - MDMFEATURE_UPDATE_DSDS);
+    printk("update_manifest update_type %ld done\n", update_type - MDMFEATURE_UPDATE_DSDS);
 }
 
 
@@ -226,7 +228,7 @@ static long mdmfeature_ioctl(struct file *file, unsigned int cmd, unsigned long 
 {
     long ret = 0;
 
-    printk("mdmfeature_ioctl cmd %d\n", cmd - MDMFEATURE_UPDATE_DSDS);
+    printk("mdmfeature_ioctl cmd %ld\n", cmd - MDMFEATURE_UPDATE_DSDS);
 
     switch (cmd) {
         case MDMFEATURE_UPDATE_SSSS:
@@ -256,6 +258,7 @@ static struct miscdevice mdmfeature_device = {
 
 void mdmfeature_init_smem(void)
 {
+#ifdef CONFIG_OPLUS_SYSTEM_KERNEL_QCOM
         int ret;
 
         ret = qcom_smem_alloc(QCOM_SMEM_HOST_ANY, SMEM_OPLUS_FEATURE_MAP,
@@ -265,6 +268,7 @@ void mdmfeature_init_smem(void)
                 pr_err("%s:unable to allocate dp_info \n", __func__);
                 return;
         }
+#endif
 }
 
 static int __init mdmfeature_init(void)

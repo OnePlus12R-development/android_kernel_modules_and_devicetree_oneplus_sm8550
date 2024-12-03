@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -234,6 +235,17 @@ QDF_STATUS init_deinit_scan_radio_cap_free(
 				struct target_psoc_info *tgt_psoc_info);
 
 /**
+ * init_deinit_msdu_idx_qtype_map_free() - free msdu index to qtype map
+ * @tgt_psoc_info: target psoc info object
+ *
+ * API to free msdu index to qtype map information.
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS init_deinit_msdu_idx_qtype_map_free(
+				struct target_psoc_info *tgt_psoc_info);
+
+/**
  * init_deinit_spectral_scaling_params_free() - free Spectral scaling params
  * @tgt_psoc_info: target psoc info object
  *
@@ -304,6 +316,22 @@ int init_deinit_populate_scan_radio_cap_ext2(wmi_unified_t handle,
 					     uint8_t *event,
 					     struct tgt_info *info);
 
+/**
+ * init_deinit_populate_msdu_idx_qtype_map_ext2() - populate msdu index to
+ *                                                  qtype map from service
+ *                                                  ready ext2 event
+ * @handle: WMI handle pointer
+ * @event: event buffer received from FW
+ * @info: tgt_info object
+ *
+ * API to populate HTT msdu index to qtype map from service ready ext2 event.
+ *
+ * Return: zero on successful population or non-zero failure
+ */
+int init_deinit_populate_msdu_idx_qtype_map_ext2(wmi_unified_t handle,
+						 uint8_t *event,
+						 struct tgt_info *info);
+
 #ifdef WLAN_SUPPORT_TWT
 /**
  * init_deinit_populate_twt_cap_ext2() - populate twt capabilities from service
@@ -346,6 +374,20 @@ int init_deinit_populate_dbs_or_sbs_cap_ext2(struct wlan_objmgr_psoc *psoc,
 					     uint8_t *event,
 					     struct tgt_info *info);
 
+/**
+ * init_deinit_populate_sap_coex_capability() - SAP coex capability
+ * @psoc: PSOC object
+ * @handle: WMI handle pointer
+ * @event: event buffer received from FW
+ *
+ * API to populate SAP coex capabilities which currently indicates whether SAP
+ * is allowed on a coex channel when it's started with fixed chan config
+ *
+ * Return: zero on successful capability fetching or failure
+ */
+int init_deinit_populate_sap_coex_capability(struct wlan_objmgr_psoc *psoc,
+					     wmi_unified_t handle,
+					     uint8_t *event);
 /**
  * init_deinit_validate_160_80p80_fw_caps() - validate 160 80p80 fw caps
  * @psoc: PSOC object

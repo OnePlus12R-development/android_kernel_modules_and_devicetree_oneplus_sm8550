@@ -2214,6 +2214,7 @@
 
 	/* aod/fod config */
 	oplus,ofp-fp-type = <0x188>;
+	oplus,ofp-need-to-bypass-gamut;
 	oplus,ofp-need-to-wait-data-before-aod-on;
 
 	/* factory config */

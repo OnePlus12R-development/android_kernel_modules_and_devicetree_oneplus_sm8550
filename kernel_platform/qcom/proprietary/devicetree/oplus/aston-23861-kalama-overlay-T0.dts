@@ -5,7 +5,7 @@
 #include "kalama_overlay_common.dtsi"
 #include "salami_overlay_common.dtsi"
 #include "oplus_chg/oplus-chg-23861.dtsi"
-#include "oplus_misc/oplus-misc-23861.dtsi"
+#include "oplus_misc/oplus-misc-23801.dtsi"
 #include "sensor/aston-sensor-23801.dtsi"
 #include "uff_sm8550.dtsi"
 #include "nfc/aston_nfc_sn220.dtsi"

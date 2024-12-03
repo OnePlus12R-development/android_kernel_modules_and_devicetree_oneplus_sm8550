@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -126,7 +126,6 @@ int target_if_cfr_start_capture(struct wlan_objmgr_pdev *pdev,
 	return retv;
 }
 
-#ifdef ENABLE_HOST_TO_TARGET_CONVERSION
 int target_if_cfr_periodic_peer_cfr_enable(struct wlan_objmgr_pdev *pdev,
 					   uint32_t param_value)
 {
@@ -150,31 +149,6 @@ int target_if_cfr_periodic_peer_cfr_enable(struct wlan_objmgr_pdev *pdev,
 	return wmi_unified_pdev_param_send(pdev_wmi_handle,
 					   &pparam, pdev_id);
 }
-#else
-int target_if_cfr_periodic_peer_cfr_enable(struct wlan_objmgr_pdev *pdev,
-					   uint32_t param_value)
-{
-	struct pdev_params pparam;
-	uint32_t pdev_id;
-	struct wmi_unified *pdev_wmi_handle = NULL;
-
-	pdev_id = wlan_objmgr_pdev_get_pdev_id(pdev);
-	if (pdev_id < 0)
-		return -EINVAL;
-
-	pdev_wmi_handle = lmac_get_pdev_wmi_handle(pdev);
-	if (!pdev_wmi_handle) {
-		cfr_err("pdev wmi handle NULL");
-		return -EINVAL;
-	}
-	qdf_mem_set(&pparam, sizeof(pparam), 0);
-	pparam.param_id = WMI_PDEV_PARAM_PER_PEER_PERIODIC_CFR_ENABLE;
-	pparam.param_value = param_value;
-
-	return wmi_unified_pdev_param_send(pdev_wmi_handle,
-					   &pparam, pdev_id);
-}
-#endif
 
 int target_if_cfr_enable_cfr_timer(struct wlan_objmgr_pdev *pdev,
 				   uint32_t cfr_timer)
@@ -337,6 +311,11 @@ static QDF_STATUS target_if_cfr_init_target(struct wlan_objmgr_psoc *psoc,
 		cfr_err("FW doesn't support CFR");
 		return QDF_STATUS_SUCCESS;
 	}
+
+	cfr_psoc->is_cfr_pdev_id_soc =
+		wmi_service_enabled(wmi_handle,
+				    wmi_service_cfr_capture_pdev_id_soc);
+	cfr_debug("is_cfr_pdev_id_soc %d", cfr_psoc->is_cfr_pdev_id_soc);
 
 	status = cfr_enh_init_pdev(psoc, pdev);
 	if (target == TARGET_TYPE_QCA6490)
@@ -551,9 +530,51 @@ static uint8_t target_if_cfr_get_mac_id(struct wlan_objmgr_pdev *pdev)
 	return mac_id;
 }
 
+static uint8_t target_if_cfr_get_pdev_id_soc(struct wlan_objmgr_pdev *pdev)
+{
+	/* Host and FW have agreement about using fixed pdev id for
+	 * CFR on HMT, FW will get correct mac id if host pass soc
+	 * pdev id when start CFR. Since mac id in FW side is
+	 * different to legacy chip if it's concurrency case or 2.4GHz
+	 * band only case or 5/6GHz band only case.
+	 */
+	return WMI_HOST_PDEV_ID_SOC;
+}
+
 static uint8_t target_if_cfr_get_pdev_id(struct wlan_objmgr_pdev *pdev)
 {
-	return target_if_cfr_get_mac_id(pdev);
+	struct wlan_objmgr_psoc *psoc;
+	struct psoc_cfr *cfr_psoc;
+	uint8_t pdev_id = 0;
+
+	if (!pdev) {
+		cfr_err("null pdev");
+		return pdev_id;
+	}
+
+	psoc = wlan_pdev_get_psoc(pdev);
+	if (!psoc) {
+		cfr_err("null psoc");
+		return pdev_id;
+	}
+
+	cfr_psoc = wlan_objmgr_psoc_get_comp_private_obj(psoc,
+							 WLAN_UMAC_COMP_CFR);
+
+	if (!cfr_psoc) {
+		cfr_err("null psoc cfr");
+		return pdev_id;
+	}
+
+	if (cfr_psoc->is_cfr_pdev_id_soc)
+		pdev_id = target_if_cfr_get_pdev_id_soc(pdev);
+	else
+		pdev_id = target_if_cfr_get_mac_id(pdev);
+
+	cfr_debug("is_cfr_pdev_id_soc %d, pdev_id %d",
+		  cfr_psoc->is_cfr_pdev_id_soc, pdev_id);
+
+	return pdev_id;
 }
 #else
 static uint8_t target_if_cfr_get_pdev_id(struct wlan_objmgr_pdev *pdev)

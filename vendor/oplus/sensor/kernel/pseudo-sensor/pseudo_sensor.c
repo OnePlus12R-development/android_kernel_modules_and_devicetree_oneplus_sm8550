@@ -519,15 +519,14 @@ out:
 
 static int qcom_send_fatal_msg(char* data, int len)
 {
-	uint32_t cust_cmd[4];
+	uint32_t cust_cmd[5];
 
 	len = MIN(16, len);
 
 	memset(&cust_cmd[0], 0, sizeof(cust_cmd));
-	memcpy(&cust_cmd[0], data, len);
+	memcpy(&cust_cmd[1], data, len);
 
-//	cust_cmd[0] = (cust_cmd[0] & 0xFFFF) | 0x50540000;
-	cust_cmd[0] = (cust_cmd[0] & 0xFF) | 0x50544E00;
+	cust_cmd[0] = 0x50544E00;
 
 	return qcom_send_msg(DEBUG_KIT_SENSOR_SET_DEBUG_KIT_DATA, (char*)&cust_cmd[0], len);
 }
@@ -855,11 +854,8 @@ static int fault_inject_start(void)
 		return -ENOMEM;
 	}
 
+	smem->inject_start = 1;
 	ret = platform_send_fatal_msg((char*)&smem->inject_data[0], 16);
-
-	if (ret >= 0) {
-		smem->inject_start = 1;
-	}
 
 	return ret;
 }

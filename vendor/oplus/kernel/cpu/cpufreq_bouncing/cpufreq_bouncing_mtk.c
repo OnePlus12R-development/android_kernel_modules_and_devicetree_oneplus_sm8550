@@ -75,7 +75,7 @@ struct cpufreq_bouncing {
 	/* control freq boundary */
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
 	struct freq_qos_request qos_req;
-	struct work_struct qos_work;
+	struct kthread_work qos_work;
 #endif
 	bool ctl_inited;
 } cb_stuff[NR_CLUS_MAX] = {
@@ -130,7 +130,7 @@ static bool last_core_boost;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
 static bool freq_qos_check = true;
 module_param_named(freq_qos_check, freq_qos_check, bool, 0664);
-static struct workqueue_struct *cb_qos_wq;
+static struct kthread_worker *cb_qos_kw;
 #endif
 
 static int update_delay = 8 * NSEC_PER_MSEC; /* 8ms update window */
@@ -239,7 +239,7 @@ static int enable_store(const char *buf, const struct kernel_param *kp)
 		cb->last_ts = 0;
 		cb->last_freq_update_ts = 0;
 		cb->acc = 0;
-		cb->cur_level = cb->max_level ? cb->max_level : NR_FREQ - 1;
+		cb->cur_level = cb->max_level ? cb->max_level : 0;
 	}
 
 	if (self_activate)
@@ -596,22 +596,22 @@ void cb_update(struct cpufreq_policy *pol, u64 time)
 	if (cb->acc >= cb->limit_thres) {
 		/* check last update */
 		if (update_delta >= cb->down_limit_ns) {
-#ifdef CONFIG_ARCH_MEDIATEK
-			cb->cur_level = min(prev_level + cb->down_speed, cb->limit_level);
-#else
-			cb->cur_level = max(prev_level - cb->down_speed, cb->limit_level);
-#endif
+			if (cb->freq_sorting == CPUFREQ_TABLE_SORTED_DESCENDING)
+				cb->cur_level = min(prev_level + cb->down_speed, cb->limit_level);
+			if (cb->freq_sorting == CPUFREQ_TABLE_SORTED_ASCENDING)
+				cb->cur_level = max(prev_level - cb->down_speed, cb->limit_level);
+
 			cb->last_freq_update_ts = time;
 			cb->freqs_resident[prev_level] += update_delta;
 		}
 	} else {
 		/* check last update */
 		if (update_delta >= cb->up_limit_ns) {
-#ifdef CONFIG_ARCH_MEDIATEK
-			cb->cur_level = max(prev_level - cb->up_speed, cb->max_level);
-#else
-			cb->cur_level = min(prev_level + cb->up_speed, cb->max_level);
-#endif
+			if (cb->freq_sorting == CPUFREQ_TABLE_SORTED_DESCENDING)
+				cb->cur_level = max(prev_level - cb->up_speed, cb->max_level);
+			if (cb->freq_sorting == CPUFREQ_TABLE_SORTED_ASCENDING)
+				cb->cur_level = min(prev_level + cb->up_speed, cb->max_level);
+
 			cb->last_freq_update_ts = time;
 			cb->freqs_resident[prev_level] += update_delta;
 		}
@@ -629,8 +629,8 @@ void cb_update(struct cpufreq_policy *pol, u64 time)
 	if (freq_qos_check &&
 			cb->qos_req.pnode.prio != cb->freqs[cb->cur_level] &&
 			update_delta >= max(cb->down_limit_ns, cb->up_limit_ns) &&
-			likely(cb_qos_wq))
-		queue_work(cb_qos_wq, &cb->qos_work);
+			likely(cb_qos_kw))
+		kthread_queue_work(cb_qos_kw, &cb->qos_work);
 #endif
 
 	if (debug)
@@ -726,7 +726,7 @@ static void cb_parse_cpufreq(void)
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
-static void cb_do_boundary_change_work(struct work_struct *qos_work)
+static void cb_do_boundary_change_work(struct kthread_work *qos_work)
 {
 	struct cpufreq_bouncing *cb =
 		container_of(qos_work, struct cpufreq_bouncing, qos_work);
@@ -768,12 +768,12 @@ static int cb_init_ctl(void)
 
 		if (!cb->ctl_inited) {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
-			if (!cb_qos_wq) {
-				cb_qos_wq = alloc_workqueue("cb_qos_wq", WQ_HIGHPRI, 0);
-				if (!cb_qos_wq)
+			if (!cb_qos_kw) {
+				cb_qos_kw = kthread_create_worker(0, "%s", "cb_qos_kw");
+				if (!cb_qos_kw)
 					return -EFAULT;
 			}
-			INIT_WORK(&cb->qos_work, cb_do_boundary_change_work);
+			kthread_init_work(&cb->qos_work, cb_do_boundary_change_work);
 #ifndef CONFIG_OPLUS_UAG_SOFT_LIMIT
 			if (freq_qos_add_request(
 					&pol->constraints, &cb->qos_req,
@@ -828,13 +828,13 @@ static void cb_init_arch(void)
 	/* customized here */
 	/* clus 1 */
 	cb = &cb_stuff[1];
-	cb->limit_freq = 2100000;
-	cb->limit_level = 8;
+	cb->limit_freq = 2400000;
+	cb->limit_level = 5;
 
 	/* clus 2 */
 	cb = &cb_stuff[2];
-	cb->limit_freq = 2300000;
-	cb->limit_level = 9;
+	cb->limit_freq = 2500000;
+	cb->limit_level = 7;
 
 	update_delay_check = true;
 #endif
@@ -879,9 +879,9 @@ static int __init cb_init(void)
 	cb_parse_cpufreq();
 	if (cb_init_ctl()) {
 		pr_warn("cb init ctl failed\n");
-		if (cb_qos_wq) {
-			destroy_workqueue(cb_qos_wq);
-			cb_qos_wq = NULL;
+		if (cb_qos_kw) {
+			kthread_destroy_worker(cb_qos_kw);
+			cb_qos_kw = NULL;
 		}
 		for_each_possible_cpu(cpu) {
 			if (per_cpu(cbs, cpu))

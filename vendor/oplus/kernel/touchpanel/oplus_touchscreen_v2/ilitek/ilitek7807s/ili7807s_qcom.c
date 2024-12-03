@@ -24,6 +24,9 @@ extern int cur_tp_index;
 #define DMA_TRANSFER_MAX_CHUNK      4   /* number of chunks to be transferred.*/
 #define DMA_TRANSFER_MAX_LEN        4096 /* length of a chunk.*/
 
+/*differ_mode*/
+u8 open_differ_cmd[2] = {P5_X_MODE_CONTROL, P5_X_FW_RAW_DATA_MODE};
+
 int ili_spi_write_then_read_split(struct spi_device *spi,
 				  const void *txbuf, unsigned n_tx,
 				  void *rxbuf, unsigned n_rx)
@@ -241,6 +244,64 @@ out:
 }
 #endif
 
+static void ilitek_get_rawdata(void)
+{
+	int i = 0;
+	int j = 0;
+	int xch = ilits->xch_num;
+	int ych = ilits->ych_num;
+	u8 *buf = ilits->tr_buf;
+	int offset_len = 0;
+
+
+	if (ilits->position_high_resolution == OFF) {
+		offset_len = 35;
+	} else {
+		offset_len = 45;
+	}
+	if ((ilits->rib.nReportResolutionMode == POSITION_DIFFER_HIGH_RESOLUTION)
+		|| (ilits->rib.nReportResolutionMode == POSITION_DIFFER_LOW_RESOLUTION)) {
+		offset_len += 10;
+	}
+
+	for (i = 0; i < ych; i++) {
+		ILI_INFO("[%2d]", i);
+
+		for (j = 0; j < xch; j++) {
+			s16 temp;
+			temp = (s16)((buf[(i * xch + j) * 2 + offset_len] << 8)
+				+ buf[(i * xch + j) * 2 + offset_len + 1]);
+			pr_cont("%5d,", temp);
+		}
+
+		ILI_INFO("\n");
+	}
+
+	ILI_INFO("Y Data:");
+	for (i = 2 * xch * ych + offset_len; i < 2 * xch * ych + 2 * ych + offset_len; i += 2) {
+		s16 temp;
+		temp = (s16)((buf[i] << 8) + buf[i + 1]);
+		pr_cont("%5d,", temp);
+	}
+	ILI_INFO("\n");
+
+	ILI_INFO("X Data:");
+	for (i = 2 * xch * ych + 2 * ych + offset_len; i < 2 * xch * ych + 2 * ych + 2 * xch + offset_len; i += 2) {
+		s16 temp;
+		temp = (s16)((buf[i] << 8) + buf[i + 1]);
+		pr_cont("%5d,", temp);
+	}
+	ILI_INFO("\n");
+
+	ILI_INFO("self key and other Data:");
+	for (i = 2 * xch * ych + 2 * ych + 2 * xch + offset_len; i < ilits->tp_data_len - 1; i += 2) {
+		s16 temp;
+		temp = (s16)((buf[i] << 8) + buf[i + 1]);
+		pr_cont("%5d,", temp);
+	}
+	ILI_INFO("\n");
+}
+
 static int ili_spi_mp_pre_cmd(u8 cdc)
 {
 	u8 pre[5] = {0};
@@ -450,7 +511,7 @@ void ili_dump_data(void *data, int type, int len, int row_len,
 	s32 *p32 = NULL;
 	s16 *p16 = NULL;
 
-	if (!ili_debug_en) {
+	if (!ili_debug_en && !ilits->differ_mode) {
 		return;
 	}
 
@@ -1266,6 +1327,10 @@ void ili_report_ap_mode(u8 *buf, int len)
 		ILI_DBG("original x = %d, y = %d p = %d\n", xop, yop, touch_major);
 	}
 
+	ilits->glove_mode = buf[ilits->tp_data_len - 6] & 0x01;
+	ilits->water_flag = (buf[ilits->tp_data_len - 6] & 0x02) >> 1;
+	ilits->thr = (s16)((buf[ilits->tp_data_len - 5] << 8) | buf[ilits->tp_data_len - 4]);
+	ILI_DBG("glove_mode = %d, water_flag = %d, thr = %d\n", ilits->glove_mode, ilits->water_flag, ilits->thr);
 	ilitek_tddi_touch_send_debug_data(buf, len);
 }
 
@@ -1274,60 +1339,105 @@ void ili_debug_mode_report_point(u8 *buf, int len)
 	int i = 0;
 	u32 xop = 0, yop = 0;
 	static u8 p[MAX_TOUCH_NUM];
+	u8 touch_major = 0;
 
 	for (i = 0; i < MAX_TOUCH_NUM; i++) {
-		if (ilits->position_high_resolution == OFF) {
-			if ((buf[(3 * i)] == 0xFF) && (buf[(3 * i) + 1] == 0xFF) && (buf[(3 * i) + 2] == 0xFF)) {
-				continue;
-			}
-			xop = (((buf[(3 * i)] & 0xF0) << 4) | (buf[(3 * i) + 1]));
-			yop = (((buf[(3 * i)] & 0x0F) << 8) | (buf[(3 * i) + 2]));
-		} else {
-			if ((buf[(4 * i)] == 0xFF) && (buf[(4 * i) + 1] == 0xFF) && (buf[(4 * i) + 2] == 0xFF) && (buf[(4 * i) + 3] == 0xFF)) {
-				continue;
-			}
-			xop = ((buf[(4 * i) + 0] << 8) | (buf[(4 * i) + 1]));
-			yop = ((buf[(4 * i) + 2] << 8) | (buf[(4 * i) + 3]));
+		if ((ilits->rib.nReportResolutionMode == POSITION_DIFFER_HIGH_RESOLUTION)
+			|| (ilits->rib.nReportResolutionMode == POSITION_DIFFER_LOW_RESOLUTION)) {
+			if (ilits->position_high_resolution == OFF) {
+				if ((buf[(4 * i)] == 0xFF) && (buf[(4 * i) + 1] == 0xFF) && (buf[(4 * i) + 2] == 0xFF)) {
+					continue;
+				}
+				xop = (((buf[(4 * i)] & 0xF0) << 4) | (buf[(4 * i) + 1]));
+				yop = (((buf[(4 * i)] & 0x0F) << 8) | (buf[(4 * i) + 2]));
+			} else {
+				if ((buf[(5 * i)] == 0xFF) && (buf[(5 * i) + 1] == 0xFF) && (buf[(5 * i) + 2] == 0xFF) && (buf[(5 * i) + 3] == 0xFF)) {
+					continue;
+				}
+				xop = ((buf[(5 * i) + 0] << 8) | (buf[(5 * i) + 1]));
+				yop = ((buf[(5 * i) + 2] << 8) | (buf[(5 * i) + 3]));
 		}
 
-		if (ilits->trans_xy) {
-			ilits->points[i].x = xop;
-			ilits->points[i].y = yop;
+			if (ilits->trans_xy) {
+				ilits->points[i].x = xop;
+				ilits->points[i].y = yop;
 
+			} else {
+				if (ilits->position_high_resolution == OFF) {
+					ilits->points[i].x = xop * ilits->panel_wid / TPD_WIDTH;
+					ilits->points[i].y = yop * ilits->panel_hei / TPD_HEIGHT;
+				} else {
+					ilits->points[i].x = xop * ilits->panel_wid / TPD_HIGH_RESOLUTION_WIDTH;
+					ilits->points[i].y = yop * ilits->panel_hei / TPD_HIGH_RESOLUTION_HEIGHT;
+				}
+			}
+
+			if (ilits->position_high_resolution == OFF) {
+				touch_major = buf[(4 * i) + 3];
+			} else {
+				touch_major = buf[(5 * i) + 4];
+			}
+
+			ilits->pointid_info = ilits->pointid_info | (1 << i);
+			ilits->points[i].status = 1;
+			ilits->points[i].width_major = touch_major;
+			ilits->points[i].touch_major = touch_major;
+			ilits->points[i].z = touch_major;
+			ILI_DBG("original x = %d, y = %d p = %d\n", xop, yop, touch_major);
 		} else {
 			if (ilits->position_high_resolution == OFF) {
-				ilits->points[i].x = xop * ilits->panel_wid / TPD_WIDTH;
-				ilits->points[i].y = yop * ilits->panel_hei / TPD_HEIGHT;
+				if ((buf[(3 * i)] == 0xFF) && (buf[(3 * i) + 1] == 0xFF) && (buf[(3 * i) + 2] == 0xFF)) {
+					continue;
+				}
+				xop = (((buf[(3 * i)] & 0xF0) << 4) | (buf[(3 * i) + 1]));
+				yop = (((buf[(3 * i)] & 0x0F) << 8) | (buf[(3 * i) + 2]));
 			} else {
-				ilits->points[i].x = xop * ilits->panel_wid / TPD_HIGH_RESOLUTION_WIDTH;
-				ilits->points[i].y = yop * ilits->panel_hei / TPD_HIGH_RESOLUTION_HEIGHT;
+				if ((buf[(4 * i)] == 0xFF) && (buf[(4 * i) + 1] == 0xFF) && (buf[(4 * i) + 2] == 0xFF) && (buf[(4 * i) + 3] == 0xFF)) {
+					continue;
+				}
+				xop = ((buf[(4 * i) + 0] << 8) | (buf[(4 * i) + 1]));
+				yop = ((buf[(4 * i) + 2] << 8) | (buf[(4 * i) + 3]));
 			}
-		}
 
-		ilits->pointid_info = ilits->pointid_info | (1 << i);
-		ilits->points[i].z = buf[(4 * i) + 4];
-		ilits->points[i].status = 1;
+			if (ilits->trans_xy) {
+				ilits->points[i].x = xop;
+				ilits->points[i].y = yop;
+			} else {
+				if (ilits->position_high_resolution == OFF) {
+					ilits->points[i].x = xop * ilits->panel_wid / TPD_WIDTH;
+					ilits->points[i].y = yop * ilits->panel_hei / TPD_HEIGHT;
+				} else {
+					ilits->points[i].x = xop * ilits->panel_wid / TPD_HIGH_RESOLUTION_WIDTH;
+					ilits->points[i].y = yop * ilits->panel_hei / TPD_HIGH_RESOLUTION_HEIGHT;
+				}
+			}
+
+			ilits->pointid_info = ilits->pointid_info | (1 << i);
+			ilits->points[i].status = 1;
 
 		/*
 		* Since there's no pressure data in debug mode, we make fake values
 		* for android system if pressure needs to be reported.
 		*/
-		if (p[i] == 1) {
-			p[i] = 2;
-
-		} else {
-			p[i] = 1;
+			if (p[i] == 1) {
+				p[i] = 2;
+			} else {
+				p[i] = 1;
+			}
+			ilits->points[i].width_major = p[i];
+			ilits->points[i].touch_major = p[i];
+			ilits->points[i].z = p[i];
+			ILI_DBG("original x = %d, y = %d p = %d\n", xop, yop, p[i]);
 		}
-
-		ilits->points[i].width_major = p[i];
-		ilits->points[i].touch_major = p[i];
-		ilits->points[i].z = p[i];
-		ILI_DBG("original x = %d, y = %d p = %d\n", xop, yop, p[i]);
 	}
 }
 
 void ili_report_debug_mode(u8 *buf, int len)
 {
+	ilits->glove_mode = buf[ilits->tp_data_len - 6] & 0x01;
+	ilits->water_flag = (buf[ilits->tp_data_len - 6] & 0x02) >> 1;
+	ilits->thr = (s16)((buf[ilits->tp_data_len - 5] << 8) | buf[ilits->tp_data_len - 4]);
+	ILI_DBG("glove_mode = %d, water_flag = %d, thr = %d\n", ilits->glove_mode, ilits->water_flag, ilits->thr);
 	ili_debug_mode_report_point(buf + 5, len);
 	ilitek_tddi_touch_send_debug_data(buf, len);
 }
@@ -1842,8 +1952,7 @@ int ili_sleep_handler(int mode)
 	bool sense_stop = true;
 	atomic_set(&ilits->tp_sleep, START);
 
-	if (atomic_read(&ilits->fw_stat) ||
-			atomic_read(&ilits->mp_stat)) {
+	if (atomic_read(&ilits->fw_stat) || atomic_read(&ilits->mp_stat)) {
 		ILI_INFO("fw upgrade or mp still running, ignore sleep requst\n");
 		atomic_set(&ilits->tp_sleep, END);
 		return 0;
@@ -1963,6 +2072,16 @@ int ili_fw_upgrade_handler(void)
 	}
 
 	atomic_set(&ilits->fw_stat, END);
+
+	if (ilits->differ_mode) {
+		if (ili_set_tp_data_len(DATA_FORMAT_DEBUG, false, NULL) < 0) {
+			ILI_ERR("Failed to switch debug mode\n");
+		}
+		if (ilits->wrapper(open_differ_cmd, 2, NULL, 0, ON, OFF) < 0) {
+			ILI_ERR("switch ilitek diff mode fail\n");
+		}
+	}
+
 	return ret;
 }
 
@@ -1998,6 +2117,10 @@ int ili_set_tp_data_len(int format, bool send, u8 *data)
 			len += (2 * ilits->xch_num * ilits->ych_num) + (ilits->stx * 2) + (ilits->srx * 2) + (2 * self_key) + 16;
 			len += 1;
 			ctrl = DATA_FORMAT_DEBUG_CMD;
+		}
+		if ((ilits->rib.nReportResolutionMode == POSITION_DIFFER_HIGH_RESOLUTION)
+			|| (ilits->rib.nReportResolutionMode == POSITION_DIFFER_LOW_RESOLUTION)) {
+			len += 10;
 		}
 		ctrl = DATA_FORMAT_DEBUG_CMD;
 		break;
@@ -2114,8 +2237,9 @@ int ili_set_tp_data_len(int format, bool send, u8 *data)
 	return ret;
 }
 
-int ili_report_handler(void)
+int ili_report_handler(void *chip_data)
 {
+	struct ilitek_ts_data *chip_info = (struct ilitek_ts_data *)chip_data;
 	int ret = 0, pid = 0;
 	u8  checksum = 0, pack_checksum = 0;
 	u8 *trdata = NULL;
@@ -2182,6 +2306,16 @@ int ili_report_handler(void)
 	trdata = ilits->tr_buf;
 	pid = trdata[0];
 	ILI_DBG("Packet ID = %x\n", pid);
+	if (ilits->actual_tp_mode == P5_X_FW_AP_MODE) {
+		if (pid == P5_X_DEMO_PALM_PACKET_ID) {
+			if (chip_info->ts->palm_to_sleep_enable) {
+				ILI_INFO("PALM PACKET ID Code = 0x%X", pid);
+				ret = P5_X_DEMO_PALM_PACKET_ID;
+				goto out;
+			}
+			goto out;
+		}
+	}
 
 	if (checksum != pack_checksum && pid != P5_X_I2CUART_PACKET_ID) {
 		ILI_ERR("Checksum Error (0x%X)! Pack = 0x%X, len = %d\n", checksum,
@@ -2245,6 +2379,11 @@ out:
 		__pm_relax(ilits->ws);
 	}
 
+	if ((ilits->differ_mode) &&
+		(((P5_X_DEBUG_PACKET_ID) == ilits->tr_buf[0]) || (P5_X_DEBUG_HIGH_RESOLUTION_PACKET_ID == ilits->tr_buf[0]))) {
+		ilitek_get_rawdata();
+	}
+
 	return ret;
 }
 
@@ -2295,6 +2434,7 @@ int ili_reset_ctrl(int mode)
 
 	if (ili_set_tp_data_len(DATA_FORMAT_DEMO, false, NULL) < 0)
 		ILI_ERR("Failed to set tp data length\n");
+
 	ilits->pll_clk_wakeup = true;
 
 	atomic_set(&ilits->tp_reset, END);
@@ -2393,6 +2533,14 @@ int ili_core_spi_setup(int num)
 		0; /*modify reg=0 for more tp vendor share same spi interface*/
 	ilits->spi->mode = SPI_MODE_0;
 	ilits->spi->bits_per_word = 8;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
+	ilits->spi->cs_setup.value = 1;
+	ilits->spi->cs_setup.unit = 0;
+	ilits->spi->cs_hold.value = 1;
+	ilits->spi->cs_hold.unit = 0;
+	ilits->spi->cs_inactive.value = 1;
+	ilits->spi->cs_inactive.unit = 0;
+#endif
 	ilits->spi->max_speed_hz = freq[num];
 
 	if (spi_setup(ilits->spi) < 0) {
@@ -2623,7 +2771,7 @@ static u32 ilitek_trigger_reason(void *chip_data, int gesture_enable,
 	if ((gesture_enable == 1) && is_suspended) {
 		/*mdelay(40);*/
 		mutex_lock(&ilits->touch_mutex);
-		ret = ili_report_handler();
+		ret = ili_report_handler(chip_data);
 		mutex_unlock(&ilits->touch_mutex);
 
 		if (ret < 0 || (chip_info->gcoord->code == 0)) {
@@ -2637,7 +2785,7 @@ static u32 ilitek_trigger_reason(void *chip_data, int gesture_enable,
 	}
 
 	mutex_lock(&ilits->touch_mutex);
-	ret = ili_report_handler();
+	ret = ili_report_handler(chip_data);
 	mutex_unlock(&ilits->touch_mutex);
 
 	if (ret < 0) {
@@ -2651,6 +2799,10 @@ static u32 ilitek_trigger_reason(void *chip_data, int gesture_enable,
 		return IRQ_IGNORE;
 	}
 
+	if (ret == P5_X_DEMO_PALM_PACKET_ID) {
+		ILI_INFO("PALM start !\n");
+		return IRQ_PALM;
+	}
 	return IRQ_TOUCH;
 }
 
@@ -2790,6 +2942,15 @@ static int ilitek_mode_switch(void *chip_data, work_mode mode, int flag)
 
 		if (ili_ic_func_ctrl("lock_point", !flag) < 0) {
 			ILI_ERR("write lock_point flag failed\n");
+		}
+
+		break;
+
+	case MODE_GLOVE:
+		ILI_INFO("MODE_GLOVE flag = %d\n", flag);
+
+		if (ili_ic_func_ctrl("glove", flag) < 0) {
+			ILI_ERR("write MODE_GLOVE flag failed\n");
 		}
 
 		break;
@@ -2974,6 +3135,65 @@ static int ilitek_sensitive_lv_set(void *chip_data, int level)
 	return ret;
 }
 
+static int ilitek_diaphragm_touch_lv_set(void *chip_data, int level)
+{
+	struct ilitek_ts_data *chip_info = (struct ilitek_ts_data *)chip_data;
+	int ret = 0;
+	uint8_t temp[3] = {0x01, 0x31, 0x00};
+
+	mutex_lock(&chip_info->touch_mutex);
+	temp[2] = level;
+	ILI_INFO("write 0x01, 0x31, 0x00, 0x%X(level)\n", level);
+	ret = ilits->wrapper(temp, 3, NULL, 0, OFF, OFF);
+	mutex_unlock(&chip_info->touch_mutex);
+	return ret;
+}
+
+static void ilitek_rate_white_list_ctrl(void *chip_data, int value)
+{
+	struct ilitek_ts_data* chip_info = (struct ilitek_ts_data*)chip_data;
+	u8 cmd[4] = {0};
+	int retval = 0;
+	if (ilits->tp_suspend) {
+		ILI_ERR("TP is not resume\n");
+		return;
+	}
+	if (chip_info == NULL) {
+		ILI_ERR("chip_info == NULL!!!	\n");
+		return;
+	}
+	mutex_lock(&ilits->touch_mutex);
+	cmd[0] = 0x01;
+	cmd[1] = 0x2F;
+	cmd[2] = 0x00; /*0x00: Set Report Rate, 0x01: Get Report Rate*/
+	switch (value) {
+	case 120: /* 120Hz */
+		cmd[3] = 0x78;
+		ILI_INFO("report rate 120 hz\n");
+		break;
+	case 180: /* 180Hz */
+		cmd[3] = 0xB4;
+		ILI_INFO("report rate 180 hz\n");
+		break;
+	case 240: /* 240Hz */
+		cmd[3] = 0xF0;
+		ILI_INFO("report rate 240 hz\n");
+		break;
+	default:
+		ILI_ERR(" report rate not support !!\n");
+		goto out;
+	}
+	retval = ilits->wrapper(cmd, sizeof(cmd), NULL, 0, OFF, OFF);
+	if (retval < 0) {
+		ILI_ERR(" send cmd fail\n");
+	}
+	else {
+		ILI_INFO("Report rate change success !\n");
+	}
+out:
+	mutex_unlock(&ilits->touch_mutex);
+}
+
 static bool ilitek_irq_throw_away(void *chip_data)
 {
 	struct ilitek_ts_data *chip_info = (struct ilitek_ts_data *)chip_data;
@@ -3025,6 +3245,8 @@ static struct oplus_touchpanel_operations ilitek_ops = {
 	.sensitive_lv_set           = ilitek_sensitive_lv_set,
 	.tp_queue_work_prepare      = ilitek_reset_queue_work_prepare,
 	.tp_irq_throw_away          = ilitek_irq_throw_away,
+	.rate_white_list_ctrl   	= ilitek_rate_white_list_ctrl,
+	.diaphragm_touch_lv_set     = ilitek_diaphragm_touch_lv_set,
 };
 
 static int ilitek_read_debug_data(struct seq_file *s,
@@ -3128,6 +3350,11 @@ static int ilitek_read_debug_data(struct seq_file *s,
 			offset_len = 45;
 		}
 
+		if ((ilits->rib.nReportResolutionMode == POSITION_DIFFER_HIGH_RESOLUTION)
+			|| (ilits->rib.nReportResolutionMode == POSITION_DIFFER_LOW_RESOLUTION)) {
+			offset_len += 10;
+		}
+
 		seq_printf(s, "Y Data:");
 		for (i = 2 * xch * ych + offset_len; i < 2 * xch * ych + 2 * ych + offset_len; i += 2) {
 			s16 temp;
@@ -3176,12 +3403,73 @@ static int ilitek_read_debug_data(struct seq_file *s,
 	}
 
 	/* change to demo mode */
-	if (ili_set_tp_data_len(DATA_FORMAT_DEMO, false, NULL) < 0) {
-		ILI_ERR("Failed to set tp data length\n");
+	if (ilits->differ_mode) {
+		if (ili_set_tp_data_len(DATA_FORMAT_DEBUG, false, NULL) < 0) {
+			ILI_ERR("Failed to switch debug mode\n");
+		}
+		if (ilits->wrapper(open_differ_cmd, 2, NULL, 0, ON, OFF) < 0) {
+			ILI_ERR("switch ilitek diff mode fail\n");
+		}
+	} else {
+		if (ili_set_tp_data_len(DATA_FORMAT_DEMO, false, NULL) < 0) {
+			ILI_ERR("Failed to set tp data length\n");
+		}
 	}
 
 	mutex_unlock(&ilits->touch_mutex);
 	return 0;
+}
+
+static void ilitek_tp_limit_data_write(void *chip_data, int count)
+{
+	int ret = 0;
+
+	ILI_INFO("tp_limit_data_write:%d \n", count);
+
+	if (count < 0) {
+		ILI_ERR("count is error %d", count);
+		return;
+	}
+	if ((ilits->rib.nReportResolutionMode != POSITION_DIFFER_HIGH_RESOLUTION)
+		&& (ilits->rib.nReportResolutionMode != POSITION_DIFFER_LOW_RESOLUTION)) {
+		ILI_INFO("new firmware not support differ_mode\n");
+		ilits->differ_mode = false;
+		return;
+	}
+
+	mutex_lock(&ilits->touch_mutex);
+
+	if (count) {
+		ret = ili_set_tp_data_len(DATA_FORMAT_DEBUG, false, NULL);
+		if (ret < 0) {
+			ILI_ERR("Failed to switch debug mode\n");
+			mutex_unlock(&ilits->touch_mutex);
+			return;
+		}
+		ret = ilits->wrapper(open_differ_cmd, 2, NULL, 0, ON, OFF);
+		if (ret < 0) {
+			ILI_ERR("open ilitek diff mode fail\n");
+			mutex_unlock(&ilits->touch_mutex);
+			return;
+		}
+
+		ilits->differ_mode = true;
+		ILI_INFO("open ilitek diff\n");
+	} else {
+		ret = ili_set_tp_data_len(DATA_FORMAT_DEMO, false, NULL);
+		if (ret < 0) {
+			ILI_ERR("Failed to set tp data length\n");
+			ILI_ERR("close ilitek diff fail\n");
+			mutex_unlock(&ilits->touch_mutex);
+			return;
+		}
+
+		ilits->differ_mode = false;
+		ILI_INFO("close ilitek diff\n");
+	}
+
+	mutex_unlock(&ilits->touch_mutex);
+	return;
 }
 
 #ifdef CONFIG_OPLUS_TP_APK
@@ -3273,6 +3561,7 @@ static struct debug_info_proc_operations ilitek_debug_info_proc_ops = {
 	.baseline_read = ilitek_baseline_read,
 	.delta_read = ilitek_delta_read,
 	.main_register_read = ilitek_main_register_read,
+	.tp_limit_data_write    = ilitek_tp_limit_data_write,
 };
 
 
@@ -3300,6 +3589,12 @@ static void ili_apk_debug_set(void *chip_data, bool on_off)
 
 	if (ilits->tp_suspend) {
 		ILI_INFO("TP is not resume\n");
+		return;
+	}
+
+	if ((ilits->rib.nReportResolutionMode == POSITION_DIFFER_HIGH_RESOLUTION)
+	|| (ilits->rib.nReportResolutionMode == POSITION_DIFFER_LOW_RESOLUTION)) {
+		ILI_INFO("new firmware not support Demodebug mode\n");
 		return;
 	}
 

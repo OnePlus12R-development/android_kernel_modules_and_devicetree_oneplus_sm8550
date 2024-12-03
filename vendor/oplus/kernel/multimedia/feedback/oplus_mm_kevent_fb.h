@@ -32,13 +32,16 @@ enum {
 
 enum OPLUS_MM_DIRVER_FB_EVENT_MODULE {
 	OPLUS_MM_DIRVER_FB_EVENT_DISPLAY = 0,
-	OPLUS_MM_DIRVER_FB_EVENT_AUDIO
+	OPLUS_MM_DIRVER_FB_EVENT_AUDIO,
+	OPLUS_MM_DIRVER_FB_EVENT_VIDEO
 };
 
 /*------- multimedia bigdata feedback event id, start ------------ */
 #define OPLUS_AUDIO_EVENTID_ADSP_CRASH           (10001)
 #define OPLUS_AUDIO_EVENTID_HEADSET_DET          (10009)
 #define OPLUS_AUDIO_EVENTID_ADSP_RECOVERY_FAIL   (10045)
+
+#define OPLUS_VIDEO_EVENTID_VCP_CRASH            (11019)
 
 #define OPLUS_DISPLAY_EVENTID_DRIVER_ERR         (12002)
 
@@ -133,6 +136,17 @@ int upload_mm_fb_kevent_limit(mm_fb_param *param);
 		mm_fb_audio_kevent(event_id, name, rate_limit_ms, fmt, ##__VA_ARGS__); \
 	} while (0)
 
+#define mm_fb_video_kevent(event_id, name, rate_limit_ms, fmt, ...) \
+		mm_fb_kevent(OPLUS_MM_DIRVER_FB_EVENT_VIDEO, event_id, name, rate_limit_ms, \
+				fmt, ##__VA_ARGS__)
+
+#define mm_fb_video_kevent_named(event_id, rate_limit_ms, fmt, ...) \
+	do { \
+		char name[MAX_FUNC_LINE_SIZE]; \
+		scnprintf(name, sizeof(name), "%s:%d", __func__, __LINE__); \
+		mm_fb_video_kevent(event_id, name, rate_limit_ms, fmt, ##__VA_ARGS__); \
+	} while (0)
+
 int mm_fb_kevent_init(void);
 void mm_fb_kevent_deinit(void);
 
@@ -149,6 +163,8 @@ void mm_fb_kevent_deinit(void);
 #define mm_fb_display_kevent_named(rate_limit_ms, fmt, ...)  do {} while (0)
 #define mm_fb_audio_kevent(event_id, name, rate_limit_ms, fmt, ...)  do {} while (0)
 #define mm_fb_audio_kevent_named(event_id, rate_limit_ms, fmt, ...)  do {} while (0)
+#define mm_fb_video_kevent(event_id, name, rate_limit_ms, fmt, ...)	 do {} while (0)
+#define mm_fb_video_kevent_named(rate_limit_ms, fmt, ...)			do {} while (0)
 #endif /*CONFIG_OPLUS_FEATURE_MM_FEEDBACK*/
 
 #endif /* _OPLUS_MM_KEVENT_FB_ */

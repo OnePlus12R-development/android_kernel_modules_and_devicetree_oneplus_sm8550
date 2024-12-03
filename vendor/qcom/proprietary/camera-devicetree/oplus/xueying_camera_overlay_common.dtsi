@@ -920,3 +920,45 @@
 			qcom,drive-strength = <2>;
 		};
 };
+
+&spmi_bus {
+	qcom,pm8550@1 {
+		pm8550_flash: qcom,flash_led@ee00 {
+			pm8550_torch0: qcom,torch_0 {
+				label = "torch";
+				qcom,led-name = "led:torch_0";
+				qcom,max-current-ma = <500>;
+				qcom,default-led-trigger = "torch0_trigger";
+				qcom,id = <0>;
+				qcom,ires-ua = <5000>;
+			};
+
+			pm8550_torch1: qcom,torch_1 {
+				label = "torch";
+				qcom,led-name = "led:torch_1";
+				qcom,max-current-ma = <500>;
+				qcom,default-led-trigger = "torch1_trigger";
+				qcom,id = <1>;
+				qcom,ires-ua = <5000>;
+			};
+
+			pm8550_torch2: qcom,torch_2 {
+				label = "torch";
+				qcom,led-name = "led:torch_2";
+				qcom,max-current-ma = <500>;
+				qcom,default-led-trigger = "torch2_trigger";
+				qcom,id = <2>;
+				qcom,ires-ua = <5000>;
+			};
+
+			pm8550_torch3: qcom,torch_3 {
+				label = "torch";
+				qcom,led-name = "led:torch_3";
+				qcom,max-current-ma = <500>;
+				qcom,default-led-trigger = "torch3_trigger";
+				qcom,id = <3>;
+				qcom,ires-ua = <5000>;
+			};
+		};
+	};
+};

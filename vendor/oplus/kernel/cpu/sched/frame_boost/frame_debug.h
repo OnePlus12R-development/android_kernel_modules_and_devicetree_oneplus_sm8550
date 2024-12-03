@@ -1,24 +1,10 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
+// SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (C) 2020 Oplus. All rights reserved.
+ * Copyright (C) 2022 Oplus. All rights reserved.
  */
+#ifdef CONFIG_OPLUS_FEATURE_MULTI_FBG
+#include "./multi_rtg/frame_debug.h"
+#else
+#include "./frame_boost_V1/frame_debug.h"
+#endif
 
-#ifndef _FRAME_DEBUG_H
-#define _FRAME_DEBUG_H
-
-void val_systrace_c(unsigned long val, char *msg);
-void frame_min_util_systrace_c(int util);
-void cfs_policy_util_systrace_c(unsigned long util);
-void cfs_curr_util_systrace_c(unsigned long util);
-void rt_policy_util_systrace_c(unsigned long util);
-void rt_curr_util_systrace_c(unsigned long util);
-void raw_util_systrace_c(unsigned long util);
-void pref_cpus_systrace_c(int grp_ui_pid, unsigned int cpu);
-void avai_cpus_systrace_c(int grp_ui_pid, unsigned int cpu);
-void query_cpus_systrace_c(unsigned int cpu);
-void sf_zone_systrace_c(unsigned int zone);
-void def_zone_systrace_c(unsigned int zone);
-void fbg_state_systrace_c(unsigned int cpu, int fbg_state);
-void cpu_util_systrace_c(unsigned long util, unsigned int cpu, char *msg);
-
-#endif /* _FRAME_DEBUG_H */

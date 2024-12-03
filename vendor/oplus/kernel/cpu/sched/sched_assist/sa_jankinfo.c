@@ -33,7 +33,7 @@ void jankinfo_android_rvh_enqueue_task_handler(void *unused,
 	if (!p || !jank_update_task_status)
 		return;
 
-	jank_update_task_status(p, TRACE_RUNNABLE);
+	jank_update_task_status(p, TRACE_RUNNABLE, flags);
 }
 
 #ifdef JANKINFO_DEBUG
@@ -81,11 +81,11 @@ void jankinfo_android_rvh_schedule_handler(void *unused,
 				prev->comm, prev->__state, prev->__state);
 #endif
 		}
-		jank_update_task_status(prev, nowtype);
+		jank_update_task_status(prev, nowtype, 0);
 	}
 
 	if (next)
-		jank_update_task_status(next, TRACE_RUNNING);
+		jank_update_task_status(next, TRACE_RUNNING, 0);
 }
 
 #endif

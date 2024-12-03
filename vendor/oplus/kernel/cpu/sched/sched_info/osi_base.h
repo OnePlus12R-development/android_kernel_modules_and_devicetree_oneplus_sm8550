@@ -168,11 +168,6 @@ extern int g_osi_debug;
 void osi_base_proc_init(struct proc_dir_entry *pde);
 void osi_base_proc_deinit(struct proc_dir_entry *pde);
 int task_cgroup_id(struct task_struct *p);
-bool is_fg_or_topapp(struct task_struct *p);
-bool is_default(struct task_struct *p);
-bool is_foreground(struct task_struct *p);
-bool is_background(struct task_struct *p);
-bool is_topapp(struct task_struct *p);
 u32 split_window(u64 now, u64 delta,
 			u64 *win_a, u64 *win_cnt, u64 *win_b);
 bool is_same_idx(u64 timestamp, u64 now);

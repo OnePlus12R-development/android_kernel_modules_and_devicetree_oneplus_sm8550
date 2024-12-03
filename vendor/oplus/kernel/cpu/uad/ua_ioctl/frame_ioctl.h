@@ -92,12 +92,32 @@ struct ofb_ctrl_data {
 
 	int64_t vsyncNs;
 	int capacity_need;
+#ifdef CONFIG_OPLUS_FEATURE_MULTI_FBG
+	union {
+		int related_width;
+		int data;
+	} m_rtg1;
+
+	union {
+		int related_depth;
+		int frame_buffer_count;
+		int group_id;
+	} m_rtg;
+#else
 	int related_width;
 	int related_depth;
+#endif
 };
 
 struct ofb_stune_data {
+#ifdef CONFIG_OPLUS_FEATURE_MULTI_FBG
+	union {
+		int level;
+		int group_id;
+	} m_rtg;
+#else
 	int level;
+#endif
 	int boost_freq;
 	int boost_migr;
 	int vutil_margin;

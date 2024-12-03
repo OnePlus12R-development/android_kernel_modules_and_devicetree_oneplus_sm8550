@@ -20,6 +20,7 @@
 #define BITS_PER_BYTE                    8
 #define IR_DEFAULT_VDD_TYPE              0
 #define IR_EXTERNAL_VDD_TYPE             1
+#define IR_NO_VDD_TYPE                   2
 #define IR_PARAM_MAX_SIZE                256*1024
 #define MIN_FREQUENCY 20000
 #define MAX_FREQUENCY 60000
@@ -111,7 +112,7 @@ static int parse_hw_core_config(struct device *dev, struct ir_core* ir_core)
 			ir_core->core_config.vdd_type = value;
 		}
 
-		if (ir_core->core_config.vdd_type == IR_EXTERNAL_VDD_TYPE) {
+		if (ir_core->core_config.vdd_type != IR_DEFAULT_VDD_TYPE) {
 			ir_core->core_config.vdd_3v0 = NULL;
 			pr_info("oplus_ir_core: %s: ir_core->core_config.vdd_3v0 is NULL\n", __func__);
 		} else {

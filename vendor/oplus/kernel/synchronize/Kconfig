@@ -25,3 +25,15 @@ config OPLUS_INTERNAL_VERSION
 	default n
 	help
 	  Support more tracing-types in internal version.
+
+config OPLUS_RWSEM_RSPIN
+	bool "rwsem_rspin"
+	default n
+	help
+	  Support rwsem reader optimistic spin.
+
+config OPLUS_LOCKTORTURE
+	tristate "locktorture"
+        default n
+        help
+          Support oplus locktorture.

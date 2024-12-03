@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -157,6 +157,18 @@ wlan_cm_enable_roaming_on_connected_sta(struct wlan_objmgr_pdev *pdev,
 	return QDF_STATUS_E_NOSUPPORT;
 }
 #endif
+
+/**
+ * cm_update_associated_ch_info() - to save channel info in mlme priv obj at
+ * the time of initial connection
+ * @vdev: Pointer to vdev
+ * @is_update: to distinguish whether update is during connection or
+ * disconnection
+ *
+ * Return: none
+ */
+void
+cm_update_associated_ch_info(struct wlan_objmgr_vdev *vdev, bool is_update);
 
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
 #define wlan_is_roam_offload_enabled(lfr) \
@@ -723,6 +735,18 @@ static inline QDF_STATUS wlan_cm_host_roam_start(struct scheduler_msg *msg)
 }
 #endif
 
+/**
+ * wlan_cm_get_associated_ch_info() - get associated channel info
+ * @psoc: psoc pointer
+ * @vdev_id: vdev id
+ * @chan_info: channel info to get
+ *
+ * Return: none
+ */
+void wlan_cm_get_associated_ch_info(struct wlan_objmgr_psoc *psoc,
+				    uint8_t vdev_id,
+				    struct connect_chan_info *chan_info);
+
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
 /**
  * wlan_cm_fw_roam_abort_req() - roam abort request handling
@@ -1125,15 +1149,41 @@ bool wlan_cm_is_roam_sync_in_progress(struct wlan_objmgr_psoc *psoc,
 				      uint8_t vdev_id);
 
 /**
- * wlan_cm_set_roam_offload_ssid() - Set the roam offload candidate ssid
- *
+ * wlan_cm_set_roam_offload_bssid() - Set the roam offload bssid of the sae
+ * roam candidate
  * @vdev: pointer to vdev
- * @ssid_ie: ssid ie of the candidate
+ * @bssid: bssid
  *
  * Return: None
  */
 void
-wlan_cm_set_roam_offload_ssid(struct wlan_objmgr_vdev *vdev, uint8_t *ssid_ie);
+wlan_cm_set_roam_offload_bssid(struct wlan_objmgr_vdev *vdev,
+			       struct qdf_mac_addr *bssid);
+
+/**
+ * wlan_cm_get_roam_offload_bssid() - Get the roam offload bssid of the sae
+ * roam candidate
+ * @vdev: pointer to vdev
+ * @bssid: bssid
+ *
+ * Return: None
+ */
+void
+wlan_cm_get_roam_offload_bssid(struct wlan_objmgr_vdev *vdev,
+			       struct qdf_mac_addr *bssid);
+
+/**
+ * wlan_cm_set_roam_offload_ssid() - Set the roam offload candidate ssid
+ *
+ * @vdev: pointer to vdev
+ * @ssid: ssid of candidate
+ * @len: length of ssid
+ *
+ * Return: None
+ */
+void
+wlan_cm_set_roam_offload_ssid(struct wlan_objmgr_vdev *vdev,
+			      uint8_t *ssid, uint8_t len);
 
 /**
  * wlan_cm_get_roam_offload_ssid() - Get the roam offload candidate ssid
@@ -1149,6 +1199,107 @@ void
 wlan_cm_get_roam_offload_ssid(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id,
 			      uint8_t *ssid, uint8_t *len);
 
+/**
+ * wlan_cm_roam_set_ho_delay_config() - Set roam hand-off delay
+ * @psoc: PSOC pointer
+ * @roam_ho_delay: vendor configured roam HO delay value
+ *
+ * Return: none
+ */
+void
+wlan_cm_roam_set_ho_delay_config(struct wlan_objmgr_psoc *psoc,
+				 uint16_t roam_ho_delay);
+
+/**
+ * wlan_cm_roam_get_ho_delay_config() - Get roam hand-off delay
+ * @psoc: PSOC pointer
+ *
+ * Return: Roam HO delay value
+ */
+uint16_t
+wlan_cm_roam_get_ho_delay_config(struct wlan_objmgr_psoc *psoc);
+
+/**
+ * wlan_cm_set_exclude_rm_partial_scan_freq() - set value to include/exclude
+ * the partial scan channels in roam full scan.
+ * @psoc: PSOC pointer
+ * @exclude_rm_partial_scan_freq: Include/exclude the channels in roam full scan
+ * that are already scanned as part of partial scan.
+ *
+ * Return: none
+ */
+void
+wlan_cm_set_exclude_rm_partial_scan_freq(struct wlan_objmgr_psoc *psoc,
+					 uint8_t exclude_rm_partial_scan_freq);
+
+/**
+ * wlan_cm_get_exclude_rm_partial_scan_freq() - Get value to include/exclude
+ * the partial scan channels in roam full scan.
+ * @psoc: PSOC pointer
+ *
+ * Return: value to include/exclude the partial scan channels in roam full scan
+ */
+uint8_t
+wlan_cm_get_exclude_rm_partial_scan_freq(struct wlan_objmgr_psoc *psoc);
+
+/**
+ * wlan_cm_roam_set_full_scan_6ghz_on_disc() - set value to include the 6 GHz
+ * channels in roam full scan only on prior discovery of any 6 GHz support in
+ * the environment.
+ * @psoc: PSOC pointer
+ * @roam_full_scan_6ghz_on_disc: Include the 6 GHz channels in roam full scan:
+ * 1 - Include only on prior discovery of any 6 GHz support in the environment
+ * 0 - Include all the supported 6 GHz channels by default
+ *
+ * Return: none
+ */
+void
+wlan_cm_roam_set_full_scan_6ghz_on_disc(struct wlan_objmgr_psoc *psoc,
+					uint8_t roam_full_scan_6ghz_on_disc);
+
+/**
+ * wlan_cm_roam_get_full_scan_6ghz_on_disc() - Get value to include the 6 GHz
+ * channels in roam full scan only on prior discovery of any 6 GHz support in
+ * the environment.
+ * @psoc: PSOC pointer
+ *
+ * Return:
+ * 1 - Include only on prior discovery of any 6 GHz support in the environment
+ * 0 - Include all the supported 6 GHz channels by default
+ */
+uint8_t wlan_cm_roam_get_full_scan_6ghz_on_disc(struct wlan_objmgr_psoc *psoc);
+
+/**
+ * wlan_cm_update_offload_ssid_from_candidate() - Set the roam offload ssid of
+ * the roam candidate into the mlme priv
+ *
+ * @pdev: pointer to pdev
+ * @vdev_id: vdev id
+ * @ap_bssid: roam candidate bssid
+ *
+ * Get the scan entry corresponding to the bssid and save the ssid
+ * in the mlme priv of the STA vdev
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+wlan_cm_update_offload_ssid_from_candidate(struct wlan_objmgr_pdev *pdev,
+					   uint8_t vdev_id,
+					   struct qdf_mac_addr *ap_bssid);
+
+/**
+ * wlan_cm_add_frame_to_scan_db() - Add the frame to scan db
+ *
+ * @psoc: PSOC pointer
+ * @frame: frame to be added to scan db
+ *
+ * Fetch the channel from frame and add the frame to scan db
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+wlan_cm_add_frame_to_scan_db(struct wlan_objmgr_psoc *psoc,
+			     struct roam_scan_candidate_frame *frame);
 #else
 static inline
 void wlan_cm_roam_activate_pcl_per_vdev(struct wlan_objmgr_psoc *psoc,
@@ -1339,7 +1490,20 @@ wlan_cm_is_roam_sync_in_progress(struct wlan_objmgr_psoc *psoc,
 }
 
 static inline void
-wlan_cm_set_roam_offload_ssid(struct wlan_objmgr_vdev *vdev, uint8_t *ssid_ie)
+wlan_cm_set_roam_offload_bssid(struct wlan_objmgr_vdev *vdev,
+			       struct qdf_mac_addr *bssid)
+{
+}
+
+static inline void
+wlan_cm_get_roam_offload_bssid(struct wlan_objmgr_vdev *vdev,
+			       struct qdf_mac_addr *bssid)
+{
+}
+
+static inline void
+wlan_cm_set_roam_offload_ssid(struct wlan_objmgr_vdev *vdev,
+			      uint8_t *ssid, uint8_t len)
 {
 }
 
@@ -1349,6 +1513,38 @@ wlan_cm_get_roam_offload_ssid(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id,
 {
 }
 
+static inline uint16_t
+wlan_cm_roam_get_ho_delay_config(struct wlan_objmgr_psoc *psoc)
+{
+	return 0;
+}
+
+static inline uint8_t
+wlan_cm_get_exclude_rm_partial_scan_freq(struct wlan_objmgr_psoc *psoc)
+{
+	return 0;
+}
+
+static inline uint8_t
+wlan_cm_roam_get_full_scan_6ghz_on_disc(struct wlan_objmgr_psoc *psoc)
+{
+	return 0;
+}
+
+static inline QDF_STATUS
+wlan_cm_update_offload_ssid_from_candidate(struct wlan_objmgr_pdev *pdev,
+					   uint8_t vdev_id,
+					   struct qdf_mac_addr *ap_bssid)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+static inline QDF_STATUS
+wlan_cm_add_frame_to_scan_db(struct wlan_objmgr_psoc *psoc,
+			     struct roam_scan_candidate_frame *frame)
+{
+	return QDF_STATUS_SUCCESS;
+}
 #endif /* WLAN_FEATURE_ROAM_OFFLOAD */
 
 #ifdef WLAN_FEATURE_FIPS
@@ -1722,4 +1918,132 @@ QDF_STATUS
 wlan_cm_get_sae_auth_ta(struct wlan_objmgr_pdev *pdev,
 			uint8_t vdev_id,
 			struct qdf_mac_addr *sae_auth_ta);
+
+/**
+ * wlan_cm_set_assoc_btm_cap() - Set the assoc BTM capability
+ * @vdev: pointer to vdev
+ * @val: BTM cap
+ *
+ * Return: None
+ */
+void
+wlan_cm_set_assoc_btm_cap(struct wlan_objmgr_vdev *vdev, bool val);
+
+/**
+ * wlan_cm_get_assoc_btm_cap() - Get the assoc BTM capability
+ * @vdev: pointer to vdev
+ *
+ * Return: BTM cap
+ */
+bool
+wlan_cm_get_assoc_btm_cap(struct wlan_objmgr_vdev *vdev);
+
+/**
+ * wlan_cm_is_self_mld_roam_supported() - Is self mld roam supported
+ * @psoc: pointer to psoc object
+ *
+ * Return: bool, true: self mld roam supported
+ */
+bool wlan_cm_is_self_mld_roam_supported(struct wlan_objmgr_psoc *psoc);
+
+#ifdef WLAN_FEATURE_11BE_MLO
+/**
+ * wlan_cm_is_sae_auth_addr_conversion_required() - check whether address
+ * conversion is required or not.
+ * @vdev: pointer to vdev
+ *
+ * This API checks the address conversion (mld to link and vice-versa) for sae
+ * auth frames for below listed scenarios when mlo sae auth external conversion
+ * is true.
+ *
+ * Connected AP Roam AP Connection Conversion
+ * (MLO vdev)
+ *	non-ML  non-ML  initial     FALSE
+ *	non-ML  ML      initial     FALSE
+ *	non-ML  non-ML  roam        FALSE
+ *	non-ML  ML      roam        TRUE
+ *	ML      non-ML  initial     TRUE
+ *	ML      ML      initial     TRUE
+ *	ML      non-ML  roam        FALSE
+ *	ML      ML      roam        TRUE
+ *
+ * Return: true if address conversion required, otherwise false.
+ */
+bool
+wlan_cm_is_sae_auth_addr_conversion_required(struct wlan_objmgr_vdev *vdev);
+#else
+static inline bool
+wlan_cm_is_sae_auth_addr_conversion_required(struct wlan_objmgr_vdev *vdev)
+{
+	return false;
+}
+#endif /* WLAN_FEATURE_11BE_MLO */
+
+#if defined(WLAN_FEATURE_11BE_MLO) && defined(WLAN_FEATURE_ROAM_OFFLOAD)
+/**
+ * wlan_cm_store_mlo_roam_peer_address() - cache peer mld and link address
+ * while roaming
+ * @pdev: pdev object
+ * @auth_event: auth offload event data
+ *
+ * Return: void
+ */
+void
+wlan_cm_store_mlo_roam_peer_address(struct wlan_objmgr_pdev *pdev,
+				    struct auth_offload_event *auth_event);
+
+/**
+ * wlan_cm_roaming_get_peer_mld_addr() - retrieve the peer mld address for
+ * roaming.
+ * @vdev: vdev pointer
+ *
+ * Return: pointer to struct qdf_mac_addr
+ */
+struct qdf_mac_addr *
+wlan_cm_roaming_get_peer_mld_addr(struct wlan_objmgr_vdev *vdev);
+
+/**
+ * wlan_cm_roaming_get_peer_link_addr() - get peer link address for roaming
+ * @vdev: vdev pointer
+ *
+ * Return: pointer to struct qdf_mac_addr
+ */
+struct qdf_mac_addr *
+wlan_cm_roaming_get_peer_link_addr(struct wlan_objmgr_vdev *vdev);
+
+/**
+ * wlan_cm_roam_is_mlo_ap() - to check whether vdev will be roam to ml ap
+ * @vdev: object manager vdev
+ *
+ * this function check whether roaming vdev will be connected to ml ap or not.
+ *
+ * Return: true if roam ap is ml capable otherwise false
+ */
+bool
+wlan_cm_roam_is_mlo_ap(struct wlan_objmgr_vdev *vdev);
+#else
+static inline void
+wlan_cm_store_mlo_roam_peer_address(struct wlan_objmgr_pdev *pdev,
+				    struct auth_offload_event *auth_event)
+{
+}
+
+static inline struct qdf_mac_addr *
+wlan_cm_roaming_get_mld_addr(struct wlan_objmgr_vdev *vdev)
+{
+	return NULL;
+}
+
+static inline struct qdf_mac_addr *
+wlan_cm_roaming_get_peer_link_addr(struct wlan_objmgr_vdev *vdev)
+{
+	return NULL;
+}
+
+static inline bool
+wlan_cm_roam_is_mlo_ap(struct wlan_objmgr_vdev *vdev)
+{
+	return false;
+}
+#endif /* WLAN_FEATURE_11BE_MLO && WLAN_FEATURE_ROAM_OFFLOAD */
 #endif  /* WLAN_CM_ROAM_API_H__ */

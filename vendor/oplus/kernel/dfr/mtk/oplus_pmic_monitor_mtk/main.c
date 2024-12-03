@@ -107,6 +107,7 @@ void mt6363_pmic_show(struct PMICHistoryKernelStruct *pmic_history_ptr, char pag
 	unsigned int cur_poff_reason2=0, cur_poff_reason2_bak=0; 
 	unsigned int cur_pg_sdn_sts0=0, cur_pg_sdn_sts1=0;
 	unsigned int cur_oc_sdn_sts0=0, cur_oc_sdn_sts1=0;
+	unsigned int cur_sts_spmi_seq_off=0;
 
 	for(;pmic_device_index<pmic_history_count;pmic_device_index++){
 		pon_reason_bit = -1;
@@ -153,12 +154,19 @@ void mt6363_pmic_show(struct PMICHistoryKernelStruct *pmic_history_ptr, char pag
             cur_poff_reason2_bak = cur_poff_reason2_bak >> 1;
             poff_reason2_bit++;
         }
+		cur_sts_spmi_seq_off=pmic_reg_value.sts_spmi_seq_off;
 		if(poff_reason_bit>=0 && poff_reason_bit<=15){
 			(*len) += snprintf(&page[(*len)], 2048-(*len), "PMIC->poff_reason|%u|0x%x|:%s\n",
 				pmic_device_index,
 				cur_poff_reason,
 				mt6363_pon_poff_reason_str[poff_reason_bit]);
-		}else{
+		}else if (cur_sts_spmi_seq_off==1) {
+			(*len) += snprintf(&page[(*len)], 2048-(*len), "PMIC->poff_reason|%u|0x%0x|:%s\n",
+                        pmic_device_index,
+                        cur_poff_reason,
+                        mt6363_pon_poff_reason_str[7]);
+
+		}else {
 			(*len) += snprintf(&page[(*len)], 2048-(*len), "PMIC->poff_reason|%u|0x%0x|:%s\n",
 			pmic_device_index,
 			cur_poff_reason,
@@ -199,7 +207,10 @@ void mt6363_pmic_show(struct PMICHistoryKernelStruct *pmic_history_ptr, char pag
 				pmic_device_index,
 				cur_oc_sdn_sts1,
 				"closed_source");
-		
+		(*len) += snprintf(&page[(*len)], 2048-(*len), "PMIC->sts_spmi_seq_off|%u|0x%x|:%s\n",
+                                pmic_device_index,
+                                cur_sts_spmi_seq_off,
+                                "closed_source");
 	}
 }
 
@@ -266,6 +277,7 @@ void mt6359_pmic_show(struct PMICHistoryKernelStruct *pmic_history_ptr, char pag
 	unsigned int cur_poff_reason=0, cur_poff_reason_bak=0;
 	unsigned int cur_pg_sdn_sts0=0, cur_pg_sdn_sts1=0;
 	unsigned int cur_oc_sdn_sts0=0, cur_oc_sdn_sts1=0;
+	unsigned int cur_sts_spmi_seq_off=0;
 
 	for(;pmic_device_index<pmic_history_count;pmic_device_index++){
 
@@ -304,12 +316,18 @@ void mt6359_pmic_show(struct PMICHistoryKernelStruct *pmic_history_ptr, char pag
             cur_poff_reason_bak = cur_poff_reason_bak >> 1;
             poff_reason_bit++;
         }
+		cur_sts_spmi_seq_off=pmic_reg_value.sts_spmi_seq_off;
 		if (poff_reason_bit>=0 && poff_reason_bit<=14) {
         	(*len) += snprintf(&page[(*len)], 2048-(*len), "PMIC->poff_reason|%u|0x%0x|:%s\n",
 			pmic_device_index,
 			cur_poff_reason,
 			mt6359_poff_reason_str[poff_reason_bit]);
-        }else{
+        }else if(cur_sts_spmi_seq_off==1){
+		 (*len) += snprintf(&page[(*len)], 2048-(*len), "PMIC->poff_reason|%u|0x%0x|:%s\n",
+                        pmic_device_index,
+                        cur_poff_reason,
+                        mt6359_poff_reason_str[7]);
+	}else {
 			(*len) += snprintf(&page[(*len)], 2048-(*len), "PMIC->poff_reason|%u|0x%x|:%s\n",
 				pmic_device_index,
 				cur_poff_reason,
@@ -339,6 +357,10 @@ void mt6359_pmic_show(struct PMICHistoryKernelStruct *pmic_history_ptr, char pag
 				pmic_device_index,
 				cur_oc_sdn_sts1,
 				"closed_source");
+                (*len) += snprintf(&page[(*len)], 2048-(*len), "PMIC->sts_spmi_seq_off|%u|0x%x|:%s\n",
+                                pmic_device_index,
+                                cur_sts_spmi_seq_off,
+                                "closed_source");
 
 	}
 	printk(KERN_INFO "mt6359_pmic_show end\n");

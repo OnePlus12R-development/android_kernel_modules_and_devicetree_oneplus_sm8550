@@ -393,6 +393,8 @@
 		dhall,irq-gpio = <&tlmm 14 0x2008>;
 		pinctrl-names = "up_hall_tri_state_key_active";
 		pinctrl-0 = <&up_hall_tri_state_key_active>;
+		exception_upload_support;
+		health_monitor_support;
 	};
 	magnachip@0C {
 		compatible = "oplus,hall-mxm1120,down";
@@ -405,5 +407,7 @@
 		dhall,irq-gpio = <&tlmm 17 0x2008>;
 		pinctrl-names = "down_hall_tri_state_key_active";
 		pinctrl-0 = <&down_hall_tri_state_key_active>;
+		exception_upload_support;
+		health_monitor_support;
 	};
 };

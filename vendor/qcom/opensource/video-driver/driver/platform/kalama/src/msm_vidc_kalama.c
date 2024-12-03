@@ -60,6 +60,7 @@ static struct msm_platform_core_capability core_data_kalama[] = {
 					 * which is greater than 4096x2176@120fps,
 					 * 8192x4320@48fps
 					 */
+	{MAX_ENC_MBPS, 7833600}, // same as max mbps
 	{MAX_IMAGE_MBPF, 1048576},  /* (16384x16384)/256 */
 	{MAX_MBPF_HQ, 8160}, /* ((1920x1088)/256) */
 	{MAX_MBPS_HQ, 489600}, /* ((1920x1088)/256)@60fps */
@@ -336,7 +337,7 @@ static struct msm_platform_inst_capability instance_cap_data_kalama[] = {
 		1, V4L2_MPEG_MSM_VIDC_DISABLE,
 		V4L2_CID_MPEG_VIDC_TS_REORDER},
 
-	{HFLIP, ENC, CODECS_ALL,
+	{HFLIP, ENC, H264|HEVC,
 		V4L2_MPEG_MSM_VIDC_DISABLE,
 		V4L2_MPEG_MSM_VIDC_ENABLE,
 		1, V4L2_MPEG_MSM_VIDC_DISABLE,
@@ -345,7 +346,7 @@ static struct msm_platform_inst_capability instance_cap_data_kalama[] = {
 		CAP_FLAG_OUTPUT_PORT |
 			CAP_FLAG_INPUT_PORT | CAP_FLAG_DYNAMIC_ALLOWED},
 
-	{VFLIP, ENC, CODECS_ALL,
+	{VFLIP, ENC, H264|HEVC,
 		V4L2_MPEG_MSM_VIDC_DISABLE,
 		V4L2_MPEG_MSM_VIDC_ENABLE,
 		1, V4L2_MPEG_MSM_VIDC_DISABLE,
@@ -354,7 +355,7 @@ static struct msm_platform_inst_capability instance_cap_data_kalama[] = {
 		CAP_FLAG_OUTPUT_PORT | CAP_FLAG_INPUT_PORT |
 			CAP_FLAG_DYNAMIC_ALLOWED},
 
-	{ROTATION, ENC, CODECS_ALL,
+	{ROTATION, ENC, H264|HEVC,
 		0, 270, 90, 0,
 		V4L2_CID_ROTATE,
 		HFI_PROP_ROTATION,
@@ -364,14 +365,6 @@ static struct msm_platform_inst_capability instance_cap_data_kalama[] = {
 		0, 32, 1, 0,
 		V4L2_CID_MPEG_VIDC_SUPERFRAME, 0,
 		CAP_FLAG_NONE},
-
-	{SLICE_DECODE, DEC, H264|HEVC|AV1,
-		V4L2_MPEG_MSM_VIDC_DISABLE,
-		V4L2_MPEG_MSM_VIDC_DISABLE,
-		0,
-		V4L2_MPEG_MSM_VIDC_DISABLE,
-		V4L2_CID_MPEG_VIDEO_DECODER_SLICE_INTERFACE,
-		0},
 
 	{HEADER_MODE, ENC, CODECS_ALL,
 		V4L2_MPEG_VIDEO_HEADER_MODE_SEPARATE,
@@ -1820,23 +1813,23 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_kala
 
 	{META_OUTBUF_FENCE, DEC, H264|HEVC|VP9|AV1,
 		{OUTPUT_ORDER},
-		{LOWLATENCY_MODE, SLICE_DECODE},
+		{LOWLATENCY_MODE},
 		msm_vidc_adjust_dec_outbuf_fence,
 		NULL},
 
-	{HFLIP, ENC, CODECS_ALL,
+	{HFLIP, ENC, H264|HEVC,
 		{0},
 		{0},
 		NULL,
 		msm_vidc_set_flip},
 
-	{VFLIP, ENC, CODECS_ALL,
+	{VFLIP, ENC, H264|HEVC,
 		{0},
 		{0},
 		NULL,
 		msm_vidc_set_flip},
 
-	{ROTATION, ENC, CODECS_ALL,
+	{ROTATION, ENC, H264|HEVC,
 		{0},
 		{0},
 		NULL,
@@ -1845,12 +1838,6 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_kala
 	{SUPER_FRAME, ENC, H264|HEVC,
 		{0},
 		{INPUT_BUF_HOST_MAX_COUNT, OUTPUT_BUF_HOST_MAX_COUNT},
-		NULL,
-		NULL},
-
-	{SLICE_DECODE, DEC, H264|HEVC|AV1,
-		{LOWLATENCY_MODE, META_OUTBUF_FENCE, OUTPUT_ORDER},
-		{0},
 		NULL,
 		NULL},
 
@@ -1973,7 +1960,7 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_kala
 
 	{LOWLATENCY_MODE, DEC, H264|HEVC|VP9|AV1,
 		{META_OUTBUF_FENCE},
-		{STAGE, SLICE_DECODE},
+		{STAGE},
 		msm_vidc_adjust_dec_lowlatency_mode,
 		NULL},
 
@@ -2002,6 +1989,12 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_kala
 		msm_vidc_set_ir_period},
 
 	{AU_DELIMITER, ENC, H264|HEVC,
+		{0},
+		{0},
+		NULL,
+		msm_vidc_set_u32},
+
+	{BASELAYER_PRIORITY, ENC, H264,
 		{0},
 		{0},
 		NULL,
@@ -2270,7 +2263,7 @@ static struct msm_platform_inst_cap_dependency instance_cap_dependency_data_kala
 
 	{OUTPUT_ORDER, DEC, H264|HEVC|VP9|AV1,
 		{THUMBNAIL_MODE, DISPLAY_DELAY, DISPLAY_DELAY_ENABLE},
-		{META_OUTBUF_FENCE, SLICE_DECODE},
+		{META_OUTBUF_FENCE},
 		msm_vidc_adjust_output_order,
 		msm_vidc_set_u32},
 

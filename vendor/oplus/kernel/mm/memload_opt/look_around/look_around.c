@@ -206,7 +206,7 @@ static void unregister_look_around_vendor_hooks(void)
 
 static int look_around_show(struct seq_file *s, void *v)
 {
-	seq_printf(s, "look_around pages:  %llu \n", LOOK_AROUND_MAX * 2);
+	seq_printf(s, "look_around pages:  %d \n", LOOK_AROUND_MAX * 2);
 	seq_printf(s, "rmap_skip  %llu \n", atomic64_read(&lookaround_skip_rmap));
 
 	return 0;

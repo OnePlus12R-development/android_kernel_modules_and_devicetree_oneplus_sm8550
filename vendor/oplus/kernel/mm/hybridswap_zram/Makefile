@@ -3,6 +3,7 @@ ccflags-y       := -I $(srctree)/mm
 obj-$(CONFIG_HYBRIDSWAP_ZRAM) += oplus_bsp_hybridswap_zram.o
 
 obj-$(CONFIG_CRYPTO_ZSTDN) += zstd/
+obj-$(CONFIG_CRYPTO_LZ4K) += lz4k/
 
 oplus_bsp_hybridswap_zram-y	:=	zcomp.o zram_drv.o
 oplus_bsp_hybridswap_zram-$(CONFIG_HYBRIDSWAP) += hybridswap/hybridmain.o

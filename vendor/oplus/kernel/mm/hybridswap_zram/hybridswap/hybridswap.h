@@ -61,14 +61,4 @@ extern ssize_t hybridswap_swapd_pause_store(struct device *dev,
 extern ssize_t hybridswap_swapd_pause_show(struct device *dev,
 		struct device_attribute *attr, char *buf);
 #endif
-
-static inline bool current_is_swapd(void)
-{
-#ifdef CONFIG_HYBRIDSWAP_SWAPD
-	return (strncmp(current->comm, "hybridswapd:", sizeof("hybridswapd:") - 1) == 0);
-#else
-	return false;
-#endif
-}
-
 #endif /* HYBRIDSWAP_H */

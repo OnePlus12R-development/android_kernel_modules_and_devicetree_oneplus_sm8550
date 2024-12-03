@@ -7,6 +7,5 @@
 
 int bright_screen_timer_restart(void);
 int black_screen_timer_restart(void);
-void set_pwk_flag(bool enable);
 
 #endif /* _THEIA_BRIGHT_BLACK_CHECK_H_ */

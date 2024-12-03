@@ -25,21 +25,72 @@
 #include "sys-memstat.h"
 #include "logger.h"
 
-#define SIZE_TO_PAGES(size) ((size) >> PAGE_SHIFT)
+struct hash_data_info {
+	void *p;
+	struct hlist_node head;
+};
 
-static bool is_ashmem_file(struct file *file)
+struct hash_data {
+	struct hlist_head hash_buf[1 << 10];
+	unsigned int inx;
+	struct hash_data_info p_arr[0];
+};
+
+struct fd_data {
+	bool print_oom;
+	struct proc_ms *ms;
+	struct hash_data *phash_data;
+};
+
+#define SIZE_TO_PAGES(size) ((size) >> PAGE_SHIFT)
+#define MAX_FD (4096)
+/* 4096 * 32 + 1024 * 8 + 8 = 106504 */
+#define HASH_DATA_SIZE (sizeof(struct hash_data) + MAX_FD * sizeof(struct hash_data_info))
+
+ssize_t proc_memstat_fd_data_size(void)
 {
-	return false;
+	return HASH_DATA_SIZE;
 }
 
 static int match_file(const void *p, struct file *file, unsigned fd)
 {
-	struct dma_buf *dmabuf;
-	struct ashmem_area *ashmem_data;
-	struct proc_ms *ms = (struct proc_ms *)p;
+	struct fd_data *pfd_data = (struct fd_data *)p;
+	struct proc_ms *ms = pfd_data->ms;
+	struct hash_data_info *hash_data_info;
+	struct hash_data *hash_data = pfd_data->phash_data;
 
+	if (unlikely(!file->private_data))
+		goto unaccount;
+
+	if (!is_ashmem_file(file) && !is_dma_buf_file(file))
+		goto unaccount;
+
+	if (unlikely(!pfd_data->phash_data))
+		goto no_hash_data;
+
+	hash_for_each_possible(hash_data->hash_buf, hash_data_info, head,
+			       (unsigned long) file->private_data)
+		if (file->private_data == hash_data_info->p)
+			goto unaccount;
+
+	if (unlikely(hash_data->inx == MAX_FD)) {
+		if (!pfd_data->print_oom) {
+			pr_err("%s out of (%d) fds\n", ms->comm, MAX_FD);
+			pfd_data->print_oom = true;
+		}
+		goto no_hash_data;
+	}
+
+	hash_data_info = hash_data->p_arr + hash_data->inx;
+	hash_data_info->p = file->private_data;
+	hash_data->inx += 1;
+	hash_add(hash_data->hash_buf, &hash_data_info->head,
+		 (unsigned long)hash_data_info->p);
+
+no_hash_data:
 	if (is_dma_buf_file(file)) {
-		dmabuf = file->private_data;
+		struct dma_buf *dmabuf = file->private_data;
+
 		if (dmabuf)
 			ms->dmabuf += SIZE_TO_PAGES(dmabuf->size);
 		return 0;
@@ -47,13 +98,14 @@ static int match_file(const void *p, struct file *file, unsigned fd)
 
 #ifdef CONFIG_ASHMEM
 	if (is_ashmem_file(file)) {
-		ashmem_data = file->private_data;
-		if (ashmem_data)
+		struct ashmem_area *ashmem_data = file->private_data;
+
+		if (ashmem_data->file && ashmem_data->size)
 			ms->ashmem += SIZE_TO_PAGES(ashmem_data->size);
 		return 0;
 	}
 #endif /* CONFIG_ASHMEM */
-
+unaccount:
 	ms->nr_fds += 1;
 	return 0;
 }
@@ -75,7 +127,8 @@ static void __proc_mtrack_memstat(struct proc_ms *ms, pid_t pid, u32 flags)
 /*
  * Must be called under rcu_read_lock() & increment task_struct counter.
  */
-static int __proc_memstat(struct task_struct *p, struct proc_ms *ms, u32 flags)
+static int __proc_memstat(struct task_struct *p, struct proc_ms *ms, u32 flags,
+			  struct fd_data *pfd_data)
 {
 	struct mm_struct *mm = NULL;
 	struct task_struct *tsk;
@@ -100,8 +153,16 @@ static int __proc_memstat(struct task_struct *p, struct proc_ms *ms, u32 flags)
 	if (!tsk)
 		return -EEXIST;
 
-	if (flags & PROC_MS_ITERATE_FD)
-		iterate_fd(p->files, 0, match_file, ms);
+	if (flags & PROC_MS_ITERATE_FD) {
+		pfd_data->ms = ms;
+
+		if (likely(pfd_data->phash_data)) {
+			pfd_data->print_oom = false;
+			memset(pfd_data->phash_data, 0, HASH_DATA_SIZE);
+			hash_init(pfd_data->phash_data->hash_buf);
+		}
+		iterate_fd(p->files, 0, match_file, pfd_data);
+	}
 
 	mm = tsk->mm;
 
@@ -124,13 +185,29 @@ static int __proc_memstat(struct task_struct *p, struct proc_ms *ms, u32 flags)
 	return 0;
 }
 
+static void init_fd_data(struct fd_data *p)
+{
+	struct hash_data *phash_data = OSVELTE_FEATURE_USE_HASHLIST ?
+		vmalloc(HASH_DATA_SIZE) : NULL;
+
+	p->phash_data = phash_data;
+}
+
+static void destroy_fd_data(struct fd_data *p)
+{
+	if (OSVELTE_FEATURE_USE_HASHLIST && likely(p->phash_data))
+		vfree(p->phash_data);
+}
+
 static int proc_pid_memstat(unsigned long arg)
 {
-	long ret = -EINVAL;
+	long ret = 0;
 	struct proc_pid_ms ppm;
 	struct task_struct *p;
 	pid_t pid;
 	void __user *argp = (void __user *) arg;
+	struct fd_data fd_data;
+	bool iter_fd;
 
 	if (copy_from_user(&ppm, argp, sizeof(ppm)))
 		return -EFAULT;
@@ -138,27 +215,35 @@ static int proc_pid_memstat(unsigned long arg)
 	pid = ppm.pid;
 	/* zeroed data */
 	memset(&ppm.ms, 0, sizeof(ppm.ms));
+	iter_fd = !!(ppm.flags & PROC_MS_ITERATE_FD);
+
+	if (iter_fd)
+		init_fd_data(&fd_data);
 
 	rcu_read_lock();
 	p = find_task_by_vpid(pid);
 	if (!p) {
 		rcu_read_unlock();
-		return -EINVAL;
+		ret = -EINVAL;
+		goto free_fd_data;
 	}
 
 	if ((ppm.flags & PROC_MS_PPID) && pid_alive(p))
 		ppm.ms.ppid = task_pid_nr(rcu_dereference(p->real_parent));
-	ret = __proc_memstat(p, &ppm.ms, ppm.flags);
+	ret = __proc_memstat(p, &ppm.ms, ppm.flags, &fd_data);
 	rcu_read_unlock();
 
 	if (ret)
-		return ret;
+		goto free_fd_data;
 
 	__proc_mtrack_memstat(&ppm.ms, pid, ppm.flags);
 	if (copy_to_user(argp, &ppm, sizeof(ppm)))
-		return -EFAULT;
+		ret = -EFAULT;
 
-	return 0;
+free_fd_data:
+	if (iter_fd)
+		destroy_fd_data(&fd_data);
+	return ret;
 }
 
 static int proc_size_memstat(struct file *file, unsigned int cmd, unsigned long arg)
@@ -167,6 +252,8 @@ static int proc_size_memstat(struct file *file, unsigned int cmd, unsigned long 
 	struct proc_size_ms psm;
 	struct task_struct *p = NULL;
 	int ret = 0, i, cnt = 0;
+	bool iter_fd;
+	struct fd_data fd_data;
 
 	void __user *argp = (void __user *) arg;
 
@@ -176,17 +263,17 @@ static int proc_size_memstat(struct file *file, unsigned int cmd, unsigned long 
 	if (psm.size > PROC_MS_MAX_SIZE)
 		return -EINVAL;
 
-	mutex_lock(&reader->mutex);
 	if (unlikely(!reader->arr_ms)) {
-		reader->arr_ms = vzalloc(PROC_MS_MAX_SIZE * sizeof(struct proc_ms));
+		reader->arr_ms = vmalloc(PROC_MS_MAX_SIZE * sizeof(struct proc_ms));
 
-		if (!reader->arr_ms) {
-			mutex_unlock(&reader->mutex);
+		if (!reader->arr_ms)
 			return -ENOMEM;
-		}
 	}
 	memset(reader->arr_ms, 0, PROC_MS_MAX_SIZE * sizeof(struct proc_ms));
-	mutex_unlock(&reader->mutex);
+
+	iter_fd = !!(psm.flags & PROC_MS_ITERATE_FD);
+	if (iter_fd)
+		init_fd_data(&fd_data);
 
 	rcu_read_lock();
 	for_each_process(p) {
@@ -212,7 +299,7 @@ static int proc_size_memstat(struct file *file, unsigned int cmd, unsigned long 
 		if ((psm.flags & PROC_MS_PPID) && pid_alive(p))
 			ms->ppid = task_pid_nr(rcu_dereference(p->real_parent));
 
-		if (likely(!__proc_memstat(p, ms, psm.flags)))
+		if (likely(!__proc_memstat(p, ms, psm.flags, &fd_data)))
 			cnt++;
 	}
 	rcu_read_unlock();
@@ -225,6 +312,7 @@ static int proc_size_memstat(struct file *file, unsigned int cmd, unsigned long 
 
 	for (i = 0; i < cnt; i++) {
 		struct proc_ms *ms = reader->arr_ms + i;
+
 		__proc_mtrack_memstat(ms, ms->pid, psm.flags);
 	}
 
@@ -233,13 +321,15 @@ static int proc_size_memstat(struct file *file, unsigned int cmd, unsigned long 
 		ret = -EFAULT;
 		goto err_buf;
 	}
-
 err_buf:
+	if (iter_fd)
+		destroy_fd_data(&fd_data);
 	return ret;
 }
 
 long proc_memstat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
+	struct logger_reader *reader = file->private_data;
 	long ret = -EINVAL;
 
 	if (cmd < CMD_PROC_MS_MIN || cmd > CMD_PROC_MS_MAX) {
@@ -250,6 +340,7 @@ long proc_memstat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	if (!(file->f_mode & FMODE_READ))
 		return -EBADF;
 
+	mutex_lock(&reader->mutex);
 	switch (cmd) {
 	case CMD_PROC_MS_PID:
 		ret = proc_pid_memstat(arg);
@@ -261,6 +352,7 @@ long proc_memstat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		ret = proc_size_memstat(file, cmd, arg);
 		break;
 	}
+	mutex_unlock(&reader->mutex);
 
 	return ret;
 }

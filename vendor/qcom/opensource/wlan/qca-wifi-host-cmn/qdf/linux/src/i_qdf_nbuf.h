@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -91,6 +91,7 @@ typedef struct skb_shared_info *__qdf_nbuf_shared_info_t;
 #define QDF_NBUF_CB_PACKET_TYPE_ICMPv6 6
 #define QDF_NBUF_CB_PACKET_TYPE_DHCPV6 7
 #define QDF_NBUF_CB_PACKET_TYPE_END_INDICATION 8
+#define QDF_NBUF_CB_PACKET_TYPE_TCP_ACK 9
 
 #define RADIOTAP_BASE_HEADER_LEN sizeof(struct ieee80211_radiotap_header)
 
@@ -832,6 +833,32 @@ __qdf_nbuf_t __qdf_nbuf_alloc_no_recycler(size_t size, int reserve, int align,
 					  const char *func, uint32_t line);
 
 /**
+ * __qdf_nbuf_page_frag_alloc() - Allocate nbuf from @pf_cache page
+ *				  fragment cache
+ * @osdev: Device handle
+ * @size: Netbuf requested size
+ * @reserve: headroom to start with
+ * @align: Align
+ * @pf_cache: Reference to page fragment cache
+ * @func: Function name of the call site
+ * @line: line number of the call site
+ *
+ * This allocates a nbuf, aligns if needed and reserves some space in the front,
+ * since the reserve is done after alignment the reserve value if being
+ * unaligned will result in an unaligned address.
+ *
+ * It will call kernel page fragment APIs for allocation of skb->head, prefer
+ * this API for buffers that are allocated and freed only once i.e., for
+ * reusable buffers.
+ *
+ * Return: nbuf or %NULL if no memory
+ */
+__qdf_nbuf_t
+__qdf_nbuf_page_frag_alloc(__qdf_device_t osdev, size_t size, int reserve,
+			   int align, __qdf_frag_cache_t *pf_cache,
+			   const char *func, uint32_t line);
+
+/**
  * __qdf_nbuf_clone() - clone the nbuf (copy is readonly)
  * @skb: Pointer to network buffer
  *
@@ -931,6 +958,7 @@ uint8_t __qdf_nbuf_data_get_ipv6_tc(uint8_t *data);
 void __qdf_nbuf_data_set_ipv4_tos(uint8_t *data, uint8_t tos);
 void __qdf_nbuf_data_set_ipv6_tc(uint8_t *data, uint8_t tc);
 bool __qdf_nbuf_is_ipv4_last_fragment(struct sk_buff *skb);
+bool __qdf_nbuf_is_ipv4_v6_pure_tcp_ack(struct sk_buff *skb);
 
 #ifdef QDF_NBUF_GLOBAL_COUNT
 int __qdf_nbuf_count_get(void);
@@ -1805,12 +1833,21 @@ __qdf_nbuf_queue_insert_head(__qdf_nbuf_queue_t *qhead, __qdf_nbuf_t skb)
 	qhead->qlen++;
 }
 
+/**
+ * __qdf_nbuf_queue_remove_last() - remove a skb from the tail of the queue
+ * @qhead: Queue head
+ *
+ * This is a lockless version. Driver should take care of the locks
+ *
+ * Return: skb or NULL
+ */
 static inline struct sk_buff *
 __qdf_nbuf_queue_remove_last(__qdf_nbuf_queue_t *qhead)
 {
 	__qdf_nbuf_t tmp_tail, node = NULL;
 
 	if (qhead->head) {
+		qhead->qlen--;
 		tmp_tail = qhead->tail;
 		node = qhead->head;
 		if (qhead->head == qhead->tail) {
@@ -2451,6 +2488,19 @@ static inline unsigned int __qdf_nbuf_get_truesize(struct sk_buff *skb)
 	return skb->truesize;
 }
 
+/**
+ * __qdf_nbuf_get_allocsize() - Return the actual size of the skb->head
+ * excluding the header and variable data area
+ * @skb: sk buff
+ *
+ * Return: actual allocated size of network buffer
+ */
+static inline unsigned int __qdf_nbuf_get_allocsize(struct sk_buff *skb)
+{
+	return SKB_WITH_OVERHEAD(skb->truesize) -
+		SKB_DATA_ALIGN(sizeof(struct sk_buff));
+}
+
 #ifdef CONFIG_WLAN_SYSFS_MEM_STATS
 /**
  * __qdf_record_nbuf_nbytes() - add or subtract the size of the nbuf
@@ -2593,6 +2643,12 @@ static inline
 void __qdf_nbuf_queue_head_purge(struct sk_buff_head *skb_queue_head)
 {
 	return skb_queue_purge(skb_queue_head);
+}
+
+static inline
+int __qdf_nbuf_queue_empty(__qdf_nbuf_queue_head_t *nbuf_queue_head)
+{
+	return skb_queue_empty(nbuf_queue_head);
 }
 
 /**
@@ -2903,6 +2959,33 @@ __qdf_nbuf_set_gso_size(struct sk_buff *skb, unsigned int val)
 static inline void __qdf_nbuf_kfree(struct sk_buff *skb)
 {
 	kfree_skb(skb);
+}
+
+/**
+ * __qdf_nbuf_dev_kfree_list() - Free nbuf list using dev based os call
+ * @skb_queue_head: Pointer to nbuf queue head
+ *
+ * This function is called to free the nbuf list on failure cases
+ *
+ * Return: None
+ */
+void
+__qdf_nbuf_dev_kfree_list(__qdf_nbuf_queue_head_t *nbuf_queue_head);
+
+/**
+ * __qdf_nbuf_dev_queue_head() - queue a buffer using dev at the list head
+ * @skb_queue_head: Pointer to skb list head
+ * @buff: Pointer to nbuf
+ *
+ * This function is called to queue buffer at the skb list head
+ *
+ * Return: None
+ */
+static inline void
+__qdf_nbuf_dev_queue_head(__qdf_nbuf_queue_head_t *nbuf_queue_head,
+			  __qdf_nbuf_t buff)
+{
+	 __skb_queue_head(nbuf_queue_head, buff);
 }
 
 /**

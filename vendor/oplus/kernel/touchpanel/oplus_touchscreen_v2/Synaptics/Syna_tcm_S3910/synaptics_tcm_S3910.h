@@ -127,6 +127,7 @@
 #define SYNA_GET_RATE_240                        10
 #define SYNA_GET_RATE_360                        300
 #define SYNA_GET_RATE_720                        600
+#define SYNA_GET_RATE_180                        180
 
 #define SYNA_WRITE_RATE_120                      120
 #define SYNA_WRITE_RATE_180                      180
@@ -140,6 +141,9 @@
 
 /*S3910 addr high bit is palm flag, 60*/
 #define PALM_FLAG       6
+
+#define GESTURE_MODE_SWITCH_RETRY_TIMES     5
+#define MAX_HEALTH_REPORT_LEN 50
 
 enum test_item_bit {
 	TYPE_TRX_SHORT          = 1,
@@ -213,6 +217,13 @@ enum module_type {
 	TCM_LAST,
 };
 
+enum FOD_HEALTH_INFO {
+	FOD_ENABLE_NO_ERROR = 0,
+	FINGER_AREA_NOT_MEET = 7,
+	OTHER_FINGER_OUT_FP_ZONE = 8,
+	HAS_FINGER_BEFORE_FP_ENABLE = 9,
+};
+
 enum boot_mode {
 	MODE_APPLICATION        = 0x01,
 	MODE_HOST_DOWNLOAD      = 0x02,
@@ -263,6 +274,7 @@ enum dynamic_config_id {
 	DC_ENABLE_GLOVE,
 	DC_PS_STATUS = 0xC1,
 	DC_DISABLE_ESD = 0xC2,
+	DC_MOIS_MODE = 0xC7,
 	DC_FREQUENCE_HOPPING = 0xD2,
 	DC_TOUCH_HOLD = 0xD4,
 	DC_ERROR_PRIORITY = 0xD5,
@@ -381,6 +393,12 @@ enum smart_mode {
 	DIAPHRAGM_FILM_MODE = 1,
 	DIAPHRAGM_WATERPROO_MODE = 2,
 	DIAPHRAGM_FILM_WATERPROO_MODE = 3,
+};
+
+enum mois_mode {
+	MOIS_DISABLED = 0,
+	MOIS_ENABLED = 1,
+	MOIS_FORCED = 2,
 };
 
 struct syna_tcm_buffer {
@@ -539,6 +557,13 @@ struct syna_dc_in_driver {
 	uint16_t g_abs_dark_sel;
 };
 
+struct spi_bus_data {
+	unsigned char *buf;
+	unsigned int buf_size;
+	struct spi_transfer *xfer;
+	unsigned int xfer_count;
+};
+
 #define FP_AREA_RATE_BLACKSCREEN 1024
 
 struct fp_area_rate {
@@ -678,6 +703,14 @@ struct syna_tcm_data {
 	int extreme_game_report_rate;
 	bool extreme_game_flag;
 	bool high_resolution_support_x16;
+
+	unsigned int end_of_foreach;
+	struct spi_bus_data spi_data;
+	/*device s3910*/
+	int pre_remaining_frames;
+	bool report_flag;
+	unsigned int offset;
+	unsigned int remaining_size;
 };
 
 struct device_hcd {

@@ -14,6 +14,9 @@ def define_oplus_local_modules():
         ko_deps = [
         ],
         local_defines = ["CONFIG_OPLUS_SENSOR_MTK68XX"],
+        conditional_defines = {
+            "mtk":  ["CONFIG_OPLUS_SENSOR_USE_BLANK_MODE"],
+        },
     )
 
     ddk_copy_to_dist_dir(

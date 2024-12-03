@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -121,6 +121,7 @@ struct sap_avoid_channels_info {
 };
 #endif /* FEATURE_AP_MCC_CH_AVOIDANCE */
 
+#define MAX_VLAN 4
 struct sap_context {
 
 	/* Include the current channel frequency of AP */
@@ -130,9 +131,10 @@ struct sap_context {
 #ifdef DCS_INTERFERENCE_DETECTION
 	qdf_freq_t dcs_ch_freq;
 #endif
-
-	/* Include the SME(CSR) sessionId here */
-	uint8_t sessionId;
+	union {
+		uint8_t sessionId;
+		uint8_t vdev_id;
+	};
 	uint8_t sap_radar_found_status;
 
 	/* vdev object corresponding to sessionId */
@@ -247,6 +249,16 @@ struct sap_context {
 	bool require_h2e;
 	bool partial_acs_scan;
 	bool optimize_acs_chan_selected;
+#ifdef WLAN_FEATURE_SAP_ACS_OPTIMIZE
+/*
+ * This param is used to track clean channels where there
+ * is no AP found on these channels
+ */
+	bool clean_channel_array[NUM_CHANNELS];
+#endif
+#ifdef QCA_MULTIPASS_SUPPORT
+	uint16_t vlan_map[2 * MAX_VLAN];
+#endif
 };
 
 /*----------------------------------------------------------------------------
@@ -378,7 +390,7 @@ uint8_t sap_get_total_number_sap_intf(mac_handle_t mac_handle);
  *
  * Return: The QDF_STATUS code associated with performing the operation.
  */
-QDF_STATUS sap_channel_sel(struct sap_context *sap_ctx);
+QDF_STATUS sap_channel_sel(struct sap_context *sap_context);
 
 /**
  * sap_validate_chan - Function validate the channel and forces SCC

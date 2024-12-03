@@ -119,7 +119,6 @@ static ssize_t proc_set_async_ux_after_pending_read(struct file *file, char __us
 	len = snprintf(buffer, sizeof(buffer), "%d\n", g_set_async_ux_after_pending);
 	return simple_read_from_buffer(buf, count, ppos, buffer, len);
 }
-
 static ssize_t proc_async_ux_flag_write(struct file *file, const char __user *buf,
 		size_t count, loff_t *ppos)
 {
@@ -207,6 +206,36 @@ static ssize_t proc_sched_debug_enable_write(struct file *file, const char __use
 	char buffer[16];
 	unsigned long long val = 0;
 	int err;
+	memset(buffer, 0, sizeof(buffer));
+	if (count > sizeof(buffer) - 1)
+		count = sizeof(buffer) - 1;
+	if (copy_from_user(buffer, buf, count))
+		return -EFAULT;
+	buffer[count] = '\0';
+	err = kstrtou64(strstrip(buffer), 10, &val);
+	if (err)
+		return err;
+	if (val)
+		g_sched_debug |= val;
+	else
+		g_sched_debug = val;
+	return count;
+}
+
+static ssize_t proc_sched_debug_enable_read(struct file *file, char __user *buf,
+		size_t count, loff_t *ppos)
+{
+	char buffer[20];
+	size_t len = 0;
+	len = snprintf(buffer, sizeof(buffer), "%lld\n", g_sched_debug);
+	return simple_read_from_buffer(buf, count, ppos, buffer, len);
+}
+
+static ssize_t proc_use_t_vendordata_write(struct file *file, const char __user *buf,
+		size_t count, loff_t *ppos)
+{
+	char buffer[8];
+	int err, val;
 
 	memset(buffer, 0, sizeof(buffer));
 
@@ -217,25 +246,57 @@ static ssize_t proc_sched_debug_enable_write(struct file *file, const char __use
 		return -EFAULT;
 
 	buffer[count] = '\0';
-	err = kstrtou64(strstrip(buffer), 10, &val);
+	err = kstrtoint(strstrip(buffer), 10, &val);
 	if (err)
 		return err;
 
-	if (val)
-		g_sched_debug |= val;
-	else
-		g_sched_debug = val;
+	sync_use_t_vendordata = val;
 
 	return count;
 }
 
-static ssize_t proc_sched_debug_enable_read(struct file *file, char __user *buf,
+static ssize_t proc_use_t_vendordata_read(struct file *file, char __user *buf,
 		size_t count, loff_t *ppos)
 {
 	char buffer[20];
 	size_t len = 0;
 
-	len = snprintf(buffer, sizeof(buffer), "%lld\n", g_sched_debug);
+	len = snprintf(buffer, sizeof(buffer), "%d\n", sync_use_t_vendordata);
+
+	return simple_read_from_buffer(buf, count, ppos, buffer, len);
+}
+
+static ssize_t proc_unset_async_ux_inrestore_write(struct file *file, const char __user *buf,
+		size_t count, loff_t *ppos)
+{
+	char buffer[8];
+	int err, val;
+
+	memset(buffer, 0, sizeof(buffer));
+
+	if (count > sizeof(buffer) - 1)
+		count = sizeof(buffer) - 1;
+
+	if (copy_from_user(buffer, buf, count))
+		return -EFAULT;
+
+	buffer[count] = '\0';
+	err = kstrtoint(strstrip(buffer), 10, &val);
+	if (err)
+		return err;
+
+	unset_async_ux_inrestore = val;
+
+	return count;
+}
+
+static ssize_t proc_unset_async_ux_inrestore_read(struct file *file, char __user *buf,
+		size_t count, loff_t *ppos)
+{
+	char buffer[20];
+	size_t len = 0;
+
+	len = snprintf(buffer, sizeof(buffer), "%d\n", unset_async_ux_inrestore);
 
 	return simple_read_from_buffer(buf, count, ppos, buffer, len);
 }
@@ -272,6 +333,18 @@ static const struct proc_ops proc_binder_all_tasks_ux_sts_fops = {
 static const struct proc_ops proc_binder_sched_debug_enable_fops = {
 	.proc_write		= proc_sched_debug_enable_write,
 	.proc_read		= proc_sched_debug_enable_read,
+	.proc_lseek		= default_llseek,
+};
+
+static const struct proc_ops proc_use_t_vendordata_fops = {
+	.proc_write		= proc_use_t_vendordata_write,
+	.proc_read		= proc_use_t_vendordata_read,
+	.proc_lseek		= default_llseek,
+};
+
+static const struct proc_ops proc_unset_async_ux_inrestore_fops = {
+	.proc_write		= proc_unset_async_ux_inrestore_write,
+	.proc_read		= proc_unset_async_ux_inrestore_read,
 	.proc_lseek		= default_llseek,
 };
 
@@ -320,12 +393,27 @@ int oplus_binder_sysfs_init(void)
 		goto err_create_sched_debug;
 	}
 
+	proc_node = proc_create("use_t_vendordata", 0666, d_oplus_binder, &proc_use_t_vendordata_fops);
+	if (!proc_node) {
+		pr_err("failed to create proc node proc_use_t_vendordata_fops\n");
+		goto err_create_use_t_vendordata;
+	}
+
+	proc_node = proc_create("unset_async_ux_inrestore", 0666, d_oplus_binder, &proc_unset_async_ux_inrestore_fops);
+	if (!proc_node) {
+		pr_err("failed to create proc node unset_async_ux_inrestore\n");
+		goto err_create_unset_async_ux_inrestore;
+	}
+
 	pr_info("%s success\n", __func__);
 	return 0;
 
+err_create_unset_async_ux_inrestore:
+	remove_proc_entry("use_t_vendordata", d_oplus_binder);
+err_create_use_t_vendordata:
+	remove_proc_entry("sched_debug", d_oplus_binder);
 err_create_sched_debug:
 	remove_proc_entry("all_tasks_ux_sts", d_oplus_binder);
-
 err_create_all_tasks_ux_sts:
 	remove_proc_entry("ux_flag", d_oplus_binder);
 
@@ -352,5 +440,7 @@ void oplus_binder_sysfs_deinit(void)
 	remove_proc_entry("ux_flag", d_oplus_binder);
 	remove_proc_entry("all_tasks_ux_sts", d_oplus_binder);
 	remove_proc_entry("sched_debug", d_oplus_binder);
+	remove_proc_entry("use_t_vendordata", d_oplus_binder);
+	remove_proc_entry("unset_async_ux_inrestore", d_oplus_binder);
 	remove_proc_entry(OPLUS_BINDER_PROC_DIR, NULL);
 }

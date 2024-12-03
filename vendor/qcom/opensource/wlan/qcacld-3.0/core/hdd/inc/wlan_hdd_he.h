@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -18,7 +18,7 @@
  */
 
 /**
- * DOC : wlan_hdd_he.h
+ * DOC: wlan_hdd_he.h
  *
  * WLAN Host Device Driver file for 802.11ax (High Efficiency) support.
  *
@@ -34,19 +34,18 @@ struct sap_config;
 
 #ifdef WLAN_FEATURE_11AX
 /**
- * enum qca_wlan_vendor_attr_get_he_capabilities - attributes for HE caps.
- *						  vendor command.
- * @QCA_WLAN_VENDOR_ATTR_HE_CAPABILITIES_INVALID - invalid
- * @QCA_WLAN_VENDOR_ATTR_HE_SUPPORTED - to check if HE capabilities is supported
- * @QCA_WLAN_VENDOR_ATTR_PHY_CAPAB - to get HE PHY capabilities
- * @QCA_WLAN_VENDOR_ATTR_MAC_CAPAB - to get HE MAC capabilities
- * @QCA_WLAN_VENDOR_ATTR_HE_MCS - to get HE MCS
- * @QCA_WLAN_VENDOR_ATTR_NUM_SS - to get NUM SS
- * @QCA_WLAN_VENDOR_ATTR_RU_IDX_MASK - to get RU index mask
- * @QCA_WLAN_VENDOR_ATTR_RU_COUNT - to get RU count,
- * @QCA_WLAN_VENDOR_ATTR_PPE_THRESHOLD - to get PPE Threshold,
- * @QCA_WLAN_VENDOR_ATTR_HE_CAPABILITIES_AFTER_LAST - next to last valid enum
- * @QCA_WLAN_VENDOR_ATTR_HE_CAPABILITIES_MAX - max value supported
+ * enum qca_wlan_vendor_attr_get_he_capabilities - attributes for HE caps
+ *						   vendor command.
+ * @QCA_WLAN_VENDOR_ATTR_HE_CAPABILITIES_INVALID: invalid
+ * @QCA_WLAN_VENDOR_ATTR_HE_SUPPORTED: to check if HE capabilities is supported
+ * @QCA_WLAN_VENDOR_ATTR_PHY_CAPAB: to get HE PHY capabilities
+ * @QCA_WLAN_VENDOR_ATTR_MAC_CAPAB: to get HE MAC capabilities
+ * @QCA_WLAN_VENDOR_ATTR_HE_MCS: to get HE MCS
+ * @QCA_WLAN_VENDOR_ATTR_NUM_SS: to get NUM SS
+ * @QCA_WLAN_VENDOR_ATTR_RU_IDX_MASK: to get RU index mask
+ * @QCA_WLAN_VENDOR_ATTR_PPE_THRESHOLD: to get PPE Threshold,
+ * @QCA_WLAN_VENDOR_ATTR_HE_CAPABILITIES_AFTER_LAST: next to last valid enum
+ * @QCA_WLAN_VENDOR_ATTR_HE_CAPABILITIES_MAX: max value supported
  *
  * enum values are used for NL attributes for data used by
  * QCA_NL80211_VENDOR_SUBCMD_GET_HE_CAPABILITIES sub command.
@@ -74,7 +73,7 @@ wlan_hdd_sr_policy[QCA_WLAN_VENDOR_ATTR_SR_MAX + 1];
 /**
  * hdd_update_tgt_he_cap() - Update HE related capabilities
  * @hdd_ctx: HDD context
- * @he_cap: Target HE capabilities
+ * @cfg: Target capabilities
  *
  * This function updaates WNI CFG with Target capabilities received as part of
  * Default values present in WNI CFG are the values supported by FW/HW.
@@ -149,7 +148,7 @@ int wlan_hdd_cfg80211_sr_operations(struct wiphy *wiphy,
 				    struct wireless_dev *wdev,
 				    const void *data, int data_len)
 {
-	return 0;
+	return -ENOTSUPP;
 }
 
 static inline void hdd_sr_register_callbacks(struct hdd_context *hdd_ctx)

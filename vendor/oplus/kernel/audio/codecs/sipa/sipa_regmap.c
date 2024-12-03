@@ -830,7 +830,7 @@ void sipa_regmap_check_trimming(
 
 		return;
 	} else {
-		if (si_pa->chip_type == CHIP_TYPE_SIA8159 || si_pa->chip_type == CHIP_TYPE_SIA815T) {
+		if (si_pa->chip_type == CHIP_TYPE_SIA8159) {
 			reg_list = &chip_cfg.trim_regs.default_set;
 			regs = (SIPA_REG_PROC *)(data + reg_list->offset);
 

@@ -57,6 +57,7 @@ enum {
 #define LK_RWSEM_ENABLE (1 << 1)
 #define LK_FUTEX_ENABLE (1 << 2)
 #define LK_OSQ_ENABLE   (1 << 3)
+#define LK_RWSEM_RSPIN_ENABLE   (1 << 6)
 
 #ifdef CONFIG_OPLUS_LOCKING_MONITOR
 /*

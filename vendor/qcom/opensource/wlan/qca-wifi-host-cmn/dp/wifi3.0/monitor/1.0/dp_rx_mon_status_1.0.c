@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -363,6 +363,7 @@ dp_rx_mon_status_ring_record_entry(struct dp_soc *soc,
 	record = &soc->mon_status_ring_history->entry[idx];
 
 	record->timestamp = qdf_get_log_timestamp();
+	record->event = event;
 	if (event == DP_MON_STATUS_BUF_REAP) {
 		hal_rx_buffer_addr_info_get_paddr(ring_desc, &hbi);
 
@@ -889,7 +890,7 @@ dp_rx_pdev_mon_status_desc_pool_alloc(struct dp_pdev *pdev, uint32_t mac_id)
 
 	dp_debug("Mon RX Desc Pool[%d] entries=%u", pdev_id, num_entries);
 
-	rx_desc_pool->desc_type = DP_RX_DESC_STATUS_TYPE;
+	rx_desc_pool->desc_type = QDF_DP_RX_DESC_STATUS_TYPE;
 	return dp_rx_desc_pool_alloc(soc, num_entries + 1, rx_desc_pool);
 }
 
@@ -988,7 +989,7 @@ dp_rx_pdev_mon_status_buffers_free(struct dp_pdev *pdev, uint32_t mac_id)
 
 	dp_debug("Mon RX Status Desc Pool Free pdev[%d]", pdev_id);
 
-	dp_rx_desc_nbuf_free(soc, rx_desc_pool);
+	dp_rx_desc_nbuf_free(soc, rx_desc_pool, true);
 }
 
 /*
@@ -1291,19 +1292,18 @@ dp_mon_status_srng_drop_for_mac(struct dp_pdev *pdev, uint32_t mac_id,
 }
 
 uint32_t dp_mon_drop_packets_for_mac(struct dp_pdev *pdev, uint32_t mac_id,
-				     uint32_t quota)
+				     uint32_t quota, bool force_flush)
 {
 	uint32_t work_done;
 
 	work_done = dp_mon_status_srng_drop_for_mac(pdev, mac_id, quota);
-	if (!dp_is_rxdma_dst_ring_common(pdev))
-		dp_mon_dest_srng_drop_for_mac(pdev, mac_id);
+	dp_mon_dest_srng_drop_for_mac(pdev, mac_id, force_flush);
 
 	return work_done;
 }
 #else
 uint32_t dp_mon_drop_packets_for_mac(struct dp_pdev *pdev, uint32_t mac_id,
-				     uint32_t quota)
+				     uint32_t quota, bool force_flush)
 {
 	return 0;
 }

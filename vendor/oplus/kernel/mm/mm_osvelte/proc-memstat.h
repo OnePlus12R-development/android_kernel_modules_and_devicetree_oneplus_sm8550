@@ -113,6 +113,7 @@ struct proc_pid_ms {
 };
 
 long proc_memstat_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
+ssize_t proc_memstat_fd_data_size(void);
 #else /* __KERNEL__ */
 
 #define TASK_COMM_LEN (16)

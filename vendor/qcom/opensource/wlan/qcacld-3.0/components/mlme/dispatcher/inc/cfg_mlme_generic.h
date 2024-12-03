@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -31,6 +31,8 @@
  * enum monitor_mode_concurrency - Monitor mode concurrency
  * @MONITOR_MODE_CONC_NO_SUPPORT: No concurrency supported with monitor mode
  * @MONITOR_MODE_CONC_STA_SCAN_MON: STA + monitor mode concurrency is supported
+ * @MONITOR_MODE_CONC_AFTER_LAST: last value in enum
+ * @MONITOR_MODE_CONC_MAX: max value supported
  */
 enum monitor_mode_concurrency {
 	MONITOR_MODE_CONC_NO_SUPPORT,
@@ -43,7 +45,8 @@ enum monitor_mode_concurrency {
  * enum wds_mode_type: wds mode
  * @WLAN_WDS_MODE_DISABLED: WDS is disabled
  * @WLAN_WDS_MODE_REPEATER: WDS repeater mode
- *
+ * @WLAN_WDS_MODE_LAST: last value in enum
+ * @WLAN_WDS_MODE_MAX: max value supported
  * This is used for 'type' values in wds_mode
  */
 enum wlan_wds_mode {
@@ -54,13 +57,56 @@ enum wlan_wds_mode {
 	WLAN_WDS_MODE_MAX = WLAN_WDS_MODE_LAST - 1,
 };
 
-/* debug_packet_log_type: Debug packet log type
- * DEBUG_PKTLOG_TYPE_NONE: Debug packet log is disabled
- * DEBUG_PKTLOG_TYPE_MGMT: Management frames logging is enabled.
- * DEBUG_PKTLOG_TYPE_EAPOL: EAPOL packets logging is enabled.
- * DEBUG_PKTLOG_TYPE_DHCP: DHCP packets logging is enabled.
- * DEBUG_PKTLOG_TYPE_ACTION: Action frames logging is enabled.
- * DEBUG_PKTLOG_TYPE_ARP: ARP packets logging is enabled.
+/**
+ * enum wlan_eht_mode - EHT mode of operation
+ * @WLAN_EHT_MODE_DISABLED: EHT is disabled
+ * @WLAN_EHT_MODE_SLO: Single-link operation mode
+ * @WLAN_EHT_MODE_MLSR: Multi-link Single-Radio mode
+ * @WLAN_EHT_MODE_MLMR: Multi-link Multi-Radio mode
+ * @WLAN_EHT_MODE_EMLSR: Enhanced Multi-link Single-Radio mode
+ * @WLAN_EHT_MODE_LAST: last value in enum
+ * @WLAN_EHT_MODE_MAX: max value supported
+ *
+ * This is used for 'type' values in eht_mode
+ */
+enum wlan_eht_mode {
+	WLAN_EHT_MODE_DISABLED  = 0,
+	WLAN_EHT_MODE_SLO       = 1,
+	WLAN_EHT_MODE_MLSR      = 2,
+	WLAN_EHT_MODE_MLMR      = 3,
+	WLAN_EHT_MODE_EMLSR     = 4,
+	/* keep this last */
+	WLAN_EHT_MODE_LAST,
+	WLAN_EHT_MODE_MAX = WLAN_EHT_MODE_LAST - 1,
+};
+
+/**
+ * enum wlan_emlsr_action_mode - EMLSR action mode
+ * @WLAN_EMLSR_MODE_DISABLED: EMLSR is disabled
+ * @WLAN_EMLSR_MODE_ENTER: Enter EMLSR operation mode
+ * @WLAN_EMLSR_MODE_EXIT: Exit EMLSR operation mode
+ * @WLAN_EMLSR_MODE_LAST: last value in enum
+ * @WLAN_EMLSR_MODE_MAX: max value supported
+ *
+ * This is used for 'type' values in emlsr_mode
+ */
+enum wlan_emlsr_action_mode {
+	WLAN_EMLSR_MODE_DISABLED = 0,
+	WLAN_EMLSR_MODE_ENTER    = 1,
+	WLAN_EMLSR_MODE_EXIT     = 2,
+	/* keep this last */
+	WLAN_EMLSR_MODE_LAST,
+	WLAN_EMLSR_MODE_MAX = WLAN_EMLSR_MODE_LAST - 1,
+};
+
+/**
+ * enum debug_packet_log_type - Debug packet log type
+ * @DEBUG_PKTLOG_TYPE_NONE: Debug packet log is disabled
+ * @DEBUG_PKTLOG_TYPE_MGMT: Management frames logging is enabled.
+ * @DEBUG_PKTLOG_TYPE_EAPOL: EAPOL packets logging is enabled.
+ * @DEBUG_PKTLOG_TYPE_DHCP: DHCP packets logging is enabled.
+ * @DEBUG_PKTLOG_TYPE_ACTION: Action frames logging is enabled.
+ * @DEBUG_PKTLOG_TYPE_ARP: ARP packets logging is enabled.
  */
 enum debug_packet_log_type {
 	DEBUG_PKTLOG_TYPE_NONE   = 0x0,
@@ -69,6 +115,28 @@ enum debug_packet_log_type {
 	DEBUG_PKTLOG_TYPE_DHCP   = 0x4,
 	DEBUG_PKTLOG_TYPE_ACTION = 0x8,
 	DEBUG_PKTLOG_TYPE_ARP    = 0x10,
+};
+
+/**
+ * enum t2lm_negotiation_support: t2lm negotiation supported
+ * @T2LM_NEGOTIATION_DISABLED: T2LM is disabled
+ * @T2LM_NEGOTIATION_ALL_TIDS_TO_SUBSET_OF_LINKS: supports the mapping
+ * of all TIDs to the same link set both DL and UL.
+ * @T2LM_NEGOTIATION_RESERVED:
+ * this mapping value is reserved.
+ * @T2LM_NEGOTIATION_DISJOINT_MAPPING: supports the mapping of
+ * each TID to the same or different link set.
+ * @T2LM_NEGOTIATION_LAST: last value in enum
+ * @T2LM_NEGOTIATION_MAX: max value supported
+ */
+enum t2lm_negotiation_support {
+	T2LM_NEGOTIATION_DISABLED = 0,
+	T2LM_NEGOTIATION_ALL_TIDS_TO_SUBSET_OF_LINKS = 1,
+	T2LM_NEGOTIATION_RESERVED = 2,
+	T2LM_NEGOTIATION_DISJOINT_MAPPING  = 3,
+	T2LM_NEGOTIATION_LAST,
+	/* keep this last */
+	T2LM_NEGOTIATION_MAX = T2LM_NEGOTIATION_LAST - 1,
 };
 
 /*
@@ -198,27 +266,49 @@ enum debug_packet_log_type {
 		"rf test mode Enable Flag")
 
 #ifdef CONFIG_BAND_6GHZ
-/**
- * relaxed_6ghz_conn_policy - Enable 6ghz relaxed connection policy
+/*
+ * disable_vlp_sta_conn_to_sp_ap - Disable VLP STA connection to SP AP
  * @Min: 0
  * @Max: 1
  * @Default: 0
  *
- * This cfg is used to set 6Ghz relaxed connection policies where STA
- * will be allowed to operate in VLP mode and scan/connect to 6 GHz BSS
- * with unmatching country code.
+ * This cfg is used to disable connection when AP is operating in 6 GHz
+ * SP mode but STA doesn't support SP mode and supports VLP mode.
  *
  * Related: None
  *
  * Supported Feature: STA
  */
-#define CFG_RELAXED_6GHZ_CONN_POLICY CFG_BOOL( \
-		"relaxed_6ghz_conn_policy", \
+#define CFG_DISABLE_VLP_STA_CONN_TO_SP_AP CFG_BOOL( \
+		"disable_vlp_sta_conn_to_sp_ap", \
 		0, \
-		"6ghz relaxed connection policy")
-#define CFG_RELAX_6GHZ_CONN_POLICY	CFG(CFG_RELAXED_6GHZ_CONN_POLICY)
+		"disable vlp sta conn to sp ap")
+#define CFG_DIS_VLP_STA_CONN_TO_SP_AP	CFG(CFG_DISABLE_VLP_STA_CONN_TO_SP_AP)
 #else
-#define CFG_RELAX_6GHZ_CONN_POLICY
+#define CFG_DIS_VLP_STA_CONN_TO_SP_AP
+#endif
+
+#ifdef CONFIG_BAND_6GHZ
+/*
+ * standard_6ghz_connection_policy - Enable 6 GHz standard connection policy
+ * @Min: 0
+ * @Max: 1
+ * @Default: 1
+ *
+ * This ini is used to set standard 6 GHz policies where STA will be
+ * allowed to scan and connect to any 6 GHz AP.
+ *
+ * Related: None
+ *
+ * Supported Feature: STA
+ */
+#define CFG_6GHZ_STANDARD_CONNECTION_POLICY CFG_INI_BOOL( \
+		"standard_6ghz_connection_policy", \
+		1, \
+		"6ghz standard 6 GHZ connection policy")
+#define CFG_6GHZ_STD_CONN_POLICY	CFG(CFG_6GHZ_STANDARD_CONNECTION_POLICY)
+#else
+#define CFG_6GHZ_STD_CONN_POLICY
 #endif
 
 #ifdef WLAN_FEATURE_11BE_MLO
@@ -1023,6 +1113,71 @@ enum debug_packet_log_type {
 		"", \
 		"Set mgmt action frame hw tx retry count")
 
+#if defined(WLAN_FEATURE_SR)
+/*
+ * <ini>
+ * sr_enable_modes - Modes for which SR(Spatial Reuse) feature can be enabled
+ * @Min: 0x00
+ * @Max: 0xf
+ * @Default: 0x1
+ *
+ * This ini is used to check for which mode SR feature is enabled
+ *
+ * Bit 0: Enable/Disable SR feature for STA
+ * Bit 1: Enable/Disable SR feature for SAP
+ * Bit 2: Enable/Disable SR feature for P2P CLI
+ * Bit 3: Enable/Disable SR feature for P2P GO
+ *
+ * Related: None
+ *
+ * Supported Feature: STA/SAP
+ *
+ * Usage: External
+ *
+ * </ini>
+ */
+#define CFG_SR_ENABLE_MODES CFG_INI_UINT( \
+		"sr_enable_modes",\
+		0x0,\
+		0xf,\
+		0x1,\
+		CFG_VALUE_OR_DEFAULT, \
+		"To decide for which mode SR feature is enabled")
+#define CFG_SR_ENABLE_MODES_ALL CFG(CFG_SR_ENABLE_MODES)
+#else
+#define CFG_SR_ENABLE_MODES_ALL
+#endif
+
+#ifdef WLAN_FEATURE_11BE_MLO
+/*
+ * t2lm_negotiation_support - T2LM negotiation support by STA
+ * @Min: 0
+ * @Max: 3
+ * @Default: 1
+ *
+ * This cfg is used to define t2lm negotiation supported value by STA
+ * If 0 - t2lm negotiation is not supported
+ * If 1 - supports the mapping of all TIDs to the same link set both DL and UL.
+ * If 2 - reserved
+ * If 3 - supports the mapping of each TID to the same or different link set.
+ *
+ * Related: None
+ *
+ * Supported Feature: STA
+ */
+#define CFG_T2LM_NEGOTIATION_SUPPORT CFG_UINT( \
+					"t2lm_negotiation_supported", \
+					T2LM_NEGOTIATION_DISABLED, \
+					T2LM_NEGOTIATION_DISJOINT_MAPPING, \
+					T2LM_NEGOTIATION_ALL_TIDS_TO_SUBSET_OF_LINKS, \
+					CFG_VALUE_OR_DEFAULT, \
+					"T2LM negotiation supported value")
+
+#define CFG_T2LM_NEGOTIATION_SUPPORTED CFG(CFG_T2LM_NEGOTIATION_SUPPORT)
+#else
+#define CFG_T2LM_NEGOTIATION_SUPPORTED
+#endif
+
 #define CFG_GENERIC_ALL \
 	CFG(CFG_ENABLE_DEBUG_PACKET_LOG) \
 	CFG(CFG_PMF_SA_QUERY_MAX_RETRIES) \
@@ -1061,6 +1216,9 @@ enum debug_packet_log_type {
 	CFG_WDS_MODE_ALL \
 	CFG(CFG_TX_RETRY_MULTIPLIER) \
 	CFG(CFG_MGMT_FRAME_HW_TX_RETRY_COUNT) \
-	CFG_RELAX_6GHZ_CONN_POLICY \
-	CFG_EMLSR_MODE_ENABLED
+	CFG_6GHZ_STD_CONN_POLICY \
+	CFG_EMLSR_MODE_ENABLED \
+	CFG_SR_ENABLE_MODES_ALL \
+	CFG_T2LM_NEGOTIATION_SUPPORTED\
+	CFG_DIS_VLP_STA_CONN_TO_SP_AP
 #endif /* __CFG_MLME_GENERIC_H */

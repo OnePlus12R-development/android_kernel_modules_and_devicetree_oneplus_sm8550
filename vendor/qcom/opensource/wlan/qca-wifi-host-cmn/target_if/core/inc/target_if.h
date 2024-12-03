@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -202,6 +202,7 @@ struct target_version_info {
  * @hw_mode_caps: HW mode caps of preferred mode
  * @mem_chunks: allocated memory blocks for FW
  * @scan_radio_caps: scan radio capabilities
+ * @msdu_idx_qtype_map: HTT msdu index to qtype mapping table
  * @device_mode: Global Device mode
  * @sbs_lower_band_end_freq: sbs lower band end frequency
  * @health_mon_params: health monitor params
@@ -238,6 +239,7 @@ struct tgt_info {
 	uint8_t pdev_id_to_phy_id_map[WLAN_UMAC_MAX_PDEVS];
 	bool is_pdevid_to_phyid_map;
 	struct wlan_psoc_host_scan_radio_caps *scan_radio_caps;
+	uint8_t *msdu_idx_qtype_map;
 	uint32_t device_mode;
 	uint32_t sbs_lower_band_end_freq;
 #ifdef HEALTH_MON_SUPPORT
@@ -331,6 +333,7 @@ struct target_ops {
 	int (*csa_switch_count_status)(
 		struct wlan_objmgr_psoc *psoc,
 		struct pdev_csa_switch_count_status csa_status);
+	void (*ema_init)(struct wlan_objmgr_pdev *pdev);
 #if defined(WLAN_FEATURE_11BE_MLO) && defined(WLAN_MLO_MULTI_CHIP)
 	bool (*mlo_capable)(struct wlan_objmgr_psoc *psoc);
 	void (*mlo_setup_done_event)(struct wlan_objmgr_psoc *psoc);
@@ -600,6 +603,24 @@ static inline void target_psoc_set_wlan_init_status
 
 	psoc_info->info.wlan_init_status = wlan_init_status;
 }
+
+#ifdef QCA_MULTIPASS_SUPPORT
+/**
+ * target_is_multipass_sap() - Get multipass sap capabilities
+ * @psoc_info: pointer to structure target_psoc_info
+ *
+ * Return: True is FW support multipass SAP.
+ */
+static inline bool target_is_multipass_sap(struct target_psoc_info *psoc_info)
+{
+	return psoc_info->info.service_ext2_param.is_multipass_sap;
+}
+#else
+static inline bool target_is_multipass_sap(struct target_psoc_info *psoc_info)
+{
+	return false;
+}
+#endif
 
 /**
  * target_psoc_get_wlan_init_status() - get info wlan_init_status
@@ -2710,6 +2731,38 @@ void target_psoc_set_sbs_lower_band_end(struct target_psoc_info *psoc_info,
 }
 
 /**
+ * target_psoc_set_sap_coex_fixed_chan_cap() - Set SAP coex fixed chan cap
+ * @psoc_info: Pointer to struct target_psoc_info.
+ * @val: SAP coex fixed chan support
+ *
+ * Return: None
+ */
+static inline void
+target_psoc_set_sap_coex_fixed_chan_cap(struct target_psoc_info *psoc_info,
+					bool val)
+{
+	if (!psoc_info)
+		return;
+
+	psoc_info->info.service_ext2_param.sap_coex_fixed_chan_support = val;
+}
+
+/**
+ * target_psoc_get_sap_coex_fixed_chan_cap() - Get SAP coex fixed chan cap
+ * @psoc_info: Pointer to struct target_psoc_info.
+ *
+ * Return: sap_coex_fixed_chan_support received from firmware
+ */
+static inline bool
+target_psoc_get_sap_coex_fixed_chan_cap(struct target_psoc_info *psoc_info)
+{
+	if (!psoc_info)
+		return false;
+
+	return psoc_info->info.service_ext2_param.sap_coex_fixed_chan_support;
+}
+
+/**
  * target_psoc_set_twt_ack_cap() - Set twt ack capability
  *
  * @psoc_info: Pointer to struct target_psoc_info.
@@ -2859,4 +2912,14 @@ static inline void target_if_set_reo_shared_qref_feature(struct wlan_objmgr_psoc
 }
 #endif
 
+/**
+ * target_if_wmi_chan_width_to_phy_ch_width() - convert channel width from
+ * wmi_host_channel_width to phy_ch_width
+ *
+ * @ch_width: wmi_host_channel_width
+ *
+ * return: phy_ch_width
+ */
+enum phy_ch_width
+target_if_wmi_chan_width_to_phy_ch_width(wmi_host_channel_width ch_width);
 #endif

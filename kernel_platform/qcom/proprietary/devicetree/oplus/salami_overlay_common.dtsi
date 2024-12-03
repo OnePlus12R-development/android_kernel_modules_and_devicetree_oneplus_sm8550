@@ -283,6 +283,8 @@
 		dhall,irq-gpio = <&tlmm 14 0x2008>;
 		pinctrl-names = "uphall_tri_state_key_active";
 		pinctrl-0 = <&uphall_tri_state_key_active>;
+		exception_upload_support;
+		health_monitor_support;
 	};
 	ist8801@18 {
 		compatible = "oplus,hall-ist8801,down";
@@ -296,6 +298,8 @@
 		dhall,irq-gpio = <&tlmm 17 0x2008>;
 		pinctrl-names = "downhall_tri_state_key_active";
 		pinctrl-0 = <&downhall_tri_state_key_active>;
+		exception_upload_support;
+		health_monitor_support;
 	};
 
 	magnachip@0D {
@@ -309,6 +313,8 @@
 		dhall,irq-gpio = <&tlmm 14 0x2008>;
 		pinctrl-names = "uphall_tri_state_key_active";
 		pinctrl-0 = <&uphall_tri_state_key_active>;
+		exception_upload_support;
+		health_monitor_support;
 	};
 	magnachip@0C {
 		compatible = "oplus,hall-mxm1120,down";
@@ -321,6 +327,8 @@
 		dhall,irq-gpio = <&tlmm 17 0x2008>;
 		pinctrl-names = "downhall_tri_state_key_active";
 		pinctrl-0 = <&downhall_tri_state_key_active>;
+		exception_upload_support;
+		health_monitor_support;
 	};
 };
 

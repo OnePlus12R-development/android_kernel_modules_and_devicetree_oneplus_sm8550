@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #define pr_fmt(fmt) "icnss2_qmi: " fmt
@@ -55,6 +55,9 @@
 #define DMS_MAC_NOT_PROVISIONED		16
 #define BDWLAN_SIZE			6
 #define UMC_CHIP_ID                    0x4320
+#define MAX_SHADOW_REG_RESERVED		2
+#define MAX_NUM_SHADOW_REG_V3		(QMI_WLFW_MAX_NUM_SHADOW_REG_V3_USAGE_V01 - \
+					MAX_SHADOW_REG_RESERVED)
 
 #ifdef CONFIG_ICNSS2_DEBUG
 bool ignore_fw_timeout;
@@ -546,7 +549,8 @@ int wlfw_ind_register_send_sync_msg(struct icnss_priv *priv)
 			req->rejuvenate_enable_valid = 1;
 			req->rejuvenate_enable = 1;
 		}
-	} else if (priv->device_id == WCN6750_DEVICE_ID) {
+	} else if (priv->device_id == WCN6750_DEVICE_ID ||
+		   priv->device_id == WCN6450_DEVICE_ID) {
 		req->fw_init_done_enable_valid = 1;
 		req->fw_init_done_enable = 1;
 		req->cal_done_enable_valid = 1;
@@ -780,14 +784,23 @@ int wlfw_cap_send_sync_msg(struct icnss_priv *priv)
 		strlcpy(priv->fw_build_id, resp->fw_build_id,
 			QMI_WLFW_MAX_BUILD_ID_LEN_V01 + 1);
 
-	if (resp->rd_card_chain_cap_valid &&
-	    resp->rd_card_chain_cap == WLFW_RD_CARD_CHAIN_CAP_1x1_V01)
-		priv->is_chain1_supported = false;
+	if (resp->rd_card_chain_cap_valid) {
+		priv->rd_card_chain_cap = (enum icnss_rd_card_chain_cap)resp->rd_card_chain_cap;
+		if (resp->rd_card_chain_cap == WLFW_RD_CARD_CHAIN_CAP_1x1_V01)
+			priv->is_chain1_supported = false;
+	}
 
 	if (resp->foundry_name_valid)
 		priv->foundry_name = resp->foundry_name[0];
 	else if (resp->chip_info_valid && priv->chip_info.chip_id == UMC_CHIP_ID)
 		priv->foundry_name = 'u';
+
+	if (resp->he_channel_width_cap_valid)
+		priv->phy_he_channel_width_cap =
+			(enum icnss_phy_he_channel_width_cap)resp->he_channel_width_cap;
+
+	if (resp->phy_qam_cap_valid)
+		priv->phy_qam_cap = (enum icnss_phy_qam_cap)resp->phy_qam_cap;
 
 	icnss_pr_dbg("Capability, chip_id: 0x%x, chip_family: 0x%x, board_id: 0x%x, soc_id: 0x%x",
 		     priv->chip_info.chip_id, priv->chip_info.chip_family,
@@ -797,6 +810,10 @@ int wlfw_cap_send_sync_msg(struct icnss_priv *priv)
 		     priv->fw_version_info.fw_version,
 		     priv->fw_version_info.fw_build_timestamp,
 		     priv->fw_build_id);
+
+	icnss_pr_dbg("RD card chain cap: %d, PHY HE channel width cap: %d, PHY QAM cap: %d",
+		     priv->rd_card_chain_cap, priv->phy_he_channel_width_cap,
+		     priv->phy_qam_cap);
 
 	kfree(resp);
 	kfree(req);
@@ -879,7 +896,10 @@ int icnss_wlfw_wlan_mac_req_send_sync(struct icnss_priv *priv,
 	struct wlfw_mac_addr_resp_msg_v01 resp = {0};
 	struct qmi_txn txn;
 	int ret;
-
+#ifdef OPLUS_FEATURE_WIFI_MAC
+        int i;
+        char revert_mac[QMI_WLFW_MAC_ADDR_SIZE_V01];
+#endif /* OPLUS_FEATURE_WIFI_MAC */
 	if (!priv || !mac || mac_len != QMI_WLFW_MAC_ADDR_SIZE_V01)
 		return -EINVAL;
 
@@ -892,9 +912,18 @@ int icnss_wlfw_wlan_mac_req_send_sync(struct icnss_priv *priv,
 		goto out;
 	}
 
-	icnss_pr_dbg("Sending WLAN mac req [%pM], state: 0x%lx\n",
+	icnss_pr_info("Sending WLAN mac req [%pM], state: 0x%lx\n",
 			     mac, priv->state);
+#ifdef OPLUS_FEATURE_WIFI_MAC
+	for (i = 0; i < QMI_WLFW_MAC_ADDR_SIZE_V01 ; i ++){
+		revert_mac[i] = mac[QMI_WLFW_MAC_ADDR_SIZE_V01 - i -1];
+	}
+	icnss_pr_info("Sending revert WLAN mac req [%pM], state: 0x%lx\n",
+		revert_mac, priv->state);
+	memcpy(req.mac_addr, revert_mac, mac_len);
+#else
 	memcpy(req.mac_addr, mac, mac_len);
+#endif /* OPLUS_FEATURE_WIFI_MAC */
 	req.mac_addr_valid = 1;
 
 	ret = qmi_send_request(&priv->qmi, NULL, &txn,
@@ -917,7 +946,7 @@ int icnss_wlfw_wlan_mac_req_send_sync(struct icnss_priv *priv,
 	}
 
 	if (resp.resp.result != QMI_RESULT_SUCCESS_V01) {
-		icnss_pr_err("WLAN mac req failed, result: %d, err: %d\n",
+		icnss_pr_err("WLAN mac req failed, result: %d\n",
 			     resp.resp.result);
 		ret = -resp.resp.result;
 	}
@@ -1106,7 +1135,7 @@ int icnss_wlfw_bdf_dnld_send_sync(struct icnss_priv *priv, u32 bdf_type)
 	if (ret)
 		goto err_req_fw;
 
-	ret = request_firmware(&fw_entry, filename, &priv->pdev->dev);
+	ret = firmware_request_nowarn(&fw_entry, filename, &priv->pdev->dev);
 	if (ret) {
 		icnss_pr_err("Failed to load %s: %s ret:%d\n",
 			     icnss_bdf_type_to_str(bdf_type), filename, ret);
@@ -1344,8 +1373,8 @@ int icnss_wlfw_qdss_dnld_send_sync(struct icnss_priv *priv)
 	}
 
 	icnss_add_fw_prefix_name(priv, filename, QDSS_TRACE_CONFIG_FILE);
-	ret = request_firmware(&fw_entry, filename,
-			       &priv->pdev->dev);
+	ret = firmware_request_nowarn(&fw_entry, filename,
+				      &priv->pdev->dev);
 	if (ret) {
 		icnss_pr_err("Failed to load QDSS: %s ret:%d\n",
 			     filename, ret);
@@ -2166,7 +2195,7 @@ int wlfw_qdss_trace_mem_info_send_sync(struct icnss_priv *priv)
 
 	req->mem_seg_len = priv->qdss_mem_seg_len;
 
-	if (priv->qdss_mem_seg_len > QMI_WLFW_MAX_NUM_MEM_SEG) {
+	if (priv->qdss_mem_seg_len >  QMI_WLFW_MAX_NUM_MEM_SEG_V01) {
 		icnss_pr_err("Invalid seg len %u\n",
 			     priv->qdss_mem_seg_len);
 		ret = -EINVAL;
@@ -2565,7 +2594,7 @@ static void wlfw_qdss_trace_req_mem_ind_cb(struct qmi_handle *qmi,
 
 	priv->qdss_mem_seg_len = ind_msg->mem_seg_len;
 
-	if (priv->qdss_mem_seg_len > QMI_WLFW_MAX_NUM_MEM_SEG) {
+	if (priv->qdss_mem_seg_len > QMI_WLFW_MAX_NUM_MEM_SEG_V01) {
 		icnss_pr_err("Invalid seg len %u\n",
 			     priv->qdss_mem_seg_len);
 		return;
@@ -2969,7 +2998,8 @@ int icnss_register_fw_service(struct icnss_priv *priv)
 	if (ret < 0)
 		return ret;
 
-	if (priv->device_id == WCN6750_DEVICE_ID)
+	if (priv->device_id == WCN6750_DEVICE_ID ||
+	    priv->device_id == WCN6450_DEVICE_ID)
 		ret = qmi_add_lookup(&priv->qmi, WLFW_SERVICE_ID_V01,
 				     WLFW_SERVICE_VERS_V01,
 				     WLFW_SERVICE_WCN_INS_ID_V01);
@@ -3060,6 +3090,17 @@ int icnss_send_wlan_enable_to_fw(struct icnss_priv *priv,
 
 		memcpy(req.shadow_reg, config->shadow_reg_cfg,
 		       sizeof(struct wlfw_msi_cfg_s_v01) * req.shadow_reg_len);
+	} else if (priv->device_id == WCN6450_DEVICE_ID) {
+		req.shadow_reg_v3_valid = 1;
+		if (config->num_shadow_reg_v3_cfg >
+			MAX_NUM_SHADOW_REG_V3)
+			req.shadow_reg_v3_len = MAX_NUM_SHADOW_REG_V3;
+		else
+			req.shadow_reg_v3_len = config->num_shadow_reg_v3_cfg;
+
+		memcpy(req.shadow_reg_v3, config->shadow_reg_v3_cfg,
+		       sizeof(struct wlfw_shadow_reg_v3_cfg_s_v01)
+		       * req.shadow_reg_v3_len);
 	}
 
 	ret = wlfw_wlan_cfg_send_sync_msg(priv, &req);
@@ -3455,5 +3496,72 @@ int icnss_send_vbatt_update(struct icnss_priv *priv, uint64_t voltage_uv)
 out:
 	kfree(resp);
 	kfree(req);
+	return ret;
+}
+
+int wlfw_wlan_hw_init_cfg_msg(struct icnss_priv *penv,
+			      enum wlfw_wlan_rf_subtype_v01 type)
+{
+	int ret;
+	struct wlfw_wlan_hw_init_cfg_req_msg_v01 *req;
+	struct wlfw_wlan_hw_init_cfg_resp_msg_v01 *resp;
+	struct qmi_txn txn;
+
+	if (!penv)
+		return -ENODEV;
+
+	icnss_pr_dbg("Sending hw init cfg, rf_subtype: 0x%x\n", type);
+
+	req = kzalloc(sizeof(*req), GFP_KERNEL);
+	if (!req)
+		return -ENOMEM;
+
+	resp = kzalloc(sizeof(*resp), GFP_KERNEL);
+	if (!resp) {
+		kfree(req);
+		return -ENOMEM;
+	}
+
+	req->rf_subtype_valid = 1;
+	req->rf_subtype = type;
+
+	ret = qmi_txn_init(&penv->qmi, &txn,
+			   wlfw_wlan_hw_init_cfg_resp_msg_v01_ei, resp);
+	if (ret < 0) {
+		icnss_pr_err("Fail to init txn for hw init cfg, resp %d\n",
+			     ret);
+		goto out;
+	}
+
+	ret = qmi_send_request(&penv->qmi, NULL, &txn,
+			       QMI_WLFW_WLAN_HW_INIT_CFG_REQ_V01,
+			       WLFW_WLAN_HW_INIT_CFG_REQ_MSG_V01_MAX_MSG_LEN,
+			       wlfw_wlan_hw_init_cfg_req_msg_v01_ei, req);
+	if (ret < 0) {
+		qmi_txn_cancel(&txn);
+		icnss_pr_err("Fail to send hw init cfg %d\n", ret);
+		goto out;
+	}
+
+	ret = qmi_txn_wait(&txn, penv->ctrl_params.qmi_timeout);
+	if (ret < 0) {
+		icnss_pr_err("HW init cfg timed out with ret %d\n",
+			     ret);
+		goto out;
+
+	} else if (resp->resp.result != QMI_RESULT_SUCCESS_V01) {
+		icnss_pr_err("HW init cfg request rejected,result:%d error:%d\n",
+			     resp->resp.result, resp->resp.error);
+		ret = -resp->resp.result;
+		goto out;
+	}
+
+	kfree(resp);
+	kfree(req);
+	return 0;
+
+out:
+	kfree(req);
+	kfree(resp);
 	return ret;
 }

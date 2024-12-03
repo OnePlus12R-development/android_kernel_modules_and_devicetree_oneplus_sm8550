@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_ISP_HW_PARSER_H_
@@ -199,6 +200,38 @@ int cam_isp_add_cmd_buf_update(
 	void                                 *cmd_update_data,
 	uint32_t                             *bytes_used);
 
+#ifdef OPLUS_FEATURE_CAMERA_COMMON
+/*
+ * cam_isp_add_cmd_buf_update_crow()
+ *
+ * @brief                  Add command buffer in the HW entries list for given
+ *                         Blob Data.
+ *
+ * @hw_mgr_res:            HW resource to get the update from
+ * @cmd_type:              Cmd type to get update for
+ * @hw_cmd_type:           HW Cmd type corresponding to cmd_type
+ * @base_idx:              Base hardware index
+ * @cmd_buf_addr:          Cpu buf addr of kmd scratch buffer
+ * @kmd_buf_remain_size:   Remaining size left for cmd buffer update
+ * @cmd_update_data:       Data needed by HW to process the cmd and provide
+ *                         cmd buffer
+ * @bytes_used:            Address of the field to be populated with
+ *                         total bytes used as output to caller
+ *
+ * @return:                Negative for Failure
+ *                         otherwise returns bytes used
+ */
+int cam_isp_add_cmd_buf_update_crow(
+	struct cam_isp_hw_mgr_res            *hw_mgr_res,
+	uint32_t                              cmd_type,
+	uint32_t                              hw_cmd_type,
+	uint32_t                              base_idx,
+	uint32_t                             *cmd_buf_addr,
+	uint32_t                              kmd_buf_remain_size,
+	void                                 *cmd_update_data,
+	uint32_t                             *bytes_used);
+#endif
+
 /*
  * cam_sfe_add_command_buffers()
  *
@@ -263,6 +296,68 @@ int cam_isp_add_command_buffers(
  *                         -EINVAL for Fail
  */
 int cam_isp_add_io_buffers(struct cam_isp_io_buf_info   *io_info);
+
+#ifdef OPLUS_FEATURE_CAMERA_COMMON
+/*
+ * cam_isp_add_io_buffers_crow()
+ *
+ * @brief                  Add io buffer configurations in the HW entries list
+ *                         processe the io configurations based on the base
+ *                         index and update the HW entries list
+ *
+ * @iommu_hdl:             Iommu handle to get the IO buf from memory manager
+ * @sec_iommu_hdl:         Secure iommu handle to get the IO buf from
+ *                         memory manager
+ * @prepare:               Contain the  packet and HW update variables
+ * @base_idx:              Base or dev index of the IFE/VFE HW instance
+ * @kmd_buf_info:          Kmd buffer to store the change base command
+ * @res_list_isp_out:      IFE/SFE out resource list
+ * @res_list_ife_in_rd:    IFE/SFE in rd resource list
+ * @out_base:              Base value of ISP resource (IFE/SFE)
+ * @out_max:               Max of supported ISP resources(IFE/SFE)
+ * @fill_fence:            If true, Fence map table will be filled
+ * @hw_type:               HW type for this ctx base (IFE/SFE)
+ * @frame_header_info:     Frame header related params
+ * @scratch_check_cfg:     Validate info for IFE/SFE scratch buffers
+ * @return:                0 for success
+ *                         -EINVAL for Fail
+ */
+int cam_isp_add_io_buffers_crow(
+	int                                      iommu_hdl,
+	int                                      sec_iommu_hdl,
+	struct cam_hw_prepare_update_args       *prepare,
+	uint32_t                                 base_idx,
+	struct cam_kmd_buf_info                 *kmd_buf_info,
+	struct cam_isp_hw_mgr_res               *res_list_isp_out,
+	struct list_head                        *res_list_ife_in_rd,
+	uint32_t                                 out_base,
+	uint32_t                                 out_max,
+	bool                                     fill_fence,
+	enum cam_isp_hw_type                     hw_type,
+	struct cam_isp_frame_header_info        *frame_header_info,
+	struct cam_isp_check_io_cfg_for_scratch *scratch_check_cfg);
+#endif
+
+/*
+ * cam_isp_add_disable_wm_update()
+ *
+ * @brief                  Add disable wm command
+ *
+ * @prepare:               Contain the  packet and HW update variables
+ * @isp_hw_res:            Resource list for IFE/VFE out resource
+ * @base_idx:              Base or dev index of the IFE/VFE HW instance
+ * @kmd_buf_info:          Kmd buffer to store the change base command
+ * @wm_mask                Bit mask of unconfigured resource
+ * @io_cfg_used_bytes      IO cfg size used in bytes
+ *
+ */
+int cam_isp_add_disable_wm_update(
+	struct cam_hw_prepare_update_args    *prepare,
+	struct cam_isp_hw_mgr_res            *isp_hw_res,
+	uint32_t                              base_idx,
+	struct cam_kmd_buf_info              *kmd_buf_info,
+	uint64_t                              wm_mask,
+	uint32_t                             *io_cfg_used_bytes);
 
 /*
  * cam_isp_add_reg_update()

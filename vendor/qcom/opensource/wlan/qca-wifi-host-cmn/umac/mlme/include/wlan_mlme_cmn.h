@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -59,6 +59,9 @@
  * @index: index
  * @preauth: preauth flag
  *
+ * @mlme_cm_link_reconfig_notify_cb:
+ * @vdev: vdev object
+ *
  * @mlme_cm_roam_start_cb: Roam start callback
  * @vdev: vdev pointer
  *
@@ -106,11 +109,16 @@ struct mlme_cm_ops {
 	QDF_STATUS (*mlme_cm_send_keys_cb)(struct wlan_objmgr_vdev *vdev,
 					   uint8_t key_index, bool pairwise,
 					   enum wlan_crypto_cipher_type cipher_type);
+	QDF_STATUS (*mlme_cm_link_reconfig_notify_cb)(
+					struct wlan_objmgr_vdev *vdev);
 #endif
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
 	QDF_STATUS (*mlme_cm_roam_start_cb)(struct wlan_objmgr_vdev *vdev);
 	QDF_STATUS (*mlme_cm_roam_abort_cb)(struct wlan_objmgr_vdev *vdev);
 	QDF_STATUS (*mlme_cm_roam_cmpl_cb)(struct wlan_objmgr_vdev *vdev);
+	QDF_STATUS (*mlme_cm_roam_get_scan_ie_cb)(struct wlan_objmgr_vdev *vdev,
+				struct element_info *scan_ie,
+				enum dot11_mode_filter *dot11mode_filter);
 #endif
 #ifdef WLAN_FEATURE_PREAUTH_ENABLE
 	QDF_STATUS (*mlme_cm_ft_preauth_cmpl_cb)(
@@ -133,12 +141,15 @@ struct mlme_cm_ops {
  * struct mlme_vdev_mgr_ops - MLME VDEV mgr osif callbacks
  * @mlme_vdev_mgr_set_mac_addr_response: Callback to indicate set MAC address
  *                                       response to osif
+ * @mlme_vdev_mgr_send_scan_done_complete_cb: Callback to indicate scan done
+ *                                            complete to osif
  */
 struct mlme_vdev_mgr_ops {
 #ifdef WLAN_FEATURE_DYNAMIC_MAC_ADDR_UPDATE
 	QDF_STATUS (*mlme_vdev_mgr_set_mac_addr_response)(uint8_t vdev_id,
 							  uint8_t resp_status);
 #endif
+	void (*mlme_vdev_mgr_send_scan_done_complete_cb)(uint8_t vdev_id);
 };
 
 /**
@@ -280,6 +291,8 @@ struct mlme_twt_ops {
  * @mlme_cm_ext_rso_stop_cb:                callback to send rso stop to FW
  * @mlme_cm_ext_reassoc_req_cb:             callback for reassoc request to
  *                                          VDEV/PEER SM
+ * @mlme_psoc_ext_hdl_enable: to enable mlme ext param handler
+ * @mlme_psoc_ext_hdl_disable: to disable mlme ext param handler
  * @mlme_vdev_send_set_mac_addr:            callback to send set MAC address
  *                                          request to FW
  */
@@ -353,6 +366,8 @@ struct mlme_ext_ops {
 	QDF_STATUS (*mlme_cm_ext_reassoc_req_cb)(
 				struct wlan_objmgr_vdev *vdev,
 				struct wlan_cm_vdev_reassoc_req *req);
+	QDF_STATUS (*mlme_psoc_ext_hdl_enable)(struct wlan_objmgr_psoc *psoc);
+	QDF_STATUS (*mlme_psoc_ext_hdl_disable)(struct wlan_objmgr_psoc *psoc);
 #ifdef WLAN_FEATURE_DYNAMIC_MAC_ADDR_UPDATE
 	QDF_STATUS (*mlme_vdev_send_set_mac_addr)(
 						struct qdf_mac_addr mac_addr,
@@ -413,6 +428,22 @@ QDF_STATUS mlme_psoc_ops_ext_hdl_create(struct psoc_mlme_obj *psoc_mlme);
  *         Else FAILURE
  */
 QDF_STATUS mlme_psoc_ops_ext_hdl_destroy(struct psoc_mlme_obj *psoc_mlme);
+
+/**
+ * mlme_psoc_ext_enable_cb() - to enable mlme ext param handler callback
+ * @psoc: psoc common object
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS mlme_psoc_ext_enable_cb(struct wlan_objmgr_psoc *psoc);
+
+/**
+ * mlme_psoc_ext_disable_cb() - to disable mlme ext param handler callback
+ * @psoc: psoc common object
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS mlme_psoc_ext_disable_cb(struct wlan_objmgr_psoc *psoc);
 
 /**
  * mlme_pdev_ops_ext_hdl_create - Alloc PDEV mlme ext handle
@@ -861,6 +892,14 @@ QDF_STATUS mlme_cm_osif_pmksa_candidate_notify(struct wlan_objmgr_vdev *vdev,
 QDF_STATUS mlme_cm_osif_send_keys(struct wlan_objmgr_vdev *vdev,
 				  uint8_t key_index, bool pairwise,
 				  enum wlan_crypto_cipher_type cipher_type);
+
+/**
+ * mlme_cm_osif_link_reconfig_notify() - notify link reconfig event
+ * @vdev: vdev pointer
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS mlme_cm_osif_link_reconfig_notify(struct wlan_objmgr_vdev *vdev);
 #else
 static inline
 QDF_STATUS mlme_cm_osif_roam_sync_ind(struct wlan_objmgr_vdev *vdev)
@@ -872,6 +911,12 @@ static inline
 QDF_STATUS mlme_cm_osif_send_keys(struct wlan_objmgr_vdev *vdev,
 				  uint8_t key_index, bool pairwise,
 				  enum wlan_crypto_cipher_type cipher_type)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+static inline
+QDF_STATUS mlme_cm_osif_link_reconfig_notify(struct wlan_objmgr_vdev *vdev)
 {
 	return QDF_STATUS_SUCCESS;
 }
@@ -901,6 +946,21 @@ QDF_STATUS mlme_cm_osif_roam_abort_ind(struct wlan_objmgr_vdev *vdev);
  * Return: QDF_STATUS
  */
 QDF_STATUS mlme_cm_osif_roam_complete(struct wlan_objmgr_vdev *vdev);
+
+/**
+ * mlme_cm_osif_roam_get_scan_params() - osif Roam get scan params callback
+ * @vdev: vdev pointer
+ * @scan_ie: Pointer to scan_ie
+ * @dot11mode_filter: Pointer to dot11mode_filter
+ *
+ * Get scan IE params from adapter corresponds to given vdev
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+mlme_cm_osif_roam_get_scan_params(struct wlan_objmgr_vdev *vdev,
+				  struct element_info *scan_ie,
+				  enum dot11_mode_filter *dot11mode_filter);
 #endif
 
 #ifdef WLAN_FEATURE_PREAUTH_ENABLE
@@ -990,6 +1050,14 @@ void mlme_set_osif_twt_cb(osif_twt_get_global_ops_cb twt_osif_ops);
  * Return: True if max chan switch is enabled else false
  */
 bool mlme_max_chan_switch_is_set(struct wlan_objmgr_psoc *psoc);
+
+/**
+ * mlme_send_scan_done_complete_cb() - send scan done indication to upper layer
+ * @vdev_id: vdev id
+ *
+ * Return: none
+ */
+void mlme_send_scan_done_complete_cb(uint8_t vdev_id);
 
 #ifdef WLAN_FEATURE_DYNAMIC_MAC_ADDR_UPDATE
 /**
@@ -1224,4 +1292,20 @@ mlme_twt_vdev_destroy_notification(struct wlan_objmgr_vdev *vdev)
 
 #endif /* WLAN_SUPPORT_TWT && WLAN_TWT_CONV_SUPPORTED */
 
+/**
+ * mlme_vdev_reconfig_timer_cb() - vdev ml reconfig timer callback
+ * @arg: timer argument
+ *
+ * Return: None
+ */
+void mlme_vdev_reconfig_timer_cb(void *arg);
+
+/**
+ * mlme_mlo_is_reconfig_reassoc_enable() - Get if reassoc on mlo reconfig link
+ * add is enable
+ * @psoc: Object manager psoc pointer
+ *
+ * Return: True if reassoc on mlo reconfig link add ie enable
+ */
+bool mlme_mlo_is_reconfig_reassoc_enable(struct wlan_objmgr_psoc *psoc);
 #endif

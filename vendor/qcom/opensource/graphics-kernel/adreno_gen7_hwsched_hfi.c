@@ -1423,7 +1423,6 @@ int gen7_hwsched_hfi_start(struct adreno_device *adreno_dev)
 	if (ret)
 		dev_err(&gmu->pdev->dev, "GMU clock:%d set failed:%d\n",
 			gmu->freqs[0], ret);
-
 err:
 	if (ret)
 		gen7_hwsched_hfi_stop(adreno_dev);
@@ -1630,7 +1629,8 @@ void gen7_hwsched_hfi_remove(struct adreno_device *adreno_dev)
 {
 	struct gen7_hwsched_hfi *hw_hfi = to_gen7_hwsched_hfi(adreno_dev);
 
-	kthread_stop(hw_hfi->f2h_task);
+	if (hw_hfi->f2h_task)
+		kthread_stop(hw_hfi->f2h_task);
 }
 
 static void gen7_add_profile_events(struct adreno_device *adreno_dev,
@@ -1643,6 +1643,9 @@ static void gen7_add_profile_events(struct adreno_device *adreno_dev,
 	struct kgsl_context *context = drawobj->context;
 	struct submission_info info = {0};
 	struct adreno_hwsched *hwsched = &adreno_dev->hwsched;
+
+	if (!time)
+		return;
 
 	/*
 	 * Here we are attempting to create a mapping between the
@@ -1685,7 +1688,6 @@ static void gen7_add_profile_events(struct adreno_device *adreno_dev,
 		pid_nr(context->proc_priv->pid),
 		context->id, drawobj->timestamp,
 		!!(drawobj->flags & KGSL_DRAWOBJ_END_OF_FRAME));
-
 	trace_adreno_cmdbatch_submitted(drawobj, &info, time->ticks,
 		(unsigned long) time_in_s, time_in_ns / 1000, 0);
 
@@ -1798,7 +1800,7 @@ static int send_context_pointers(struct adreno_device *adreno_dev,
 	struct kgsl_context *context)
 {
 	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
-	struct hfi_context_pointers_cmd cmd;
+	struct hfi_context_pointers_cmd cmd = {0};
 	struct adreno_context *drawctxt = ADRENO_CONTEXT(context);
 	int ret;
 
@@ -1812,8 +1814,6 @@ static int send_context_pointers(struct adreno_device *adreno_dev,
 	if (context->user_ctxt_record)
 		cmd.user_ctxt_record_addr =
 			context->user_ctxt_record->memdesc.gpuaddr;
-	else
-		cmd.user_ctxt_record_addr = 0;
 
 	if (adreno_hwsched_context_queue_enabled(adreno_dev))
 		cmd.gmu_context_queue_addr = drawctxt->gmu_context_queue.gmuaddr;
@@ -2540,4 +2540,42 @@ void gen7_hwsched_context_destroy(struct adreno_device *adreno_dev,
 
 	if (drawctxt->gmu_hw_fence_queue.gmuaddr)
 		gen7_free_gmu_block(to_gen7_gmu(adreno_dev), &drawctxt->gmu_hw_fence_queue);
+}
+
+int gen7_hwsched_counter_inline_enable(struct adreno_device *adreno_dev,
+		const struct adreno_perfcount_group *group,
+		u32 counter, u32 countable)
+{
+	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
+	struct adreno_perfcount_register *reg = &group->regs[counter];
+	u32 val, cmds[GEN7_PERF_COUNTER_ENABLE_DWORDS + 1];
+	int ret;
+
+	if (group->flags & ADRENO_PERFCOUNTER_GROUP_RESTORE)
+		gen7_perfcounter_update(adreno_dev, reg, false,
+				FIELD_PREP(GENMASK(13, 12), PIPE_NONE));
+
+	cmds[0] = CREATE_MSG_HDR(H2F_MSG_ISSUE_CMD_RAW,
+		(GEN7_PERF_COUNTER_ENABLE_DWORDS + 1) << 2, HFI_MSG_CMD);
+
+	cmds[1] = cp_type7_packet(CP_WAIT_FOR_IDLE, 0);
+	cmds[2] = cp_type4_packet(reg->select, 1);
+	cmds[3] = countable;
+
+	ret = gen7_hfi_send_cmd_async(adreno_dev, cmds);
+	if (ret)
+		goto err;
+
+	/* Wait till the register is programmed with the countable */
+	ret = kgsl_regmap_read_poll_timeout(&device->regmap, reg->select, val,
+				val == countable, 100, ADRENO_IDLE_TIMEOUT);
+	if (!ret) {
+		reg->value = 0;
+		return ret;
+	}
+
+err:
+	dev_err(device->dev, "Perfcounter %s/%u/%u start via commands failed\n",
+			group->name, counter, countable);
+	return ret;
 }

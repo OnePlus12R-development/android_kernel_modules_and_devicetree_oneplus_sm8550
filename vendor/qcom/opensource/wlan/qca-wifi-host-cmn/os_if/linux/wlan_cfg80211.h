@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -148,6 +148,12 @@
  * @QCA_NL80211_VENDOR_SUBCMD_DRIVER_READY_INDEX: Driver Ready after SSR index
  * @QCA_NL80211_VENDOR_SUBCMD_SCS_RULE_CONFIG_INDEX: SCS rule config index
  * @QCA_NL80211_VENDOR_SUBCMD_SR_INDEX: SR Event index
+ * @QCA_NL80211_VENDOR_SUBCMD_MLO_PEER_PRIM_NETDEV_EVENT_INDEX: primary netdev
+ *     event index
+ * @QCA_NL80211_VENDOR_SUBCMD_AFC_EVENT_INDEX: AFC Event index
+ * @QCA_NL80211_VENDOR_SUBCMD_CONNECTED_CHANNEL_STATS_INDEX: Connected channel
+ * stats index
+ * @QCA_NL80211_VENDOR_SUBCMD_LINK_RECONFIG_INDEX: link reconfig event index
  */
 
 enum qca_nl80211_vendor_subcmds_index {
@@ -262,6 +268,17 @@ enum qca_nl80211_vendor_subcmds_index {
 #endif
 #ifdef WLAN_FEATURE_SR
 	QCA_NL80211_VENDOR_SUBCMD_SR_INDEX,
+#endif
+	QCA_NL80211_VENDOR_SUBCMD_MLO_PEER_PRIM_NETDEV_EVENT_INDEX,
+#ifdef CONFIG_AFC_SUPPORT
+	QCA_NL80211_VENDOR_SUBCMD_AFC_EVENT_INDEX,
+#endif
+#ifdef WLAN_SUPPORT_GAP_LL_PS_MODE
+	QCA_NL80211_VENDOR_SUBCMD_DOZED_AP_INDEX,
+#endif
+	QCA_NL80211_VENDOR_SUBCMD_CONNECTED_CHANNEL_STATS_INDEX,
+#if defined(CONN_MGR_ADV_FEATURE) && defined(WLAN_FEATURE_11BE_MLO)
+	QCA_NL80211_VENDOR_SUBCMD_LINK_RECONFIG_INDEX,
 #endif
 };
 
@@ -512,18 +529,32 @@ static inline void wlan_cfg80211_unregister_netdevice(struct net_device *dev)
 #endif
 
 #ifdef CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT
+#ifdef CFG80211_RU_PUNCT_NOTIFY
 static inline
 void wlan_cfg80211_ch_switch_notify(struct net_device *dev,
 				    struct cfg80211_chan_def *chandef,
-				    unsigned int link_id)
+				    unsigned int link_id,
+				    uint16_t puncture_bitmap)
 {
-	cfg80211_ch_switch_notify(dev, chandef, link_id, 0);
+	cfg80211_ch_switch_notify(dev, chandef, link_id,
+				  puncture_bitmap);
 }
 #else
 static inline
 void wlan_cfg80211_ch_switch_notify(struct net_device *dev,
 				    struct cfg80211_chan_def *chandef,
-				    unsigned int link_id)
+				    unsigned int link_id,
+				    uint16_t puncture_bitmap)
+{
+	cfg80211_ch_switch_notify(dev, chandef, link_id, 0);
+}
+#endif
+#else
+static inline
+void wlan_cfg80211_ch_switch_notify(struct net_device *dev,
+				    struct cfg80211_chan_def *chandef,
+				    unsigned int link_id,
+				    uint16_t puncture_bitmap)
 {
 	cfg80211_ch_switch_notify(dev, chandef);
 }

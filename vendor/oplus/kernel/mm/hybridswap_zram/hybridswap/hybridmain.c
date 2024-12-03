@@ -8,10 +8,14 @@
 #include <linux/slab.h>
 #include <linux/cpu.h>
 #include <trace/hooks/mm.h>
+#ifdef CONFIG_IOMMU_DMA_ALLOC_ADJUST_FLAGS
+#include <trace/hooks/iommu.h>
+#endif
 #include <trace/hooks/vmscan.h>
 #include <linux/genhd.h>
 #include <linux/proc_fs.h>
 #include <linux/version.h>
+#include <linux/mm_inline.h>
 
 #include "../zram_drv.h"
 #include "../zram_drv_internal.h"
@@ -61,6 +65,10 @@ extern unsigned long try_to_free_mem_cgroup_pages(struct mem_cgroup *memcg,
 		gfp_t gfp_mask,
 		bool may_swap);
 
+extern int page_referenced(struct page *page,
+					int is_locked,
+					struct mem_cgroup *memcg,
+					unsigned long *vm_flags);
 
 void hybridswap_loglevel_set(int level)
 {
@@ -224,6 +232,14 @@ static void mem_cgroup_free_hook(void *data, struct mem_cgroup *memcg)
 	put_memcg_cache(hybs);
 }
 
+#ifdef CONFIG_IOMMU_DMA_ALLOC_ADJUST_FLAGS
+static void adjust_alloc_flags_hook(void *data, unsigned int order, gfp_t *flags)
+{
+	if (order > 3)
+		*flags &= ~__GFP_RECLAIM;
+}
+#endif
+
 void memcg_app_score_update(struct mem_cgroup *target)
 {
 	struct list_head *pos = NULL;
@@ -307,6 +323,9 @@ static int register_all_hooks(void)
 	REGISTER_HOOK(mem_cgroup_alloc);
 	/* mem_cgroup_free_hook */
 	REGISTER_HOOK(mem_cgroup_free);
+#ifdef CONFIG_IOMMU_DMA_ALLOC_ADJUST_FLAGS
+	REGISTER_HOOK(adjust_alloc_flags);
+#endif
 	/* mem_cgroup_css_online_hook */
 	REGISTER_HOOK(mem_cgroup_css_online);
 	/* mem_cgroup_css_offline_hook */
@@ -331,6 +350,12 @@ static int register_all_hooks(void)
 		log_err("register tune_scan_type_hook failed\n");
 		goto err_out_tune_scan_type;
 	}
+
+	rc = register_trace_android_vh_shrink_slab_bypass(hybridswapd_ops->vh_shrink_slab_bypass, NULL);
+	if (rc) {
+		log_err("register shrink_slab_bypass failed\n");
+		goto err_out_shrink_slab_bypass;
+	}
 #endif
 #ifdef CONFIG_HYBRIDSWAP_CORE
 	/* mem_cgroup_id_remove_hook */
@@ -343,6 +368,8 @@ static int register_all_hooks(void)
 ERROR_OUT(mem_cgroup_id_remove):
 #endif
 #ifdef CONFIG_HYBRIDSWAP_SWAPD
+	unregister_trace_android_vh_shrink_slab_bypass(hybridswapd_ops->vh_shrink_slab_bypass, NULL);
+err_out_shrink_slab_bypass:
 	unregister_trace_android_vh_tune_scan_type(hybridswapd_ops->vh_tune_scan_type, NULL);
 ERROR_OUT(tune_scan_type):
 	/* UNREGISTER_HOOK(rmqueue);
@@ -358,6 +385,10 @@ err_out_pcplist_add_cma_pages_bypass:
 ERROR_OUT(mem_cgroup_css_offline):
 	UNREGISTER_HOOK(mem_cgroup_css_online);
 ERROR_OUT(mem_cgroup_css_online):
+#ifdef CONFIG_IOMMU_DMA_ALLOC_ADJUST_FLAGS
+	UNREGISTER_HOOK(adjust_alloc_flags);
+ERROR_OUT(adjust_alloc_flags):
+#endif
 	UNREGISTER_HOOK(mem_cgroup_free);
 ERROR_OUT(mem_cgroup_free):
 	UNREGISTER_HOOK(mem_cgroup_alloc);
@@ -455,18 +486,16 @@ static int force_shrink_batch(struct mem_cgroup * memcg,
 
 		*nr_reclaimed += reclaimed;
 
-		/* Abort shrink when abort_shrink */
-		if (MEMCGRP_ITEM_DATA(memcg) &&
-		    MEMCGRP_ITEM(memcg, abort_shrink)) {
-			/* reset abort_shrink */
-			MEMCGRP_ITEM(memcg, abort_shrink) = false;
+		/* Abort shrink when receive SIGUSR2 */
+		if (unlikely(sigismember(&current->pending.signal, SIGUSR2) ||
+			sigismember(&current->signal->shared_pending.signal, SIGUSR2))) {
 			log_info("abort shrink while shrinking\n");
 			ret = -EINTR;
 			break;
 		}
 	}
 
-	log_info("%s try to reclaim %d %s pages and reclaim %d pages\n",
+	log_info("%s try to reclaim %lu %s pages and reclaim %lu pages\n",
 		 MEMCGRP_ITEM(memcg, name), nr_need_reclaim,
 		 chp ? "chp" : "normal", *nr_reclaimed);
 	return ret;
@@ -475,7 +504,7 @@ static int force_shrink_batch(struct mem_cgroup * memcg,
 #define	BATCH_4M	(1 << 10)
 #define	RECLAIM_INACTIVE	0
 #define	RECLAIM_ALL		1
-unsigned long get_reclaim_pages(struct mem_cgroup *memcg, bool file,
+static unsigned long get_reclaim_pages(struct mem_cgroup *memcg, bool file,
 				char *buf, unsigned long *batch,
 				unsigned long *nr_reclaimed, bool chp)
 {
@@ -484,6 +513,9 @@ unsigned long get_reclaim_pages(struct mem_cgroup *memcg, bool file,
 	unsigned long reclaim_batch = 0;
 	int lru = LRU_BASE + (file ? LRU_FILE : 0);
 	int ret;
+
+	if (!batch || !buf)
+		return 0;
 
 	buf = strstrip(buf);
 	ret = sscanf(buf, "%lu %lu", &reclaim_flag, &reclaim_batch);
@@ -528,6 +560,8 @@ static ssize_t mem_cgroup_force_shrink(struct kernfs_open_file *of,
 		/* In the hook of scan_type, only reclaim anon */
 		current->flags |= PF_SHRINK_ANON;
 
+	current->flags |= PF_BYPASS_SHRINK_SLAB;
+
 	/* Set may_swap as false to only reclaim file */
 	ret = force_shrink_batch(memcg, nr_need_reclaim, &nr_reclaimed,
 					  batch, !file, false);
@@ -549,7 +583,7 @@ static ssize_t mem_cgroup_force_shrink(struct kernfs_open_file *of,
 out:
 	if (!file)
 		current->flags &= ~PF_SHRINK_ANON;
-
+	current->flags &= ~PF_BYPASS_SHRINK_SLAB;
 	return nbytes;
 }
 
@@ -563,6 +597,258 @@ static ssize_t mem_cgroup_force_shrink_file(struct kernfs_open_file *of,
 		char *buf, size_t nbytes, loff_t off)
 {
 	return mem_cgroup_force_shrink(of, buf, nbytes, true);
+}
+
+static inline bool page_evictable(struct page *page)
+{
+	bool ret;
+
+	/* Prevent address_space of inode and swap cache from being freed */
+	rcu_read_lock();
+	ret = !mapping_unevictable(page_mapping(page)) && !PageMlocked(page);
+	rcu_read_unlock();
+	return ret;
+}
+
+/**
+ * isolate_page_from_lru - a copy of isolate_lru_page, but
+ * lru_lock must be held before calling this function.
+ * Restrictions:
+ * (1) Must be called with an elevated refcount on the page. This is a
+ *     fundamental difference from isolate_lru_pages (which is called
+ *     without a stable reference).
+ * (2) The lru_lock must be held.
+ */
+static int isolate_page_from_lru(struct page *page, struct lruvec *lruvec)
+{
+	int ret = -EBUSY;
+
+	VM_BUG_ON_PAGE(!page_count(page), page);
+	WARN_RATELIMIT(PageTail(page), "trying to isolate tail page");
+
+	if (TestClearPageLRU(page)) {
+		get_page(page);
+		del_page_from_lru_list(page, lruvec);
+		ret = 0;
+	}
+
+	return ret;
+}
+
+/**
+ * putback_page_to_lru - a copy of putback_lru_page
+ *
+ * lru_lock must not be held, interrupts must be enabled.
+ */
+static void putback_page_to_lru(struct page *page)
+{
+	lru_cache_add(page);
+	put_page(page);		/* drop ref from isolate */
+}
+
+static unsigned long isolate_pages_to_page_list(struct lruvec *lruvec,
+		enum lru_list lru, struct list_head *page_list,
+		unsigned long nr_to_isolate)
+{
+	unsigned long nr_isolated = 0, nr_scanned = 0, nr_pages;
+	struct list_head *src = &lruvec->lists[lru];
+
+	while (!list_empty(src) && nr_scanned < nr_to_isolate) {
+		struct page *page = lru_to_page(src);
+		nr_pages = thp_nr_pages(page);
+		nr_scanned += nr_pages;
+
+		if (likely(get_page_unless_zero(page))) {
+			if (isolate_page_from_lru(page, lruvec)) {
+				spin_unlock_irq(&lruvec->lru_lock);
+				put_page(page);
+				spin_lock_irq(&lruvec->lru_lock);
+				continue;
+			}
+			put_page(page);
+		} else
+			continue;
+
+		list_add(&page->lru, page_list);
+		nr_isolated += nr_pages;
+	}
+	return nr_isolated;
+}
+
+/*
+ * Seperate the src_list to active and inactive,
+ * by check the PTE_AC.
+ */
+static void seperate_list(struct list_head *src,
+			  struct list_head *active,
+			  struct list_head *inactive,
+			  struct mem_cgroup *memcg)
+{
+	unsigned long vm_flags;
+
+	while (!list_empty(src)) {
+		struct page *page = lru_to_page(src);
+		list_del(&page->lru);
+
+		if (unlikely(!page_evictable(page))) {
+			putback_page_to_lru(page);
+			continue;
+		}
+
+		if (page_referenced(page, 0, memcg, &vm_flags)) {
+			SetPageActive(page);
+			list_add(&page->lru, active);
+		} else {
+			ClearPageActive(page);
+			list_add(&page->lru, inactive);
+		}
+		cond_resched();
+	}
+}
+
+/*
+ * move_pages_into_lru(), a copy of move_pages_to_lru()
+ * Moves pages from private @list to appropriate LRU list.
+ *
+ * Returns the number of pages moved to the given lruvec.
+ */
+static unsigned long move_pages_into_lru(struct lruvec *lruvec,
+				      struct list_head *list)
+{
+	unsigned long nr_moved = 0;
+
+	while (!list_empty(list)) {
+		struct page *page = lru_to_page(list);
+		VM_BUG_ON_PAGE(PageLRU(page), page);
+		list_del(&page->lru);
+		if (unlikely(!page_evictable(page))) {
+			putback_page_to_lru(page);
+			continue;
+		}
+
+		/*
+		 * The SetPageLRU needs to be kept here for list integrity.
+		 * Otherwise:
+		 *   #0 move_pages_to_lru             #1 release_pages
+		 *   if !put_page_testzero
+		 *				      if (put_page_testzero())
+		 *				        !PageLRU //skip lru_lock
+		 *     SetPageLRU()
+		 *     list_add(&page->lru,)
+		 *                                        list_add(&page->lru,)
+		 */
+
+		/*
+		 * All pages were isolated from the same lruvec (and isolation
+		 * inhibits memcg migration).
+		 */
+		spin_lock_irq(&lruvec->lru_lock);
+		VM_BUG_ON_PAGE(!page_matches_lruvec(page, lruvec), page);
+		SetPageLRU(page);
+		add_page_to_lru_list(page, lruvec);
+		nr_moved += thp_nr_pages(page);
+		spin_unlock_irq(&lruvec->lru_lock);
+
+		put_page(page);
+	}
+
+	return nr_moved;
+}
+
+static void mem_cgroup_aging_anon_lruvec(struct mem_cgroup *memcg,
+		struct lruvec *lruvec, unsigned long lru_mask, bool is_chp)
+{
+	pg_data_t *pgdat = NODE_DATA(0);
+	unsigned long nr_to_isolate_active = 0, nr_to_isolate_inactive = 0, total_isolated = 0;
+#ifdef CHP_SWAP_CLUSTER_MAX
+	unsigned int each_batch = (is_chp ? CHP_SWAP_CLUSTER_MAX : SWAP_CLUSTER_MAX);
+#else
+	unsigned int each_batch = SWAP_CLUSTER_MAX;
+#endif
+
+	LIST_HEAD(l_hold);
+	LIST_HEAD(l_active);
+	LIST_HEAD(l_inactive);
+
+	if (BIT(LRU_INACTIVE_ANON) & lru_mask) {
+		nr_to_isolate_inactive = memcg_lru_pages(memcg, LRU_INACTIVE_ANON, is_chp);
+		log_info("nr_to_isolate from %s inactive anon: %lu",
+			 is_chp ? "chp" : "normal", nr_to_isolate_inactive);
+	}
+
+	if (BIT(LRU_ACTIVE_ANON) & lru_mask) {
+		nr_to_isolate_active = memcg_lru_pages(memcg, LRU_ACTIVE_ANON, is_chp);
+		log_info("nr_to_isolate from %s active anon: %lu",
+			 is_chp ? "chp" : "normal", nr_to_isolate_active);
+	}
+
+	while ((nr_to_isolate_inactive && memcg_lru_pages(memcg, LRU_INACTIVE_ANON, is_chp))
+		|| (nr_to_isolate_active && memcg_lru_pages(memcg, LRU_ACTIVE_ANON, is_chp))) {
+		unsigned long isolated = 0;
+		unsigned long cur_isolated = 0;
+
+		if (nr_to_isolate_inactive) {
+			spin_lock_irq(&lruvec->lru_lock);
+			isolated =
+				isolate_pages_to_page_list(lruvec, LRU_INACTIVE_ANON, &l_hold, each_batch);
+			spin_unlock_irq(&lruvec->lru_lock);
+
+			cur_isolated += isolated;
+			total_isolated += isolated;
+			nr_to_isolate_inactive -= min(nr_to_isolate_inactive, isolated);
+			log_dbg("inactive isolated, batch: %lu, total: %lu, left %lu", isolated,
+					total_isolated, nr_to_isolate_inactive);
+		}
+
+		if (nr_to_isolate_active) {
+			spin_lock_irq(&lruvec->lru_lock);
+			isolated =
+				isolate_pages_to_page_list(lruvec, LRU_ACTIVE_ANON, &l_hold, each_batch);
+			spin_unlock_irq(&lruvec->lru_lock);
+
+			cur_isolated += isolated;
+			total_isolated += isolated;
+			nr_to_isolate_active -= min(nr_to_isolate_active, isolated);
+			log_dbg("active isolated, batch: %lu, total: %lu, left %lu", isolated,
+					total_isolated, nr_to_isolate_active);
+		}
+
+		mod_node_page_state(pgdat, NR_ISOLATED_ANON, cur_isolated);
+	}
+
+	log_info("total_isolated: %lu %s pages", total_isolated, is_chp ? "chp" : "normal");
+
+	/* Seperate the isolated list to active list and inactive list */
+	seperate_list(&l_hold, &l_active, &l_inactive, memcg);
+
+	move_pages_into_lru(lruvec, &l_active);
+	move_pages_into_lru(lruvec, &l_inactive);
+
+	mod_node_page_state(pgdat, NR_ISOLATED_ANON, -total_isolated);
+}
+
+static ssize_t mem_cgroup_aging_anon(struct kernfs_open_file *of,
+		char *buf, size_t nbytes, loff_t off)
+{
+	unsigned long lru_mask = 0;
+	struct lruvec *lruvec = NULL;
+	pg_data_t *pgdat = NODE_DATA(0);
+	struct mem_cgroup *memcg = mem_cgroup_from_css(of_css(of));
+
+	if (kstrtoul(strstrip(buf), 0, &lru_mask))
+		return -EINVAL;
+
+	lruvec = mem_cgroup_lruvec(memcg, pgdat);
+	mem_cgroup_aging_anon_lruvec(memcg, lruvec, lru_mask, false);
+
+#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
+	if (chp_supported && chp_pool) {
+		struct chp_lruvec *chp_lruvec =
+			(struct chp_lruvec *)memcg->deferred_split_queue.split_queue_len;
+		mem_cgroup_aging_anon_lruvec(memcg, &chp_lruvec->lruvec, lru_mask, true);
+	}
+#endif
+	return nbytes;
 }
 
 static int memcg_total_info_per_app_show(struct seq_file *m, void *v)
@@ -749,6 +1035,15 @@ int mem_cgroup_app_uid_write(struct cgroup_subsys_state *css,
 	return 0;
 }
 
+s64 get_mem_cgroup_app_uid(struct mem_cgroup *memcg)
+{
+	if (!MEMCGRP_ITEM_DATA(memcg))
+		return -EPERM;
+
+	return atomic64_read(&MEMCGRP_ITEM(memcg, app_uid));
+}
+EXPORT_SYMBOL_GPL(get_mem_cgroup_app_uid);
+
 static s64 mem_cgroup_app_uid_read(struct cgroup_subsys_state *css, struct cftype *cft)
 {
 	struct mem_cgroup *memcg = mem_cgroup_from_css(css);
@@ -820,22 +1115,6 @@ static int mem_cgroup_force_swapout_write(struct cgroup_subsys_state *css,
 	return 0;
 }
 
-static int mem_cgroup_abort_shrink_write(struct cgroup_subsys_state *css,
-		struct cftype *cft, s64 val)
-{
-	struct mem_cgroup *memcg = mem_cgroup_from_css(css);
-
-	if (!MEMCGRP_ITEM_DATA(memcg))
-		return -EPERM;
-
-	if (val)
-		MEMCGRP_ITEM(memcg, abort_shrink) = true;
-	else
-		MEMCGRP_ITEM(memcg, abort_shrink) = false;
-
-	return 0;
-}
-
 struct mem_cgroup *get_next_memcg(struct mem_cgroup *prev)
 {
 	memcg_hybs_t *hybs = NULL;
@@ -877,12 +1156,14 @@ unlock:
 
 	return memcg;
 }
+EXPORT_SYMBOL_GPL(get_next_memcg);
 
 void get_next_memcg_break(struct mem_cgroup *memcg)
 {
 	if (memcg)
 		css_put(&memcg->css);
 }
+EXPORT_SYMBOL_GPL(get_next_memcg_break);
 
 static struct cftype mem_cgroup_hybridswap_legacy_files[] = {
 	{
@@ -897,6 +1178,10 @@ static struct cftype mem_cgroup_hybridswap_legacy_files[] = {
 		.name = "total_info_per_app",
 		.flags = CFTYPE_ONLY_ON_ROOT,
 		.seq_show = memcg_total_info_per_app_show,
+	},
+	{
+		.name = "aging_anon",
+		.write = mem_cgroup_aging_anon,
 	},
 	{
 		.name = "swap_stat",
@@ -929,10 +1214,6 @@ static struct cftype mem_cgroup_hybridswap_legacy_files[] = {
 	{
 		.name = "force_swapout",
 		.write_s64 = mem_cgroup_force_swapout_write,
-	},
-	{
-		.name = "abort_shrink",
-		.write_s64 = mem_cgroup_abort_shrink_write,
 	},
 #ifdef CONFIG_HYBRIDSWAP_CORE
 	{

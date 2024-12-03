@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -18,11 +18,9 @@
  */
 
 /**
+ * DOC: wlan_hdd_p2p.c
  *
- * @file  wlan_hdd_p2p.c
- *
- * @brief WLAN Host Device Driver implementation for P2P commands interface
- *
+ * WLAN Host Device Driver implementation for P2P commands interface
  */
 
 #include "osif_sync.h"
@@ -126,10 +124,8 @@ void wlan_hdd_cleanup_remain_on_channel_ctx(struct hdd_adapter *adapter)
 	}
 
 	vdev = hdd_objmgr_get_vdev_by_user(adapter, WLAN_OSIF_P2P_ID);
-	if (!vdev) {
-		hdd_err("vdev is NULL");
+	if (!vdev)
 		return;
-	}
 
 	ucfg_p2p_cleanup_roc_by_vdev(vdev);
 	hdd_objmgr_put_vdev_by_user(vdev, WLAN_OSIF_P2P_ID);
@@ -145,10 +141,8 @@ void wlan_hdd_cleanup_actionframe(struct hdd_adapter *adapter)
 	}
 
 	vdev = hdd_objmgr_get_vdev_by_user(adapter, WLAN_OSIF_P2P_ID);
-	if (!vdev) {
-		hdd_err("vdev is NULL");
+	if (!vdev)
 		return;
-	}
 	ucfg_p2p_cleanup_tx_by_vdev(vdev);
 	hdd_objmgr_put_vdev_by_user(vdev, WLAN_OSIF_P2P_ID);
 }
@@ -188,6 +182,11 @@ static int __wlan_hdd_cfg80211_remain_on_channel(struct wiphy *wiphy,
 	if (!vdev) {
 		hdd_err("vdev is NULL");
 		return -EINVAL;
+	}
+
+	if (!wlan_is_scan_allowed(vdev)) {
+		wlan_objmgr_vdev_release_ref(vdev, WLAN_OSIF_P2P_ID);
+		return -EBUSY;
 	}
 
 	/* Disable NAN Discovery if enabled */
@@ -290,7 +289,7 @@ static int __wlan_hdd_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
 	uint16_t auth_algo;
 	QDF_STATUS qdf_status;
 	int ret;
-	uint32_t ft_info_len = 0;
+	uint32_t assoc_resp_len, ft_info_len = 0;
 	const uint8_t  *assoc_resp;
 	void *ft_info;
 	struct hdd_ap_ctx *hdd_ap_ctx;
@@ -360,6 +359,13 @@ static int __wlan_hdd_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
 	    (sub_type == SIR_MAC_MGMT_ASSOC_RSP ||
 	     sub_type == SIR_MAC_MGMT_REASSOC_RSP)) {
 		assoc_resp = &((struct ieee80211_mgmt *)buf)->u.assoc_resp.variable[0];
+		assoc_resp_len = len - WLAN_ASSOC_RSP_IES_OFFSET
+			   - sizeof(struct wlan_frame_hdr);
+		if (!wlan_get_ie_ptr_from_eid(DOT11F_EID_FTINFO,
+					      assoc_resp, assoc_resp_len)) {
+			hdd_debug("No FT info in Assoc rsp, send it directly");
+			goto off_chan_tx;
+		}
 		ft_info = hdd_filter_ft_info(assoc_resp, len, &ft_info_len);
 		if (!ft_info || !ft_info_len)
 			return -EINVAL;
@@ -483,31 +489,24 @@ int wlan_hdd_cfg80211_mgmt_tx_cancel_wait(struct wiphy *wiphy,
 }
 
 /**
- * hdd_set_p2p_noa
+ * hdd_set_p2p_noa() - Handle P2P_SET_NOA command
+ * @dev: Pointer to net device structure
+ * @command: Pointer to command
  *
- ***FUNCTION:
  * This function is called from hdd_hostapd_ioctl function when Driver
  * get P2P_SET_NOA command from wpa_supplicant using private ioctl
  *
- ***LOGIC:
- * Fill noa Struct According to P2P Power save Option and Pass it to SME layer
+ * This function will construct the NoA Struct According to P2P Power
+ * save Option and Pass it to SME layer
  *
- ***ASSUMPTIONS:
- *
- *
- ***NOTE:
- *
- * @param dev          Pointer to net device structure
- * @param command      Pointer to command
- *
- * @return Status
+ * Return: 0 on success, negative errno if error
  */
 
 int hdd_set_p2p_noa(struct net_device *dev, uint8_t *command)
 {
 	struct hdd_adapter *adapter = WLAN_HDD_GET_PRIV_PTR(dev);
 	struct p2p_ps_config noa = {0};
-	int count, duration, interval;
+	int count, duration, interval, start = 0;
 	char *param;
 	int ret;
 
@@ -517,19 +516,25 @@ int hdd_set_p2p_noa(struct net_device *dev, uint8_t *command)
 		return -EINVAL;
 	}
 	param++;
-	ret = sscanf(param, "%d %d %d", &count, &interval, &duration);
-	if (ret != 3) {
+	ret = sscanf(param, "%d %d %d %d", &count, &start, &duration,
+		     &interval);
+	if (ret < 3) {
 		hdd_err("P2P_SET GO noa: fail to read params, ret=%d",
 			ret);
 		return -EINVAL;
 	}
-	if (count < 0 || interval < 0 || duration < 0 ||
-	    interval > MAX_MUS_VAL || duration > MAX_MUS_VAL) {
+
+	if (ret == 3)
+		interval = 100;
+
+	if (start < 0 || count < 0 || interval < 0 || duration < 0 ||
+	    start > MAX_MUS_VAL || interval > MAX_MUS_VAL ||
+	    duration > MAX_MUS_VAL) {
 		hdd_err("Invalid NOA parameters");
 		return -EINVAL;
 	}
-	hdd_debug("P2P_SET GO noa: count=%d interval=%d duration=%d",
-		count, interval, duration);
+	hdd_debug("P2P_SET GO noa: count=%d interval=%d duration=%d start=%d",
+		  count, interval, duration, start);
 	duration = MS_TO_TU_MUS(duration);
 	interval = MS_TO_TU_MUS(interval);
 	/* PS Selection
@@ -553,38 +558,33 @@ int hdd_set_p2p_noa(struct net_device *dev, uint8_t *command)
 		noa.single_noa_duration = 0;
 		noa.ps_selection = P2P_POWER_SAVE_TYPE_PERIODIC_NOA;
 	}
+
+	noa.start = start;
 	noa.interval = interval;
 	noa.count = count;
 	noa.vdev_id = adapter->vdev_id;
 
-	hdd_debug("P2P_PS_ATTR:opp ps %d ct window %d duration %d "
-		  "interval %d count %d single noa duration %d "
-		  "ps selection %x", noa.opp_ps,
-		  noa.ct_window, noa.duration, noa.interval,
-		  noa.count, noa.single_noa_duration, noa.ps_selection);
+	hdd_debug("P2P_PS_ATTR:opp ps %d ct window %d count %d interval %d "
+		  "duration %d start %d single noa duration %d "
+		  "ps selection %x", noa.opp_ps, noa.ct_window, noa.count,
+		  noa.interval, noa.duration, noa.start,
+		  noa.single_noa_duration, noa.ps_selection);
 
 	return wlan_hdd_set_power_save(adapter, &noa);
 }
 
 /**
- * hdd_set_p2p_opps
+ * hdd_set_p2p_opps() - Handle P2P_SET_PS command
+ * @dev: Pointer to net device structure
+ * @command: Pointer to command
  *
- ***FUNCTION:
  * This function is called from hdd_hostapd_ioctl function when Driver
- * get P2P_SET_PS command from wpa_supplicant using private ioctl
+ * get P2P_SET_PS command from wpa_supplicant using private ioctl.
  *
- ***LOGIC:
- * Fill noa Struct According to P2P Power save Option and Pass it to SME layer
+ * This function will construct the NoA Struct According to P2P Power
+ * save Option and Pass it to SME layer
  *
- ***ASSUMPTIONS:
- *
- *
- ***NOTE:
- *
- * @param  dev         Pointer to net device structure
- * @param  command     Pointer to command
- *
- * @return Status
+ * Return: 0 on success, negative errno if error
  */
 
 int hdd_set_p2p_opps(struct net_device *dev, uint8_t *command)
@@ -698,14 +698,34 @@ int hdd_set_p2p_ps(struct net_device *dev, void *msgData)
 	return wlan_hdd_set_power_save(adapter, &noa);
 }
 
+#ifdef WLAN_FEATURE_11BE_MLO
+static inline void
+wlan_hdd_set_ml_capab_add_iface(struct hdd_adapter_create_param *create_params,
+				enum QDF_OPMODE mode)
+{
+	if (mode != QDF_SAP_MODE)
+		return;
+
+	create_params->is_single_link = true;
+	create_params->is_ml_adapter = true;
+}
+#else
+static inline void
+wlan_hdd_set_ml_capab_add_iface(struct hdd_adapter_create_param *create_params,
+				enum QDF_OPMODE mode)
+{
+}
+
+#endif
+
 /**
  * __wlan_hdd_add_virtual_intf() - Add virtual interface
  * @wiphy: wiphy pointer
  * @name: User-visible name of the interface
  * @name_assign_type: the name of assign type of the netdev
- * @nl80211_iftype: (virtual) interface types
+ * @type: (virtual) interface types
  * @flags: monitor configuration flags (not used)
- * @vif_params: virtual interface parameters (not used)
+ * @params: virtual interface parameters (not used)
  *
  * Return: the pointer of wireless dev, otherwise ERR_PTR.
  */
@@ -724,7 +744,9 @@ struct wireless_dev *__wlan_hdd_add_virtual_intf(struct wiphy *wiphy,
 	QDF_STATUS status;
 	struct wlan_objmgr_vdev *vdev;
 	int ret;
+	bool eht_capab;
 	struct hdd_adapter_create_param create_params = {0};
+	uint8_t *device_address = NULL;
 
 	hdd_enter();
 
@@ -769,6 +791,11 @@ struct wireless_dev *__wlan_hdd_add_virtual_intf(struct wiphy *wiphy,
 	}
 
 	create_params.is_add_virtual_iface = 1;
+
+	ucfg_psoc_mlme_get_11be_capab(hdd_ctx->psoc, &eht_capab);
+	if (eht_capab)
+		wlan_hdd_set_ml_capab_add_iface(&create_params, mode);
+
 	adapter = hdd_get_adapter(hdd_ctx, QDF_STA_MODE);
 	if (adapter && !wlan_hdd_validate_vdev_id(adapter->vdev_id)) {
 		vdev = hdd_objmgr_get_vdev_by_user(adapter, WLAN_OSIF_P2P_ID);
@@ -822,7 +849,6 @@ struct wireless_dev *__wlan_hdd_add_virtual_intf(struct wiphy *wiphy,
 					   name_assign_type, true,
 					   &create_params);
 	} else {
-		uint8_t *device_address;
 		if (strnstr(name, "p2p", 3) && mode == QDF_STA_MODE) {
 			hdd_debug("change mode to p2p device");
 			mode = QDF_P2P_DEVICE_MODE;
@@ -865,6 +891,8 @@ struct wireless_dev *__wlan_hdd_add_virtual_intf(struct wiphy *wiphy,
 	return adapter->dev->ieee80211_ptr;
 
 close_adapter:
+	if (device_address)
+		wlan_hdd_release_intf_addr(hdd_ctx, device_address);
 	hdd_close_adapter(hdd_ctx, adapter, true);
 
 	return ERR_PTR(-EINVAL);
@@ -1267,11 +1295,12 @@ int wlan_hdd_set_power_save(struct hdd_adapter *adapter,
 		return -EINVAL;
 	}
 
-	hdd_debug("opp ps:%d, ct window:%d, duration:%d, interval:%d, count:%d, single noa duration:%d, ps selection:%d, vdev id:%d",
-		ps_config->opp_ps, ps_config->ct_window,
-		ps_config->duration, ps_config->interval,
-		ps_config->count, ps_config->single_noa_duration,
-		ps_config->ps_selection, ps_config->vdev_id);
+	hdd_debug("opp ps:%d, ct window:%d, duration:%d, interval:%d, count:%d start:%d, single noa duration:%d, ps selection:%d, vdev id:%d",
+		  ps_config->opp_ps, ps_config->ct_window,
+		  ps_config->duration, ps_config->interval,
+		  ps_config->count, ps_config->start,
+		  ps_config->single_noa_duration,
+		  ps_config->ps_selection, ps_config->vdev_id);
 
 	status = ucfg_p2p_set_ps(psoc, ps_config);
 	hdd_debug("p2p set power save, status:%d", status);
@@ -1387,9 +1416,10 @@ int32_t wlan_hdd_set_mas(struct hdd_adapter *adapter, uint8_t mas_value)
 /**
  * set_first_connection_operating_channel() - Function to set
  * first connection oerating channel
- * @adapter:   adapter data
- * @set_value: Quota value for the interface
- * @dev_mode:  Device mode
+ * @hdd_ctx: Hdd context
+ * @set_value: First connection operating channel
+ * @dev_mode: Device operating mode
+ *
  * This function is used to set the first adapter operating
  * channel
  *
@@ -1426,9 +1456,9 @@ static uint32_t set_first_connection_operating_channel(
 /**
  * set_second_connection_operating_channel() - Function to set
  * second connection oerating channel
- * @adapter:   adapter data
- * @set_value: Quota value for the interface
- * @vdev_id:  vdev id
+ * @hdd_ctx: Hdd context
+ * @set_value: Second connection operating channel
+ * @vdev_id: vdev id
  *
  * This function is used to set the first adapter operating
  * channel
@@ -1469,10 +1499,8 @@ static uint32_t set_second_connection_operating_channel(
 
 /**
  * wlan_hdd_set_mcc_p2p_quota() - Function to set quota for P2P
- * @psoc: PSOC object information
- * @set_value:          Qouta value for the interface
- * @operating_channel   First adapter operating channel
- * @vdev_id             vdev id
+ * @adapter: HDD adapter
+ * @set_value: Quota value for the interface
  *
  * This function is used to set the quota for P2P cases
  *

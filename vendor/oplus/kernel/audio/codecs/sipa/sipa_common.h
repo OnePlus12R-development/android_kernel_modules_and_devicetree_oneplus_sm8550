@@ -34,6 +34,9 @@
 #include <linux/moduleparam.h>
 #include <linux/mutex.h>
 
+#ifndef OPLUS_ARCH_EXTENDS
+#define OPLUS_ARCH_EXTENDS
+#endif /* OPLUS_ARCH_EXTENDS */
 
 #define SIPA_DRIVER_VERSION					("3.1.8")
 #define SIPA_MAX_CHANNEL_SUPPORT			(8)
@@ -95,6 +98,11 @@ typedef struct sipa_dev_s {
 	// uint32_t spk_model_flag;
 	uint8_t  pa_status;
 	uint8_t  fw_load_count;
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_MM_FEEDBACK)
+/* 2023/04/18, Add for smartpa err feedback. */
+	ktime_t last_fb;
+	bool need_chk_err;
+#endif /*CONFIG_OPLUS_FEATURE_MM_FEEDBACK*/
 
 	struct snd_soc_codec *codec;
 	int pstream;
@@ -103,6 +111,14 @@ typedef struct sipa_dev_s {
 
 	struct sipa_err err_info;
 	bool power_mode;
+#ifdef OPLUS_ARCH_EXTENDS
+	bool is_use_freq;
+	int min_mohms;
+	int max_mohms;
+	int default_mohms;
+	int min_freq;
+	int max_freq;
+#endif /* OPLUS_ARCH_EXTENDS */
 #ifdef CONFIG_SND_SOC_OPLUS_PA_MANAGER
 	struct oplus_spk_dev_node* oplus_dev_node;
 #endif

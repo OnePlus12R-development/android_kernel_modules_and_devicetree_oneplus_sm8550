@@ -141,7 +141,7 @@ static void add_filter_data_tail(struct kernel_grip_info *grip_info,
 	buf = &grip_info->coord_buf[cnt * index];
 
 	if (cnt < 2) {
-		TPD_INFO("filter buffer size is too small(%d).\n", cnt);
+		GRIP_TP_INFO("filter buffer size is too small(%d).\n", cnt);
 		return;
 	}
 
@@ -308,7 +308,7 @@ static enum large_judge_status large_shape_judged(struct kernel_grip_info *grip_
 
 	if (((side >> TYPE_SHORT_CORNER_SIDE) & 0x01) || ((side >> TYPE_LONG_CORNER_SIDE) & 0x01)) {
 		if (frame <= grip_info->large_corner_frame_limit) {
-			TPD_INFO("rx:%d, tx:%d.(%d %d)\n", cur_p.rx_press, cur_p.tx_press, cur_p.x, cur_p.y);
+			GRIP_TP_INFO("rx:%d, tx:%d.(%d %d)\n", cur_p.rx_press, cur_p.tx_press, cur_p.x, cur_p.y);
 			if ((side >> TYPE_SHORT_CORNER_SIDE) & 0x01) {
 				thd = grip_info->large_hor_corner_thd;
 
@@ -343,7 +343,7 @@ static enum large_judge_status large_shape_judged(struct kernel_grip_info *grip_
 		}
 	} else if (((side >> TYPE_LONG_SIDE) & 0x01) || ((side >> TYPE_SHORT_SIDE) & 0x01)) {
 		if (frame <= grip_info->large_frame_limit) {
-			TPD_INFO("rx:%d, tx:%d\n", cur_p.rx_press, cur_p.tx_press);
+			GRIP_TP_INFO("rx:%d, tx:%d\n", cur_p.rx_press, cur_p.tx_press);
 			if ((side >> TYPE_LONG_SIDE) & 0x01) {
 				if (1 == cur_p.tx_press) {
 					thd = grip_info->large_ver_thd * 2;
@@ -351,7 +351,7 @@ static enum large_judge_status large_shape_judged(struct kernel_grip_info *grip_
 					thd = grip_info->large_ver_thd;
 				}
 				if (cur_p.rx_press * 100 / cur_p.tx_press >= thd) {
-					TPD_INFO("large reject for rx:%d, tx:%d.\n", cur_p.rx_press, cur_p.tx_press);
+					GRIP_TP_INFO("large reject for rx:%d, tx:%d.\n", cur_p.rx_press, cur_p.tx_press);
 					judge_status = JUDGE_LARGE_OK;
 				}
 			}
@@ -363,7 +363,7 @@ static enum large_judge_status large_shape_judged(struct kernel_grip_info *grip_
 					thd = grip_info->large_hor_thd;
 				}
 				if (cur_p.tx_press * 100 / cur_p.rx_press >= thd) {
-					TPD_INFO("large reject for tx:%d, rx:%d.\n", cur_p.tx_press, cur_p.rx_press);
+					GRIP_TP_INFO("large reject for tx:%d, rx:%d.\n", cur_p.tx_press, cur_p.rx_press);
 					judge_status = JUDGE_LARGE_OK;
 				}
 			}
@@ -387,12 +387,13 @@ static enum large_judge_status large_shape_judged_curved(struct kernel_grip_info
 
 	if (((side >> TYPE_LONG_SIDE) & 0x01) || ((side >> TYPE_SHORT_SIDE) & 0x01)) {
 		if (delta_time_ms <= grip_info->large_detect_time_ms) {
-			TPD_DETAIL("id:%d, rx:%d, tx:%d, rx_er:%d, tx_er:%d. (%d %d)\n", index, cur_p.rx_press, cur_p.tx_press, cur_p.rx_er, cur_p.tx_er, cur_p.x, cur_p.y);
+			TP_DETAIL(grip_info->tp_index, "id:%d, rx:%d, tx:%d, rx_er:%d, tx_er:%d. (%d %d)\n",
+				index, cur_p.rx_press, cur_p.tx_press, cur_p.rx_er, cur_p.tx_er, cur_p.x, cur_p.y);
 			if ((side >> TYPE_LONG_SIDE) & 0x01) {
 				if (cur_p.tx_press == 0) { // long side
 					if (cur_p.rx_press >= long_side_para.large_palm_thd_1 || (cur_p.rx_er >= long_side_para.large_palm_thd_2 &&
 							delta_time_ms <= grip_info->large_detect_time_ms / 5)) {
-						TPD_INFO("palm long size reject id:%d for rx:%d, tx:%d, rx_er:%d, tx_er:%d.\n", index, cur_p.rx_press,
+						GRIP_TP_INFO("palm long size reject id:%d for rx:%d, tx:%d, rx_er:%d, tx_er:%d.\n", index, cur_p.rx_press,
 							 cur_p.tx_press, cur_p.rx_er, cur_p.tx_er);
 						grip_info->large_finger_status[index] = TYPE_PALM_LONG_SIZE;
 						judge_status = JUDGE_LARGE_OK;
@@ -408,13 +409,13 @@ static enum large_judge_status large_shape_judged_curved(struct kernel_grip_info
 				} else if (cur_p.rx_press != 0 && !(grip_info->touch_dir == VERTICAL_SCREEN && grip_info->first_point[index].y <= grip_info->max_y / 2)) { // long corner side
 					if (cur_p.rx_press >= long_side_para.large_palm_thd_1 || (cur_p.rx_er >= long_side_para.large_palm_thd_2 &&
 							delta_time_ms <= grip_info->large_detect_time_ms / 5)) {
-						TPD_INFO("large palm corner reject id:%d for rx:%d, tx:%d, rx_er:%d, tx_er:%d.\n", index, cur_p.rx_press,
+						GRIP_TP_INFO("large palm corner reject id:%d for rx:%d, tx:%d, rx_er:%d, tx_er:%d.\n", index, cur_p.rx_press,
 							 cur_p.tx_press, cur_p.rx_er, cur_p.tx_er);
 						grip_info->large_finger_status[index] = TYPE_LARGE_PALM_CORNER;
 						judge_status = JUDGE_LARGE_OK;
 					} else if ((cur_p.rx_press + cur_p.tx_press >= long_side_para.palm_thd_1) &&
 						   (cur_p.tx_er >= long_side_para.palm_thd_2 || cur_p.rx_er >= long_side_para.palm_thd_2)) {
-						TPD_INFO("palm corner reject id:%d for rx:%d, tx:%d, rx_er:%d, tx_er:%d.\n", index, cur_p.rx_press,
+						GRIP_TP_INFO("palm corner reject id:%d for rx:%d, tx:%d, rx_er:%d, tx_er:%d.\n", index, cur_p.rx_press,
 							 cur_p.tx_press, cur_p.rx_er, cur_p.tx_er);
 						grip_info->large_finger_status[index] = TYPE_PALM_CORNER;
 						judge_status = JUDGE_LARGE_OK;
@@ -432,7 +433,7 @@ static enum large_judge_status large_shape_judged_curved(struct kernel_grip_info
 				if (cur_p.rx_press == 0) { // short side
 					if (cur_p.tx_press >= short_side_para.large_palm_thd_1 || (cur_p.tx_er >= short_side_para.large_palm_thd_2 &&
 							delta_time_ms <= grip_info->large_detect_time_ms / 5)) {
-						TPD_INFO("palm short size reject id:%d for rx:%d, tx:%d, rx_er:%d, tx_er:%d.\n", index, cur_p.rx_press,
+						GRIP_TP_INFO("palm short size reject id:%d for rx:%d, tx:%d, rx_er:%d, tx_er:%d.\n", index, cur_p.rx_press,
 							 cur_p.tx_press, cur_p.rx_er, cur_p.tx_er);
 						grip_info->large_finger_status[index] = TYPE_PALM_SHORT_SIZE;
 						judge_status = JUDGE_LARGE_OK;
@@ -446,13 +447,13 @@ static enum large_judge_status large_shape_judged_curved(struct kernel_grip_info
 				} else if (cur_p.tx_press != 0) { // short corner side
 					if (cur_p.tx_press >= short_side_para.large_palm_thd_1 || (cur_p.tx_er >= short_side_para.large_palm_thd_2 &&
 							delta_time_ms <= grip_info->large_detect_time_ms / 5)) {
-						TPD_INFO("large palm corner reject id:%d for rx:%d, tx:%d, rx_er:%d, tx_er:%d.\n", index, cur_p.rx_press,
+						GRIP_TP_INFO("large palm corner reject id:%d for rx:%d, tx:%d, rx_er:%d, tx_er:%d.\n", index, cur_p.rx_press,
 							 cur_p.tx_press, cur_p.rx_er, cur_p.tx_er);
 						grip_info->large_finger_status[index] = TYPE_LARGE_PALM_CORNER;
 						judge_status = JUDGE_LARGE_OK;
 					} else if ((cur_p.rx_press + cur_p.tx_press >= short_side_para.palm_thd_1) &&
 						   (cur_p.tx_er >= short_side_para.palm_thd_2 || cur_p.rx_er >= short_side_para.palm_thd_2)) {
-						TPD_INFO("palm corner reject id:%d for rx:%d, tx:%d, rx_er:%d, tx_er:%d.\n", index, cur_p.rx_press,
+						GRIP_TP_INFO("palm corner reject id:%d for rx:%d, tx:%d, rx_er:%d, tx_er:%d.\n", index, cur_p.rx_press,
 							 cur_p.tx_press, cur_p.rx_er, cur_p.tx_er);
 						grip_info->large_finger_status[index] = TYPE_PALM_CORNER;
 						judge_status = JUDGE_LARGE_OK;
@@ -463,15 +464,15 @@ static enum large_judge_status large_shape_judged_curved(struct kernel_grip_info
 			}
 		} else {
 			if (grip_info->large_finger_status[index] == TYPE_EDGE_FINGER) {
-				TPD_INFO("edge finger reject id:%d for rx:%d, tx:%d, rx_er:%d, tx_er:%d.\n", index, cur_p.rx_press,
+				GRIP_TP_INFO("edge finger reject id:%d for rx:%d, tx:%d, rx_er:%d, tx_er:%d.\n", index, cur_p.rx_press,
 					 cur_p.tx_press, cur_p.rx_er, cur_p.tx_er);
 				judge_status = JUDGE_LARGE_OK;
 			} else if (grip_info->large_finger_status[index] == TYPE_HOLD_FINGER) {
-				TPD_INFO("hold finger reject id:%d for rx:%d, tx:%d, rx_er:%d, tx_er:%d.\n", index, cur_p.rx_press,
+				GRIP_TP_INFO("hold finger reject id:%d for rx:%d, tx:%d, rx_er:%d, tx_er:%d.\n", index, cur_p.rx_press,
 					 cur_p.tx_press, cur_p.rx_er, cur_p.tx_er);
 				judge_status = JUDGE_LARGE_OK;
 			} else if (grip_info->large_finger_status[index] == TYPE_SMALL_PALM_CORNER) {
-				TPD_INFO("small palm corner reject id:%d for rx:%d, tx:%d, rx_er:%d, tx_er:%d.\n", index, cur_p.rx_press,
+				GRIP_TP_INFO("small palm corner reject id:%d for rx:%d, tx:%d, rx_er:%d, tx_er:%d.\n", index, cur_p.rx_press,
 					 cur_p.tx_press, cur_p.rx_er, cur_p.tx_er);
 				judge_status = JUDGE_LARGE_OK;
 			} else {
@@ -542,7 +543,7 @@ void grip_status_reset(struct kernel_grip_info *grip_info, uint8_t index)
 	}
 
 	if (index >= TOUCH_MAX_NUM) {
-		TPD_INFO("invalid index :%d.\n", index);
+		GRIP_TP_INFO("invalid index :%d.\n", index);
 		return;
 	}
 
@@ -570,7 +571,7 @@ void grip_status_reset(struct kernel_grip_info *grip_info, uint8_t index)
 	grip_info->max_rx_matched_cnt[index] = 0;
 	grip_info->max_rx_stable_time[index] = 0;
 	grip_info->dynamic_finger_hold_state[index] = 0;
-	TPD_DETAIL("reset id :%d.\n", index);
+	TP_DETAIL(grip_info->tp_index, "reset id :%d.\n", index);
 }
 
 //return the index of same point
@@ -615,7 +616,7 @@ static  inline void touch_report_work(struct work_struct *work, unsigned int i)
 	ts = grip_info->p_ts;
 
 	if (!ts) {
-		TPD_INFO("ts is null.\n");
+		GRIP_TP_INFO("ts is null.\n");
 		return;
 	}
 
@@ -624,12 +625,12 @@ static  inline void touch_report_work(struct work_struct *work, unsigned int i)
 	ret = kfifo_get(&ts->grip_info->up_fifo, &up_id);
 
 	if (!ret) {
-		TPD_INFO("upfifo is empty.\n");
+		GRIP_TP_INFO("upfifo is empty.\n");
 		goto OUT;
 	}
 
 	if (up_id >= TOUCH_MAX_NUM) {
-		TPD_INFO("up_id %d is too big.\n", up_id);
+		GRIP_TP_INFO("up_id %d is too big.\n", up_id);
 		goto OUT;
 	}
 
@@ -637,10 +638,10 @@ static  inline void touch_report_work(struct work_struct *work, unsigned int i)
 		fiter_cnt = ts->grip_info->coord_filter_cnt;
 		latest_point = ts->grip_info->latest_points[up_id];
 		index_exp = acquire_matched_point(latest_point, ts->grip_info->coord_buf[(up_id + 1) * fiter_cnt - 1]);
-		TPD_DETAIL("id:%d start makeup from index %d.\n", up_id, index_exp);
+		TP_DETAIL(grip_info->tp_index, "id:%d start makeup from index %d.\n", up_id, index_exp);
 		for (in = index_exp; in < POINT_DIFF_CNT; in++) {
 			if (!ts->grip_info->grip_hold_status[up_id]) {
-				TPD_INFO("id:%d is alreay up in report.\n", up_id);
+				GRIP_TP_INFO("id:%d is alreay up in report.\n", up_id);
 				goto OUT;
 			}
 
@@ -658,14 +659,14 @@ static  inline void touch_report_work(struct work_struct *work, unsigned int i)
 				continue;
 			}
 			mutex_unlock(&ts->report_mutex);
-			TPD_DETAIL("makeup the real point:%d(%d, %d).\n", up_id, point_x, point_y);
+			TP_DETAIL(grip_info->tp_index, "makeup the real point:%d(%d, %d).\n", up_id, point_x, point_y);
 			msleep(5);
 			mutex_lock(&ts->report_mutex);
 		}
 	}
 
 	if (!ts->grip_info->grip_hold_status[up_id]) {
-		TPD_INFO("id:%d is alreay up.\n", up_id);
+		GRIP_TP_INFO("id:%d is alreay up.\n", up_id);
 		goto OUT;
 	}
 
@@ -675,7 +676,7 @@ static  inline void touch_report_work(struct work_struct *work, unsigned int i)
 	if (ts->grip_info->record_total_cnt) {
 		ts->grip_info->record_total_cnt--;        //update touch down count
 	}
-	TPD_INFO("report id(%d) up, left total:%d.\n", up_id, ts->grip_info->record_total_cnt);
+	GRIP_TP_INFO("report id(%d) up, left total:%d.\n", up_id, ts->grip_info->record_total_cnt);
 	if (!ts->grip_info->record_total_cnt) {
 		input_report_key(ts->input_dev, BTN_TOUCH, 0);
 		input_report_key(ts->input_dev, BTN_TOOL_FINGER, 0);
@@ -690,13 +691,13 @@ static  inline void touch_report_work(struct work_struct *work, unsigned int i)
 		ts->algo_info->point_buf[up_id].kal_x_last.x = INVALID_POINT;
 		ts->algo_info->point_buf[up_id].touch_time = 0;
 		ts->algo_info->point_buf[up_id].status = NORMAL;
-		TPD_DETAIL("Reset the algorithm id:%d points\n", up_id);
+		TP_DETAIL(grip_info->tp_index, "Reset the algorithm id:%d points\n", up_id);
 	}
 #endif
 
 	if (ts->health_monitor_support) {
 		tp_healthinfo_report(&ts->monitor_data, HEALTH_GRIP_UP, &up_id);
-		TPD_DETAIL("healthinfo point %d report UP in grip\n", up_id);
+		TP_DETAIL(grip_info->tp_index, "healthinfo point %d report UP in grip\n", up_id);
 	}
 
 	ts->grip_info->grip_hold_status[up_id] = 0;
@@ -746,7 +747,7 @@ static inline enum hrtimer_restart touch_up_timer_func(struct hrtimer *hrtimer,
 		return HRTIMER_NORESTART;
 	}
 
-	TPD_INFO("time called once.\n");
+	GRIP_TP_INFO("time called once.\n");
 	grip_info->work_id++;
 
 	if (grip_info->work_id >= TOUCH_MAX_NUM) {
@@ -800,7 +801,7 @@ static int large_condition_handle(struct kernel_grip_info *grip_info,
 						assign_filtered_data(grip_info, i, &points[i]);
 						add_filter_data_tail(grip_info, i, tmp_point);
 						grip_info->makeup_cnt[i]++;
-						TPD_INFO("make up :%d times.\n", grip_info->makeup_cnt[i]);
+						GRIP_TP_INFO("make up :%d times.\n", grip_info->makeup_cnt[i]);
 					}
 
 				} else {
@@ -812,7 +813,7 @@ static int large_condition_handle(struct kernel_grip_info *grip_info,
 						assign_filtered_data(grip_info, i, &points[i]);
 						add_filter_data_tail(grip_info, i, tmp_point);
 						grip_info->makeup_cnt[i]++;
-						TPD_INFO("make up a:%d times.\n", grip_info->makeup_cnt[i]);
+						GRIP_TP_INFO("make up a:%d times.\n", grip_info->makeup_cnt[i]);
 
 					} else {
 						obj_final = obj_final & (~(1 <<
@@ -847,7 +848,7 @@ static int large_condition_handle(struct kernel_grip_info *grip_info,
 					assign_filtered_data(grip_info, i, &points[i]);
 					add_filter_data_tail(grip_info, i, tmp_point);
 					grip_info->makeup_cnt[i]++;
-					TPD_INFO("make up b:%d times.\n", grip_info->makeup_cnt[i]);
+					GRIP_TP_INFO("make up b:%d times.\n", grip_info->makeup_cnt[i]);
 				}
 
 			} else if (TYPE_REJECT_DONE == grip_info->large_reject[i]) {
@@ -873,7 +874,7 @@ static int large_condition_handle(struct kernel_grip_info *grip_info,
 							assign_filtered_data(grip_info, i, &points[i]);  /*makeup points*/
 							add_filter_data_tail(grip_info, i, tmp_point);
 							grip_info->makeup_cnt[i]++;
-							TPD_INFO("make up c:%d times.\n", grip_info->makeup_cnt[i]);
+							GRIP_TP_INFO("make up c:%d times.\n", grip_info->makeup_cnt[i]);
 						}
 
 					} else {
@@ -890,7 +891,7 @@ static int large_condition_handle(struct kernel_grip_info *grip_info,
 		} else { /*finger up*/
 			if (!grip_info->large_out_status[i]
 			    && (TYPE_REJECT_DONE == grip_info->large_reject[i])) {
-				TPD_INFO("reject id:%d for large area.\n", i);
+				GRIP_TP_INFO("reject id:%d for large area.\n", i);
 
 			} else if (!grip_info->large_out_status[i]
 				   && (TYPE_REJECT_HOLD == grip_info->large_reject[i])) {
@@ -909,19 +910,19 @@ static int large_condition_handle(struct kernel_grip_info *grip_info,
 						ret = kfifo_get(&grip_info->up_fifo, &up_id);
 
 						if (!ret) {
-							TPD_INFO("large get id failed, empty.\n");
+							GRIP_TP_INFO("large get id failed, empty.\n");
 						}
 
-						TPD_INFO("large get id(%d) and cancel timer.\n", up_id);
+						GRIP_TP_INFO("large get id(%d) and cancel timer.\n", up_id);
 					}
 
 					kfifo_put(&grip_info->up_fifo, i);   /*put the up id into up fifo*/
-					TPD_INFO("large put id(%d) into fifo.\n", i);
+					GRIP_TP_INFO("large put id(%d) into fifo.\n", i);
 					hrtimer_start(&grip_info->grip_up_timer[i], ktime_set(0,
 							grip_info->condition_updelay_ms * 1000000), HRTIMER_MODE_REL);
 
 				} else {
-					TPD_INFO("reject id:%d for dead zone.\n", i);
+					GRIP_TP_INFO("reject id:%d for dead zone.\n", i);
 				}
 
 			} else if (!grip_info->condition_out_status[i] && grip_info->point_unmoved[i]) {
@@ -941,23 +942,23 @@ static int large_condition_handle(struct kernel_grip_info *grip_info,
 							ret = kfifo_get(&grip_info->up_fifo, &up_id);
 
 							if (!ret) {
-								TPD_INFO("get id failed, empty.\n");
+								GRIP_TP_INFO("get id failed, empty.\n");
 							}
 
-							TPD_INFO("get id(%d) and cancel timer.\n", up_id);
+							GRIP_TP_INFO("get id(%d) and cancel timer.\n", up_id);
 						}
 
 						kfifo_put(&grip_info->up_fifo, i);   /*put the up id into up fifo*/
-						TPD_INFO("put id(%d) into fifo.\n", i);
+						GRIP_TP_INFO("put id(%d) into fifo.\n", i);
 						hrtimer_start(&grip_info->grip_up_timer[i], ktime_set(0,
 								grip_info->condition_updelay_ms * 1000000), HRTIMER_MODE_REL);
 
 					} else {
-						TPD_INFO("reject id:%d for dead zone.\n", i);
+						GRIP_TP_INFO("reject id:%d for dead zone.\n", i);
 					}
 
 				} else {
-					TPD_INFO("conditon reject for down frame:%d(%d).\n", grip_info->frame_cnt[i],
+					GRIP_TP_INFO("conditon reject for down frame:%d(%d).\n", grip_info->frame_cnt[i],
 						 grip_info->condition_frame_limit);
 				}
 			}
@@ -998,7 +999,7 @@ static int curved_large_handle(struct kernel_grip_info *grip_info, int obj_atten
 						assign_filtered_data(grip_info, i, &points[i]);
 						add_filter_data_tail(grip_info, i, tmp_point);
 						grip_info->makeup_cnt[i]++;
-						TPD_INFO("id:%d make up :%d times.(%d %d)\n", i, grip_info->makeup_cnt[i], points[i].x, points[i].y);
+						GRIP_TP_INFO("id:%d make up :%d times.(%d %d)\n", i, grip_info->makeup_cnt[i], points[i].x, points[i].y);
 					} else {    //means we have make up to the real point
 						grip_info->makeup_cnt[i] = MAKEUP_REAL_POINT;
 					}
@@ -1049,7 +1050,7 @@ static int curved_large_handle(struct kernel_grip_info *grip_info, int obj_atten
 					assign_filtered_data(grip_info, i, &points[i]);
 					add_filter_data_tail(grip_info, i, tmp_point);
 					grip_info->makeup_cnt[i]++;
-					TPD_INFO("id:%d make up b:%d times.(%d %d)(%d %d %d %d)\n", i, grip_info->makeup_cnt[i], points[i].x, points[i].y,
+					GRIP_TP_INFO("id:%d make up b:%d times.(%d %d)(%d %d %d %d)\n", i, grip_info->makeup_cnt[i], points[i].x, points[i].y,
 						 points[i].tx_press, points[i].rx_press, points[i].tx_er, points[i].rx_er);
 				}
 			} else if (TYPE_REJECT_DONE == grip_info->large_reject[i]) {
@@ -1066,7 +1067,7 @@ static int curved_large_handle(struct kernel_grip_info *grip_info, int obj_atten
 						assign_filtered_data(grip_info, i, &points[i]);  //makeup points
 						add_filter_data_tail(grip_info, i, tmp_point);
 						grip_info->makeup_cnt[i]++;
-						TPD_INFO("id:%d make up c:%d times.(%d %d)(%d %d %d %d)\n", i, grip_info->makeup_cnt[i], points[i].x, points[i].y,
+						GRIP_TP_INFO("id:%d make up c:%d times.(%d %d)(%d %d %d %d)\n", i, grip_info->makeup_cnt[i], points[i].x, points[i].y,
 							 points[i].tx_press, points[i].rx_press, points[i].tx_er, points[i].rx_er);
 					}
 				} else {
@@ -1076,13 +1077,13 @@ static int curved_large_handle(struct kernel_grip_info *grip_info, int obj_atten
 			}
 		} else { //finger up
 			if (!grip_info->large_out_status[i] && (TYPE_REJECT_DONE == grip_info->large_reject[i])) {
-				TPD_INFO("reject id:%d for large area.\n", i);
+				GRIP_TP_INFO("reject id:%d for large area.\n", i);
 			} else if (grip_info->large_point_status[i] != DOWN_POINT_NEED_MAKEUP && !grip_info->large_out_status[i]
 				   && (TYPE_REJECT_HOLD == grip_info->large_reject[i])) {
-				TPD_INFO("reject no need make up click point id:%d for large area.\n", i);
+				GRIP_TP_INFO("reject no need make up click point id:%d for large area.\n", i);
 			} else if ((grip_info->first_point[i].time_ms - grip_info->lastest_down_time_ms <= grip_info->down_delta_time_ms)
 				   && !grip_info->large_out_status[i] && (TYPE_REJECT_HOLD == grip_info->large_reject[i])) {
-				TPD_INFO("reject short time click point id:%d for large area.\n", i);
+				GRIP_TP_INFO("reject short time click point id:%d for large area.\n", i);
 			} else if (!grip_info->large_out_status[i] && (TYPE_REJECT_HOLD == grip_info->large_reject[i])) {
 				points[i].x = grip_info->coord_buf[i * fiter_cnt].x;
 				points[i].y = grip_info->coord_buf[i * fiter_cnt].y;
@@ -1097,17 +1098,17 @@ static int curved_large_handle(struct kernel_grip_info *grip_info, int obj_atten
 						hrtimer_cancel(&grip_info->grip_up_timer[i]);
 						ret = kfifo_get(&grip_info->up_fifo, &up_id);
 						if (!ret) {
-							TPD_INFO("large get id failed, empty.\n");
+							GRIP_TP_INFO("large get id failed, empty.\n");
 						}
-						TPD_INFO("large get id(%d) and cancel timer.\n", up_id);
+						GRIP_TP_INFO("large get id(%d) and cancel timer.\n", up_id);
 					}
 
 					kfifo_put(&grip_info->up_fifo, i);   //put the up id into up fifo
-					TPD_DETAIL("large put id:%d(%d, %d) into fifo.\n", i, points[i].x, points[i].y);
+					TP_DETAIL(grip_info->tp_index, "large put id:%d(%d, %d) into fifo.\n", i, points[i].x, points[i].y);
 					grip_info->sync_up_makeup[i] = true;
 					hrtimer_start(&grip_info->grip_up_timer[i], ktime_set(0, grip_info->condition_updelay_ms * 1000000), HRTIMER_MODE_REL);
 				} else {
-					TPD_INFO("reject id:%d(%d, %d) for dead zone.\n", i, points[i].x, points[i].y);
+					GRIP_TP_INFO("reject id:%d(%d, %d) for dead zone.\n", i, points[i].x, points[i].y);
 				}
 			} else if (grip_info->makeup_cnt[i] && MAKEUP_REAL_POINT != grip_info->makeup_cnt[i]) {
 				points[i].x = grip_info->coord_buf[(i + 1) * fiter_cnt - 1].x;
@@ -1120,13 +1121,13 @@ static int curved_large_handle(struct kernel_grip_info *grip_info, int obj_atten
 					hrtimer_cancel(&grip_info->grip_up_timer[i]);
 					ret = kfifo_get(&grip_info->up_fifo, &up_id);
 					if (!ret) {
-						TPD_INFO("large get id failed, empty.\n");
+						GRIP_TP_INFO("large get id failed, empty.\n");
 					}
-					TPD_INFO("large get id(%d) and cancel timer.\n", up_id);
+					GRIP_TP_INFO("large get id(%d) and cancel timer.\n", up_id);
 				}
 
 				kfifo_put(&grip_info->up_fifo, i);   //put the up id into up fifo
-				TPD_INFO("makeup the real point:%d(%d, %d) into fifo.\n", i, points[i].x, points[i].y);
+				GRIP_TP_INFO("makeup the real point:%d(%d, %d) into fifo.\n", i, points[i].x, points[i].y);
 				grip_info->sync_up_makeup[i] = true;
 				hrtimer_start(&grip_info->grip_up_timer[i], ktime_set(0, grip_info->condition_updelay_ms * 1000000), HRTIMER_MODE_REL);
 			}
@@ -1420,7 +1421,7 @@ static void record_point_info(struct kernel_grip_info *grip_info, point_info_typ
 		latest_point[cnt - 1].y = point.y;
 		break;
 	default:
-		TPD_INFO("record wrong type.\n");
+		GRIP_TP_INFO("record wrong type.\n");
 		break;
 	}
 }
@@ -1438,9 +1439,9 @@ static void start_makeup_timer(struct kernel_grip_info *grip_info, uint8_t index
 		hrtimer_cancel(&grip_info->grip_up_timer[index]);
 		ret = kfifo_get(&grip_info->up_fifo, &up_id);
 		if (!ret) {
-			TPD_INFO("large get id failed and cancel hrtimer.\n");
+			GRIP_TP_INFO("large get id failed and cancel hrtimer.\n");
 		}
-		TPD_INFO("large get id(%d) and cancel timer.\n", up_id);
+		GRIP_TP_INFO("large get id(%d) and cancel timer.\n", up_id);
 	}
 
 	kfifo_put(&grip_info->up_fifo, index);   //put the up id into up fifo
@@ -1465,7 +1466,7 @@ static void mask_potential_mistouch(struct kernel_grip_info *grip_info, struct p
 		min_val = cur_p.x - (grip_info->max_x / grip_info->tx_num) * cur_p.tx_press / 2;
 		max_val = cur_p.x + (grip_info->max_x / grip_info->tx_num) * cur_p.tx_press / 2;
 	} else {
-		TPD_INFO("%s:never go here.\n", __func__);
+		GRIP_TP_INFO("%s:never go here.\n", __func__);
 		return;
 	}
 
@@ -1483,7 +1484,7 @@ static void mask_potential_mistouch(struct kernel_grip_info *grip_info, struct p
 			out_range = (grip_info->first_point[index].x > min_val && grip_info->first_point[index].x < max_val) ? false : true;
 		}
 		if ((delta_time_ms < debounce_ms) && !out_range && (TYPE_REJECT_HOLD == grip_info->large_reject[index])) {      //already down id is under suspicious detect time
-			TPD_INFO("%s: mask short interval id(%d) around the large area.\n", __func__, index);
+			GRIP_TP_INFO("%s: mask short interval id(%d) around the large area.\n", __func__, index);
 			grip_info->large_reject[index] = TYPE_REJECT_DONE;
 			grip_info->large_finger_status[index] = finger_status;
 		}
@@ -1513,7 +1514,7 @@ static bool large_reject_covered(struct kernel_grip_info *grip_info, struct poin
 			}
 			under_time_interval = true;
 		} else {
-			TPD_INFO("%s:should not go here.\n", __func__);
+			GRIP_TP_INFO("%s:should not go here.\n", __func__);
 			continue;
 		}
 
@@ -1526,13 +1527,14 @@ static bool large_reject_covered(struct kernel_grip_info *grip_info, struct poin
 			max_val = grip_info->txMax_frame_point[index].x + (grip_info->max_x / grip_info->tx_num) * grip_info->txMax_frame_point[index].tx_press / 2;
 			out_range = (cur_p.x > min_val && cur_p.x < max_val) ? false : true;
 		} else {
-			TPD_INFO("%s:never go here.\n", __func__);
+			GRIP_TP_INFO("%s:never go here.\n", __func__);
 			return false;
 		}
 
 		is_covered = !out_range && under_time_interval;
 		if (is_covered) {
-			TPD_INFO("%s: id(%d) is included around the reject point(%d), status:%s.\n", __func__, id, index, DOWN_POINT == grip_info->large_point_status[index] ? "down" : "up");
+			GRIP_TP_INFO("%s: id(%d) is included around the reject point(%d), status:%s.\n", __func__, id,
+				index, DOWN_POINT == grip_info->large_point_status[index] ? "down" : "up");
 			break;
 		}
 	}
@@ -1562,7 +1564,7 @@ static bool research_point_landed(struct kernel_grip_info *grip_info, uint32_t r
 			}
 			if (grip_info->points_pos[index] != pos && (grip_info->first_point[index].time_ms > grip_info->first_point[id].time_ms - debounce_ms)) {
 				ret = true;
-				TPD_INFO("%s: id(%d) meet soon down point(%d: %d %d).\n", __func__, id, index, grip_info->first_point[index].x, grip_info->first_point[index].y);
+				GRIP_TP_INFO("%s: id(%d) meet soon down point(%d: %d %d).\n", __func__, id, index, grip_info->first_point[index].x, grip_info->first_point[index].y);
 				grip_info->grip_moni_data.research_point_landed_times++;
 				break;
 			} else {
@@ -1604,7 +1606,7 @@ static bool research_point_landed_ver_v4(struct kernel_grip_info *grip_info, uin
 				abs(grip_info->first_point[index].x - cur_p.x) < grip_info->large_long_x2_width)) {
 				if (grip_info->points_pos[index] != pos && (grip_info->first_point[index].time_ms > grip_info->first_point[id].time_ms - long_hold_debounce_ms)) {
 					ret = true;
-					TPD_INFO("%s: id(%d) meet soon down point(%d: %d %d).\n", __func__, id, index, grip_info->first_point[index].x, grip_info->first_point[index].y);
+					GRIP_TP_INFO("%s: id(%d) meet soon down point(%d: %d %d).\n", __func__, id, index, grip_info->first_point[index].x, grip_info->first_point[index].y);
 					grip_info->grip_moni_data.research_point_landed_times++;
 					break;
 				}
@@ -1643,12 +1645,13 @@ static bool research_point_landed_hor_v4(struct kernel_grip_info *grip_info, uin
 					if (grip_info->corner_eliminate_without_time) {
 						ret = true;
 						grip_info->grip_moni_data.research_point_landed_times_force++;
-						TPD_INFO("%s: id(%d) meet soon down point no time(%d: %d %d).\n", __func__, id, index, grip_info->first_point[index].x, grip_info->first_point[index].y);
+						GRIP_TP_INFO("%s: id(%d) meet soon down point no time(%d: %d %d).\n", __func__, id,
+							index, grip_info->first_point[index].x, grip_info->first_point[index].y);
 						break;
 					} else if (grip_info->first_point[index].time_ms > grip_info->first_point[id].time_ms - debounce_ms) {
 						ret = true;
 						grip_info->grip_moni_data.research_point_landed_times++;
-						TPD_INFO("%s: id(%d) meet soon down point(%d: %d %d).\n", __func__, id, index, grip_info->first_point[index].x, grip_info->first_point[index].y);
+						GRIP_TP_INFO("%s: id(%d) meet soon down point(%d: %d %d).\n", __func__, id, index, grip_info->first_point[index].x, grip_info->first_point[index].y);
 						break;
 					} else {
 						grip_info->grip_moni_data.research_point_landed_fail_times++;
@@ -1657,7 +1660,7 @@ static bool research_point_landed_hor_v4(struct kernel_grip_info *grip_info, uin
 		   	} else {
 				if (grip_info->points_pos[index] != pos && (grip_info->first_point[index].time_ms > grip_info->first_point[id].time_ms - debounce_ms)) {
 					ret = true;
-					TPD_INFO("%s: id(%d) meet soon down point(%d: %d %d).\n", __func__, id, index, grip_info->first_point[index].x, grip_info->first_point[index].y);
+					GRIP_TP_INFO("%s: id(%d) meet soon down point(%d: %d %d).\n", __func__, id, index, grip_info->first_point[index].x, grip_info->first_point[index].y);
 					break;
 				} else {
 					grip_info->grip_moni_data.research_point_landed_fail_times++;
@@ -1680,6 +1683,8 @@ static void disable_algo_for_ime_showing(struct kernel_grip_info *grip_info)
 			grip_info->finger_hold_differ_size_restore = 1;
 			grip_info->finger_hold_differ_size_support = 0;
 		}
+		grip_info->large_corner_detect_time_ms_restore = grip_info->large_corner_detect_time_ms;
+		grip_info->large_corner_detect_time_ms = grip_info->large_corner_detect_time_ms_ime;
 	} else {
 		if (grip_info->long_eliminate_point_restore) {
 			grip_info->long_eliminate_point_restore = 0;
@@ -1689,6 +1694,7 @@ static void disable_algo_for_ime_showing(struct kernel_grip_info *grip_info)
 			grip_info->finger_hold_differ_size_restore = 0;
 			grip_info->finger_hold_differ_size_support = 1;
 		}
+		grip_info->large_corner_detect_time_ms = grip_info->large_corner_detect_time_ms_restore;
 	}
 }
 
@@ -2043,7 +2049,7 @@ static bool corner_exit_matched(struct kernel_grip_info *grip_info, struct point
 					return false;
 				}
 			}
-			TPD_INFO("%s: exit matched_0(%d) (%d %d %d %d %d %d)", __func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
+			GRIP_TP_INFO("%s: exit matched_0(%d) (%d %d %d %d %d %d)", __func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
 			grip_info->exit_match_times[index]++;
 			if (VERTICAL_SCREEN == grip_info->touch_dir) {
 				grip_info->grip_moni_data.vertical_corner_exit_dis_match_times++;
@@ -2063,7 +2069,7 @@ static bool corner_exit_matched(struct kernel_grip_info *grip_info, struct point
 	}
 
 	if ((cur_p.rx_er * cur_p.rx_press <= xfsr_coupling_thd) && (cur_p.tx_er * cur_p.tx_press <= yfsr_coupling_thd)) {
-		TPD_INFO("%s: exit matched_1(%d) (%d %d %d %d %d %d)", __func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
+		GRIP_TP_INFO("%s: exit matched_1(%d) (%d %d %d %d %d %d)", __func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
 		grip_info->exit_match_times[index]++;
 		if (VERTICAL_SCREEN == grip_info->touch_dir) {
 			grip_info->grip_moni_data.vertical_corner_press_exit_match_times++;
@@ -2117,7 +2123,7 @@ static bool top_exit_matched_v4(struct kernel_grip_info *grip_info, struct point
 	y_distance = abs(cur_p.y - grip_info->first_point[index].y);
 	max_distance = x_distance > y_distance ? x_distance : y_distance;
 	if (max_distance > exit_dis) {
-		TPD_INFO("%s: top exit matched(%d) (%d %d %d %d %d %d)", __func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
+		GRIP_TP_INFO("%s: top exit matched(%d) (%d %d %d %d %d %d)", __func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
 		grip_info->exit_match_times[index]++;
 		grip_info->grip_moni_data.top_shape_exit_match_times++;
 	}
@@ -2140,7 +2146,7 @@ static bool top_exit_matched(struct kernel_grip_info *grip_info, struct point_in
 	y_distance = abs(cur_p.y - grip_info->first_point[index].y);
 	max_distance = x_distance > y_distance ? x_distance : y_distance;
 	if (max_distance > exit_dis) {
-		TPD_INFO("%s: top exit matched(%d) (%d %d %d %d %d %d)", __func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
+		GRIP_TP_INFO("%s: top exit matched(%d) (%d %d %d %d %d %d)", __func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
 		grip_info->exit_match_times[index]++;
 	}
 
@@ -2219,7 +2225,7 @@ static bool dynamic_finger_hold_matched(struct kernel_grip_info *grip_info, stru
 		}
 
 		if ((POS_LONG_LEFT != pos) && (POS_LONG_RIGHT != pos) && (POS_VERTICAL_LEFT_CORNER != pos) && (POS_VERTICAL_RIGHT_CORNER != pos)) {
-			TPD_DETAIL("%s: should never get here.\n", __func__);
+			TP_DETAIL(grip_info->tp_index, "%s: should never get here.\n", __func__);
 			continue;
 		}
 
@@ -2232,7 +2238,7 @@ static bool dynamic_finger_hold_matched(struct kernel_grip_info *grip_info, stru
 			under_range = abs(points[index].y - grip_info->first_point[id].y) < coord_range;
 
 			if (under_range) {
-				TPD_DETAIL("%s: id(%d) is matched as operate with point(%d).\n", __func__, id, index);
+				TP_DETAIL(grip_info->tp_index, "%s: id(%d) is matched as operate with point(%d).\n", __func__, id, index);
 				grip_info->dynamic_finger_hold_state[id] = 1;
 				return true;
 			}
@@ -2299,7 +2305,7 @@ static bool large_exit_matched(struct kernel_grip_info *grip_info, struct point_
 
 	if ((cur_p.tx_er * cur_p.tx_press <= yfsr_coupling_thd) && (cur_p.rx_er * cur_p.rx_press <= xfsr_coupling_thd)) {
 		grip_info->exit_match_times[index]++;
-		TPD_INFO("%s: exit matched(%d) (%d %d %d %d %d %d)", __func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
+		GRIP_TP_INFO("%s: exit matched(%d) (%d %d %d %d %d %d)", __func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
 	}
 
 	if (STATUS_CENTER_DOWN != grip_info->points_center_down[index]) {
@@ -2311,7 +2317,7 @@ static bool large_exit_matched(struct kernel_grip_info *grip_info, struct point_
 					}
 				}
 				grip_info->exit_match_times[index]++;
-				TPD_INFO("%s: exit matched_y(%d) (%d %d %d %d %d %d)", __func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
+				GRIP_TP_INFO("%s: exit matched_y(%d) (%d %d %d %d %d %d)", __func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
 				if (VERTICAL_SCREEN == grip_info->touch_dir) {
 					grip_info->grip_moni_data.vertical_exit_match_y_times++;
 				} else {
@@ -2322,7 +2328,7 @@ static bool large_exit_matched(struct kernel_grip_info *grip_info, struct point_
 		if ((POS_SHORT_LEFT == pos || POS_SHORT_RIGHT == pos) && (TYPE_PALM_SHORT_SIZE != grip_info->large_finger_status[index])) {
 			if (abs(cur_p.y - first_p.y) < edge_narrow_witdh && abs(cur_p.x - first_p.x) > edge_exit_dis) {
 				grip_info->exit_match_times[index]++;
-				TPD_INFO("%s: exit matched_x(%d) (%d %d %d %d %d %d)", __func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
+				GRIP_TP_INFO("%s: exit matched_x(%d) (%d %d %d %d %d %d)", __func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
 				if (VERTICAL_SCREEN == grip_info->touch_dir) {
 					grip_info->grip_moni_data.vertical_exit_match_x_times++;
 				} else {
@@ -2365,7 +2371,7 @@ static bool large_exit_matched_v4(struct kernel_grip_info *grip_info, struct poi
 
 	if ((cur_p.tx_er * cur_p.tx_press <= yfsr_coupling_thd) && (cur_p.rx_er * cur_p.rx_press <= xfsr_coupling_thd)) {
 		grip_info->exit_match_times[index]++;
-		TPD_INFO("%s: exit matched(%d) (%d %d %d %d %d %d)", __func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
+		GRIP_TP_INFO("%s: exit matched(%d) (%d %d %d %d %d %d)", __func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
 	}
 
 	if (STATUS_CENTER_DOWN != grip_info->points_center_down[index]) {
@@ -2374,7 +2380,7 @@ static bool large_exit_matched_v4(struct kernel_grip_info *grip_info, struct poi
 			(TYPE_LONG_FINGER_HOLD != grip_info->large_finger_status[index])) {
 			if (abs(cur_p.x - first_p.x) < edge_narrow_witdh && abs(cur_p.y - first_p.y) > edge_exit_dis) {
 				grip_info->exit_match_times[index]++;
-				TPD_INFO("%s: exit matched_y(%d) (%d %d %d %d %d %d)", __func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
+				GRIP_TP_INFO("%s: exit matched_y(%d) (%d %d %d %d %d %d)", __func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
 				if (VERTICAL_SCREEN == grip_info->touch_dir) {
 					grip_info->grip_moni_data.vertical_exit_match_y_times++;
 				} else {
@@ -2385,7 +2391,7 @@ static bool large_exit_matched_v4(struct kernel_grip_info *grip_info, struct poi
 		if ((POS_SHORT_LEFT == pos || POS_SHORT_RIGHT == pos) && (TYPE_PALM_SHORT_SIZE != grip_info->large_finger_status[index])) {
 			if (abs(cur_p.y - first_p.y) < edge_narrow_witdh && abs(cur_p.x - first_p.x) > edge_exit_dis) {
 				grip_info->exit_match_times[index]++;
-				TPD_INFO("%s: exit matched_x(%d) (%d %d %d %d %d %d)", __func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
+				GRIP_TP_INFO("%s: exit matched_x(%d) (%d %d %d %d %d %d)", __func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
 				if (VERTICAL_SCREEN == grip_info->touch_dir) {
 					grip_info->grip_moni_data.vertical_exit_match_x_times++;
 				} else {
@@ -2396,7 +2402,7 @@ static bool large_exit_matched_v4(struct kernel_grip_info *grip_info, struct poi
 		if ((POS_VERTICAL_MIDDLE_TOP == pos || POS_VERTICAL_MIDDLE_BOTTOM == pos) && (TYPE_PALM_SHORT_SIZE != grip_info->large_finger_status[index])) {
 			if (abs(cur_p.x - first_p.x) < edge_narrow_witdh && abs(cur_p.y - first_p.y) > edge_exit_dis) {
 				grip_info->exit_match_times[index]++;
-				TPD_INFO("%s: exit matched_y(%d) (%d %d %d %d %d %d)", __func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
+				GRIP_TP_INFO("%s: exit matched_y(%d) (%d %d %d %d %d %d)", __func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
 				if (VERTICAL_SCREEN == grip_info->touch_dir) {
 					grip_info->grip_moni_data.vertical_exit_match_y_times++;
 				} else {
@@ -2430,7 +2436,7 @@ static bool finger_hold_matched(struct kernel_grip_info *grip_info, struct point
 		}
 
 		if ((POS_LONG_LEFT != pos) && (POS_LONG_RIGHT != pos) && (POS_VERTICAL_LEFT_CORNER != pos) && (POS_VERTICAL_RIGHT_CORNER != pos)) {
-			TPD_INFO("%s: should never get here.\n", __func__);
+			GRIP_TP_INFO("%s: should never get here.\n", __func__);
 			continue;
 		}
 
@@ -2444,7 +2450,7 @@ static bool finger_hold_matched(struct kernel_grip_info *grip_info, struct point
 			under_time_interval = abs(grip_info->first_point[index].time_ms - grip_info->first_point[id].time_ms) < time_intval;
 
 			if (((TYPE_LONG_FINGER_HOLD == grip_info->large_finger_status[index]) && under_range) || under_time_interval) {
-				TPD_INFO("%s: id(%d) is matched as operate with point(%d).\n", __func__, id, index);
+				GRIP_TP_INFO("%s: id(%d) is matched as operate with point(%d).\n", __func__, id, index);
 				grip_info->grip_moni_data.finger_hold_matched_times++;
 				return true;
 			} else {
@@ -2481,7 +2487,7 @@ static bool finger_hold_matched_v4(struct kernel_grip_info *grip_info, struct po
 		}
 
 		if ((POS_LONG_LEFT != pos) && (POS_LONG_RIGHT != pos) && (POS_VERTICAL_LEFT_CORNER != pos) && (POS_VERTICAL_RIGHT_CORNER != pos)) {
-			TPD_INFO("%s: should never get here.\n", __func__);
+			GRIP_TP_INFO("%s: should never get here.\n", __func__);
 			continue;
 		}
 
@@ -2501,7 +2507,7 @@ static bool finger_hold_matched_v4(struct kernel_grip_info *grip_info, struct po
 				is_long_hold_click_range = ((abs(grip_info->first_point[index].x - grip_info->first_point[id].x) > grip_info->long_hold_x_width)
 					&& (grip_info->first_point[id].y < grip_info->first_point[index].y));
 				if (((TYPE_LONG_FINGER_HOLD == grip_info->large_finger_status[index]) && under_range) || (!is_long_hold_click_range && under_time_interval)) {
-					TPD_INFO("%s: id(%d) is matched as operate with point(%d).\n", __func__, id, index);
+					GRIP_TP_INFO("%s: id(%d) is matched as operate with point(%d).\n", __func__, id, index);
 					TPD_DEBUG("%s: under_range(%d) ,under_time_interval(%d), is_long_hold_click_range(%d).\n",
 					__func__, under_range, under_time_interval, is_long_hold_click_range);
 					grip_info->grip_moni_data.finger_hold_matched_times++;
@@ -2511,7 +2517,7 @@ static bool finger_hold_matched_v4(struct kernel_grip_info *grip_info, struct po
 				}
 			} else {
 				if (((TYPE_LONG_FINGER_HOLD == grip_info->large_finger_status[index]) && under_range) || under_time_interval) {
-					TPD_INFO("%s: id(%d) is matched as operate with point(%d).\n", __func__, id, index);
+					GRIP_TP_INFO("%s: id(%d) is matched as operate with point(%d).\n", __func__, id, index);
 					return true;
 				}
 			}
@@ -2551,7 +2557,7 @@ static bool finger_hold_different_size(struct kernel_grip_info *grip_info, struc
 			&& (POS_HORIZON_T_LEFT_CORNER != pos) && (POS_HORIZON_T_RIGHT_CORNER != pos)
 			&& (POS_HORIZON_B_LEFT_TOP != pos) && (POS_HORIZON_B_RIGHT_TOP != pos)
 			&& (POS_HORIZON_T_LEFT_TOP != pos) && (POS_HORIZON_T_RIGHT_TOP != pos)) {
-			TPD_INFO("%s: should never get here.\n", __func__);
+			GRIP_TP_INFO("%s: should never get here.\n", __func__);
 			continue;
 		}
 
@@ -2579,7 +2585,7 @@ static bool finger_hold_different_size(struct kernel_grip_info *grip_info, struc
 			under_time_interval = abs(grip_info->first_point[index].time_ms - grip_info->first_point[id].time_ms) \
 				< grip_info->current_data.finger_hold_differ_size_debounce_ms;
 			if (under_time_interval) {
-				TPD_DETAIL("%s: id(%d) is matched  with point(%d).\n", __func__, id, index);
+				TP_DETAIL(grip_info->tp_index, "%s: id(%d) is matched  with point(%d).\n", __func__, id, index);
 				grip_info->grip_moni_data.finger_hold_differ_size_times++;
 				return true;
 			} else {
@@ -2617,7 +2623,7 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 		if (large_shape_matched(grip_info, points, index)) {
 			judge_status = JUDGE_LARGE_OK;
 			grip_info->large_finger_status[index] = TYPE_PALM_LONG_SIZE;
-			TPD_INFO("%s: id(%d) judge long shape matched.\n", __func__, index);
+			GRIP_TP_INFO("%s: id(%d) judge long shape matched.\n", __func__, index);
 			return judge_status;
 		}
 
@@ -2625,7 +2631,7 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 		if (large_reject_covered(grip_info, points, index)) {
 			judge_status = JUDGE_LARGE_OK;
 			grip_info->large_finger_status[index] = TYPE_PALM_LONG_SIZE;
-			TPD_INFO("%s: id(%d) judge around long large shape.\n", __func__, index);
+			GRIP_TP_INFO("%s: id(%d) judge around long large shape.\n", __func__, index);
 			return judge_status;
 		}
 
@@ -2634,13 +2640,13 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 			if (finger_hold_matched_v4(grip_info, points, index)) {
 				judge_status = JUDGE_LARGE_OK;
 				grip_info->large_finger_status[index] = TYPE_LONG_FINGER_HOLD;
-				TPD_INFO("%s: id(%d) judge long finger hold.\n", __func__, index);
+				GRIP_TP_INFO("%s: id(%d) judge long finger hold.\n", __func__, index);
 				return judge_status;
 			}
 		} else if (finger_hold_matched(grip_info, points, index)) {
 			judge_status = JUDGE_LARGE_OK;
 			grip_info->large_finger_status[index] = TYPE_LONG_FINGER_HOLD;
-			TPD_INFO("%s: id(%d) judge long finger hold.\n", __func__, index);
+			GRIP_TP_INFO("%s: id(%d) judge long finger hold.\n", __func__, index);
 			return judge_status;
 		}
 
@@ -2649,7 +2655,7 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 			if (finger_hold_different_size(grip_info, points, index)) {
 				judge_status = JUDGE_LARGE_OK;
 				grip_info->large_finger_status[index] = TYPE_LONG_FINGER_HOLD;
-				TPD_DETAIL("%s: id(%d) judge finger_hold_different_size.\n", __func__, index);
+				TP_DETAIL(grip_info->tp_index, "%s: id(%d) judge finger_hold_different_size.\n", __func__, index);
 				return judge_status;
 			}
 		}
@@ -2669,14 +2675,14 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 				judge_status = JUDGE_LARGE_OK;
 				grip_info->large_finger_status[index] = TYPE_LONG_CENTER_DOWN;
 				grip_info->points_center_down[index] = STATUS_CENTER_DOWN;
-				TPD_INFO("%s: id(%d) judge long center down.\n", __func__, index);
+				GRIP_TP_INFO("%s: id(%d) judge long center down.\n", __func__, index);
 				return judge_status;
 			}
 		}
 		//judge whether we should exit the reject status
 		if (large_exit_matched(grip_info, points, index)) {
 			judge_status = JUDGE_LARGE_TIMEOUT;
-			TPD_INFO("%s: id(%d) judge long exit.\n", __func__, index);
+			GRIP_TP_INFO("%s: id(%d) judge long exit.\n", __func__, index);
 			return judge_status;
 		}
 
@@ -2693,7 +2699,7 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 			if (x_coupling_result > long_stable_coupling_thd) {
 				judge_status = JUDGE_LARGE_OK;
 				grip_info->large_finger_status[index] = TYPE_LONG_EDGE_FINGER;
-				TPD_INFO("%s: id(%d) judge finger hold long edge screen.\n", __func__, index);
+				GRIP_TP_INFO("%s: id(%d) judge finger hold long edge screen.\n", __func__, index);
 				return judge_status;
 			}
 
@@ -2702,10 +2708,10 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 			    (startx_coupling_result - x_coupling_result > grip_info->current_data.long_hold_changed_thd)) {
 				judge_status = JUDGE_LARGE_OK;
 				grip_info->large_finger_status[index] = TYPE_LONG_FINGER_HOLD;
-				TPD_INFO("%s: id(%d) judge finger hold long tight.\n", __func__, index);
+				GRIP_TP_INFO("%s: id(%d) judge finger hold long tight.\n", __func__, index);
 			} else {
 				judge_status = JUDGE_LARGE_TIMEOUT;
-				TPD_INFO("%s: id(%d) judge long press under detect time.\n", __func__, index);
+				GRIP_TP_INFO("%s: id(%d) judge long press under detect time.\n", __func__, index);
 			}
 			return judge_status;
 		}
@@ -2715,7 +2721,7 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 		if (large_shape_matched(grip_info, points, index)) {
 			judge_status = JUDGE_LARGE_OK;
 			grip_info->large_finger_status[index] = TYPE_PALM_SHORT_SIZE;
-			TPD_INFO("%s: id(%d) judge short shape matched.\n", __func__, index);
+			GRIP_TP_INFO("%s: id(%d) judge short shape matched.\n", __func__, index);
 			return judge_status;
 		}
 
@@ -2723,7 +2729,7 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 		if (large_reject_covered(grip_info, points, index)) {
 			judge_status = JUDGE_LARGE_OK;
 			grip_info->large_finger_status[index] = TYPE_PALM_SHORT_SIZE;
-			TPD_INFO("%s: id(%d) judge around short large shape.\n", __func__, index);
+			GRIP_TP_INFO("%s: id(%d) judge around short large shape.\n", __func__, index);
 			return judge_status;
 		}
 
@@ -2732,14 +2738,14 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 			judge_status = JUDGE_LARGE_OK;
 			grip_info->large_finger_status[index] = TYPE_SHORT_CENTER_DOWN;
 			grip_info->points_center_down[index] = STATUS_CENTER_DOWN;
-			TPD_INFO("%s: id(%d) judge short center down.\n", __func__, index);
+			GRIP_TP_INFO("%s: id(%d) judge short center down.\n", __func__, index);
 			return judge_status;
 		}
 
 		//judge whether we should exit the reject status
 		if (large_exit_matched(grip_info, points, index)) {
 			judge_status = JUDGE_LARGE_TIMEOUT;
-			TPD_INFO("%s: id(%d) judge short exit.\n", __func__, index);
+			GRIP_TP_INFO("%s: id(%d) judge short exit.\n", __func__, index);
 			return judge_status;
 		}
 
@@ -2756,7 +2762,7 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 			if (y_coupling_result > short_stable_coupling_thd) {
 				judge_status = JUDGE_LARGE_OK;
 				grip_info->large_finger_status[index] = TYPE_SHORT_EDGE_FINGER;
-				TPD_INFO("%s: id(%d) judge finger hold short edge screen.\n", __func__, index);
+				GRIP_TP_INFO("%s: id(%d) judge finger hold short edge screen.\n", __func__, index);
 				return judge_status;
 			}
 
@@ -2765,10 +2771,10 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 			    (starty_coupling_result - y_coupling_result > grip_info->short_hold_changed_thd)) {
 				judge_status = JUDGE_LARGE_OK;
 				grip_info->large_finger_status[index] = TYPE_SHORT_FINGER_HOLD;
-				TPD_INFO("%s: id(%d) judge finger hold short tight.\n", __func__, index);
+				GRIP_TP_INFO("%s: id(%d) judge finger hold short tight.\n", __func__, index);
 			} else {
 				judge_status = JUDGE_LARGE_TIMEOUT;
-				TPD_INFO("large_shape_judged_V2: id(%d) judge short press under detect time.\n", index);
+				GRIP_TP_INFO("large_shape_judged_V2: id(%d) judge short press under detect time.\n", index);
 			}
 			return judge_status;
 		}
@@ -2784,7 +2790,7 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 			} else {
 				grip_info->large_finger_status[index] = TYPE_CORNER_SHAPE_SIZE;
 			}
-			TPD_INFO("%s: id(%d) judge corner shape matched(%d).\n", __func__, index, corner_result);
+			GRIP_TP_INFO("%s: id(%d) judge corner shape matched(%d).\n", __func__, index, corner_result);
 			return judge_status;
 		}
 
@@ -2794,13 +2800,13 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 				if (finger_hold_matched_v4(grip_info, points, index)) {
 					judge_status = JUDGE_LARGE_OK;
 					grip_info->large_finger_status[index] = TYPE_LONG_FINGER_HOLD;
-					TPD_INFO("%s: id(%d) judge corner long finger hold.\n", __func__, index);
+					GRIP_TP_INFO("%s: id(%d) judge corner long finger hold.\n", __func__, index);
 					return judge_status;
 				}
 			} else if (finger_hold_matched(grip_info, points, index)) {
 				judge_status = JUDGE_LARGE_OK;
 				grip_info->large_finger_status[index] = TYPE_LONG_FINGER_HOLD;
-				TPD_INFO("%s: id(%d) judge corner long finger hold.\n", __func__, index);
+				GRIP_TP_INFO("%s: id(%d) judge corner long finger hold.\n", __func__, index);
 				return judge_status;
 			}
 		}
@@ -2810,7 +2816,7 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 			if (finger_hold_different_size(grip_info, points, index)) {
 				judge_status = JUDGE_LARGE_OK;
 				grip_info->large_finger_status[index] = TYPE_LONG_FINGER_HOLD;
-				TPD_DETAIL("%s: id(%d) judge finger_hold_different_size.\n", __func__, index);
+				TP_DETAIL(grip_info->tp_index, "%s: id(%d) judge finger_hold_different_size.\n", __func__, index);
 				return judge_status;
 			}
 		}
@@ -2821,7 +2827,7 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 				judge_status = JUDGE_LARGE_OK;
 				grip_info->large_finger_status[index] = TYPE_CORNER_CENTER_DOWN;
 				grip_info->points_center_down[index] = STATUS_CENTER_DOWN;
-				TPD_INFO("%s: id(%d) judge corner center down.\n", __func__, index);
+				GRIP_TP_INFO("%s: id(%d) judge corner center down.\n", __func__, index);
 				return judge_status;
 			}
 		} else {
@@ -2829,7 +2835,7 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 				judge_status = JUDGE_LARGE_OK;
 				grip_info->large_finger_status[index] = TYPE_CORNER_CENTER_DOWN;
 				grip_info->points_center_down[index] = STATUS_CENTER_DOWN;
-				TPD_INFO("%s: id(%d) judge corner center down.\n", __func__, index);
+				GRIP_TP_INFO("%s: id(%d) judge corner center down.\n", __func__, index);
 				return judge_status;
 			}
 		}
@@ -2839,7 +2845,7 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 			if ((STATUS_CENTER_DOWN == grip_info->points_center_down[index]) && (TYPE_REJECT_DONE == grip_info->last_large_reject[index]) && (pos == grip_info->last_points_pos[index])) {
 				judge_status = JUDGE_LARGE_OK;
 				grip_info->large_finger_status[index] = TYPE_CORNER_MISTOUCH_AGAIN;
-				TPD_INFO("%s: id(%d) judge corner mistouch again.\n", __func__, index);
+				GRIP_TP_INFO("%s: id(%d) judge corner mistouch again.\n", __func__, index);
 				return judge_status;
 			}
 		}
@@ -2847,7 +2853,7 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 		//judge the exit condition of corner
 		if (corner_exit_matched(grip_info, points, index)) {
 			judge_status = JUDGE_LARGE_TIMEOUT;
-			TPD_INFO("%s: id(%d) judge corner long move.\n", __func__, index);
+			GRIP_TP_INFO("%s: id(%d) judge corner long move.\n", __func__, index);
 			return judge_status;
 		}
 
@@ -2859,7 +2865,7 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 				if ((starty_coupling_result <= grip_info->yfsr_corner_exit_thd) && (startx_coupling_result <= grip_info->xfsr_corner_exit_thd) &&
 				    (y_coupling_result <= grip_info->yfsr_corner_exit_thd) && (x_coupling_result <= grip_info->xfsr_corner_exit_thd)) {                    //free long press
 					judge_status = JUDGE_LARGE_TIMEOUT;
-					TPD_INFO("%s: id(%d) judge stable touch.\n", __func__, index);
+					GRIP_TP_INFO("%s: id(%d) judge stable touch.\n", __func__, index);
 					return judge_status;
 				}
 			}
@@ -2873,19 +2879,19 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 			if ((x_coupling_result > grip_info->current_data.long_stable_coupling_thd) || (y_coupling_result > grip_info->short_stable_coupling_thd)) {
 				judge_status = JUDGE_LARGE_OK;
 				grip_info->large_finger_status[index] = TYPE_CORNER_EDGE_FINGER;
-				TPD_INFO("%s: id(%d) judge timeout, maybe finger hold corner edge screen.\n", __func__, index);
+				GRIP_TP_INFO("%s: id(%d) judge timeout, maybe finger hold corner edge screen.\n", __func__, index);
 				return judge_status;
 			}
 
 			if ((STATUS_CENTER_DOWN == grip_info->points_center_down[index]) && !grip_info->point_unmoved[index]) {
 				judge_status = JUDGE_LARGE_OK;
 				grip_info->large_finger_status[index] = TYPE_CORNER_SHORT_MOVE;
-				TPD_INFO("%s: id(%d) judge corner center down and short move.\n", __func__, index);
+				GRIP_TP_INFO("%s: id(%d) judge corner center down and short move.\n", __func__, index);
 				return judge_status;
 			}
 
 			judge_status = JUDGE_LARGE_TIMEOUT;
-			TPD_INFO("%s: id(%d) judge timeout.\n", __func__, index);
+			GRIP_TP_INFO("%s: id(%d) judge timeout.\n", __func__, index);
 		}
 	} else if ((POS_VERTICAL_LEFT_TOP == pos) || (POS_VERTICAL_RIGHT_TOP == pos) ||
 		   (POS_HORIZON_B_LEFT_TOP == pos) || (POS_HORIZON_B_RIGHT_TOP == pos) ||
@@ -2894,25 +2900,25 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 		if (grip_info->is_curved_screen_v4) {
 			if (top_exit_matched_v4(grip_info, points, index)) {
 				judge_status = JUDGE_LARGE_TIMEOUT;
-				TPD_INFO("%s: id(%d) judge top long move.\n", __func__, index);
+				GRIP_TP_INFO("%s: id(%d) judge top long move.\n", __func__, index);
 				return judge_status;
 			}
 		} else if (top_exit_matched(grip_info, points, index)) {
 			judge_status = JUDGE_LARGE_TIMEOUT;
-			TPD_INFO("%s: id(%d) judge top long move.\n", __func__, index);
+			GRIP_TP_INFO("%s: id(%d) judge top long move.\n", __func__, index);
 			return judge_status;
 		}
 		if (grip_info->is_curved_screen_v4 && top_shape_matched_v4(grip_info, points, index)) {
 			judge_status = JUDGE_LARGE_OK;
 			grip_info->large_finger_status[index] = TYPE_TOP_LONG_PRESS;
-			TPD_INFO("%s: id(%d) reject top corner top_shape_matched_v4.\n", __func__, index);
+			GRIP_TP_INFO("%s: id(%d) reject top corner top_shape_matched_v4.\n", __func__, index);
 			return judge_status;
 		}
 
 		if (delta_time_ms > grip_info->normal_tap_max_time_ms) {
 			judge_status = JUDGE_LARGE_OK;
 			grip_info->large_finger_status[index] = TYPE_TOP_LONG_PRESS;
-			TPD_INFO("%s: id(%d) reject top corner long press.\n", __func__, index);
+			GRIP_TP_INFO("%s: id(%d) reject top corner long press.\n", __func__, index);
 			return judge_status;
 		}
 	} else if ((grip_info->is_curved_screen_v4 && POS_VERTICAL_MIDDLE_TOP == pos) ||
@@ -2921,7 +2927,7 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 		if (large_shape_matched(grip_info, points, index)) {
 			judge_status = JUDGE_LARGE_OK;
 			grip_info->large_finger_status[index] = TYPE_PALM_SHORT_SIZE;
-			TPD_INFO("%s: id(%d) judge middle shape matched.\n", __func__, index);
+			GRIP_TP_INFO("%s: id(%d) judge middle shape matched.\n", __func__, index);
 			return judge_status;
 		}
 
@@ -2929,14 +2935,14 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 		if (large_reject_covered(grip_info, points, index)) {
 			judge_status = JUDGE_LARGE_OK;
 			grip_info->large_finger_status[index] = TYPE_PALM_SHORT_SIZE;
-			TPD_INFO("%s: id(%d) judge around short large shape.\n", __func__, index);
+			GRIP_TP_INFO("%s: id(%d) judge around short large shape.\n", __func__, index);
 			return judge_status;
 		}
 
 		/*judge whether we should exit the reject status*/
 		if (large_exit_matched_v4(grip_info, points, index)) {
 			judge_status = JUDGE_LARGE_TIMEOUT;
-			TPD_INFO("%s: id(%d) judge middle shape exit.\n", __func__, index);
+			GRIP_TP_INFO("%s: id(%d) judge middle shape exit.\n", __func__, index);
 			return judge_status;
 	    }
 		/*judge the stable status*/
@@ -2952,7 +2958,7 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 			if (y_coupling_result > short_stable_coupling_thd) {
 				judge_status = JUDGE_LARGE_OK;
 				grip_info->large_finger_status[index] = TYPE_SHORT_EDGE_FINGER;
-				TPD_INFO("%s: id(%d) judge finger hold vertical middle edge screen.\n", __func__, index);
+				GRIP_TP_INFO("%s: id(%d) judge finger hold vertical middle edge screen.\n", __func__, index);
 				return judge_status;
 			}
 
@@ -2961,17 +2967,17 @@ static enum large_judge_status large_shape_judged_V2(struct kernel_grip_info *gr
 			    (starty_coupling_result - y_coupling_result > grip_info->short_hold_changed_thd)) {
 				judge_status = JUDGE_LARGE_OK;
 				grip_info->large_finger_status[index] = TYPE_SHORT_FINGER_HOLD;
-				TPD_INFO("%s: id(%d) judge finger hold vertical middle tight.\n", __func__, index);
+				GRIP_TP_INFO("%s: id(%d) judge finger hold vertical middle tight.\n", __func__, index);
 			} else {
 				judge_status = JUDGE_LARGE_TIMEOUT;
-				TPD_INFO("large_shape_judged_V2: id(%d) judge vertical middle press under detect time.\n", index);
+				GRIP_TP_INFO("large_shape_judged_V2: id(%d) judge vertical middle press under detect time.\n", index);
 			}
 			return judge_status;
 		}
 		record_point_info(grip_info, TYPE_LAST_POINT, index, points[index]);
 	} else {
 		judge_status = JUDGE_LARGE_TIMEOUT;
-		TPD_INFO("%s: should never get here.\n", __func__);
+		GRIP_TP_INFO("%s: should never get here.\n", __func__);
 	}
 
 	return judge_status;
@@ -2988,52 +2994,53 @@ static bool large_area_judged_V2(struct kernel_grip_info *grip_info, struct poin
 	if ((POS_LONG_LEFT == pos) || (POS_LONG_RIGHT == pos)) {
 		if (large_shape_matched(grip_info, points, index)) {
 			if ((TYPE_REJECT_DONE == grip_info->large_reject[index]) && (TYPE_PALM_LONG_SIZE != grip_info->large_finger_status[index])) {
-				TPD_INFO("%s: long shape matched(%d) (%d %d %d %d %d %d)", __func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
+				GRIP_TP_INFO("%s: long shape matched(%d) (%d %d %d %d %d %d)", __func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
 				grip_info->large_finger_status[index] = TYPE_PALM_LONG_SIZE;
 			}
 			return false;
 		}
 		if (large_exit_matched(grip_info, points, index)) {
 			result = true;
-			TPD_INFO("%s: id(%d) judge long exit.\n", __func__, index);
+			GRIP_TP_INFO("%s: id(%d) judge long exit.\n", __func__, index);
 		}
 	} else if ((POS_SHORT_LEFT == pos) || (POS_SHORT_RIGHT == pos)) {
 		if (large_shape_matched(grip_info, points, index)) {
 			if ((TYPE_REJECT_DONE == grip_info->large_reject[index]) && (TYPE_PALM_SHORT_SIZE != grip_info->large_finger_status[index])) {
-				TPD_INFO("%s: short shape matched(%d) (%d %d %d %d %d %d)", __func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
+				GRIP_TP_INFO("%s: short shape matched(%d) (%d %d %d %d %d %d)", __func__,
+					index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
 				grip_info->large_finger_status[index] = TYPE_PALM_SHORT_SIZE;
 			}
 			return false;
 		}
 		if (large_exit_matched(grip_info, points, index)) {
 			result = true;
-			TPD_INFO("%s: id(%d) judge short exit.\n", __func__, index);
+			GRIP_TP_INFO("%s: id(%d) judge short exit.\n", __func__, index);
 		}
 	} else if ((POS_VERTICAL_LEFT_CORNER == pos) || (POS_VERTICAL_RIGHT_CORNER == pos) ||
 		   (POS_HORIZON_B_LEFT_CORNER == pos) || (POS_HORIZON_B_RIGHT_CORNER == pos) ||
 		   (POS_HORIZON_T_LEFT_CORNER == pos) || (POS_HORIZON_T_RIGHT_CORNER == pos)) {
 		if ((corner_result = corner_shape_matched(grip_info, points, index))) {
 			if ((CORNER_SHAPE_LARGE == corner_result) && (TYPE_CORNER_LARGE_SIZE != grip_info->large_finger_status[index])) {
-				TPD_INFO("%s: id(%d) judge corner large size matched.\n", __func__, index);
+				GRIP_TP_INFO("%s: id(%d) judge corner large size matched.\n", __func__, index);
 				grip_info->large_finger_status[index] = TYPE_CORNER_LARGE_SIZE;
 			}
 			return false;
 		}
 		if (corner_exit_matched(grip_info, points, index)) {
 			result = true;
-			TPD_INFO("%s: id(%d) judge corner long move.\n", __func__, index);
+			GRIP_TP_INFO("%s: id(%d) judge corner long move.\n", __func__, index);
 		}
 	} else if ((POS_VERTICAL_LEFT_TOP == pos) || (POS_VERTICAL_RIGHT_TOP == pos) ||
 		   (POS_HORIZON_B_LEFT_TOP == pos) || (POS_HORIZON_B_RIGHT_TOP == pos) ||
 		   (POS_HORIZON_T_LEFT_TOP == pos) || (POS_HORIZON_T_RIGHT_TOP == pos)) {
 		if (top_exit_matched(grip_info, points, index)) {
 			result = true;
-			TPD_INFO("%s: id(%d) judge top move exit.\n", __func__, index);
+			GRIP_TP_INFO("%s: id(%d) judge top move exit.\n", __func__, index);
 		}
 	} else if ((POS_VERTICAL_MIDDLE_TOP == pos) || (POS_VERTICAL_MIDDLE_BOTTOM == pos)) {
 		if (grip_info->is_curved_screen_v4 && large_shape_matched(grip_info, points, index)) {
 			if ((TYPE_REJECT_DONE == grip_info->large_reject[index]) && (TYPE_PALM_SHORT_SIZE != grip_info->large_finger_status[index])) {
-				TPD_INFO("%s: middle top shape matched(%d) (%d %d %d %d %d %d)",
+				GRIP_TP_INFO("%s: middle top shape matched(%d) (%d %d %d %d %d %d)",
 					__func__, index, cur_p.x, cur_p.y, cur_p.tx_press, cur_p.rx_press, cur_p.tx_er, cur_p.rx_er);
 				grip_info->large_finger_status[index] = TYPE_PALM_SHORT_SIZE;
 			}
@@ -3041,7 +3048,7 @@ static bool large_area_judged_V2(struct kernel_grip_info *grip_info, struct poin
 		}
 		if (grip_info->is_curved_screen_v4 && large_exit_matched_v4(grip_info, points, index)) {
 			result = true;
-			TPD_INFO("%s: id(%d) judge middle top exit.\n", __func__, index);
+			GRIP_TP_INFO("%s: id(%d) judge middle top exit.\n", __func__, index);
 		}
 	} else {
 		result = true;
@@ -3062,7 +3069,7 @@ static bool touchup_judged_V2(struct kernel_grip_info *grip_info, int index)
 	s64 delta_time_ms = ktime_to_ms(ktime_get()) - grip_info->first_point[index].time_ms;
 
 	if (delta_time_ms < grip_info->normal_tap_min_time_ms) {
-		TPD_INFO("%s: id(%d) short click mistouch.\n", __func__, index);
+		GRIP_TP_INFO("%s: id(%d) short click mistouch.\n", __func__, index);
 		grip_info->large_finger_status[index] = TYPE_ALL_SHORT_CLICK;
 		return false;
 	}
@@ -3077,7 +3084,7 @@ static bool touchup_judged_V2(struct kernel_grip_info *grip_info, int index)
 		}
 		if (((abs(startx_coupling_result - secondx_coupling_result) < long_hold_maxfsr_gap) && (startx_coupling_result > long_start_coupling_thd)) ||
 		    (secondx_coupling_result > long_start_coupling_thd)) {
-			TPD_INFO("%s: point(%d) up, maybe finger touch long edge screen.\n", __func__, index);
+			GRIP_TP_INFO("%s: point(%d) up, maybe finger touch long edge screen.\n", __func__, index);
 			grip_info->large_finger_status[index] = TYPE_LONG_EDGE_TOUCH;
 			ret = false;
 		}
@@ -3087,7 +3094,7 @@ static bool touchup_judged_V2(struct kernel_grip_info *grip_info, int index)
 		}
 		if (((abs(starty_coupling_result - secondy_coupling_result) < short_hold_maxfsr_gap) && (starty_coupling_result > short_start_coupling_thd)) ||
 		    (secondy_coupling_result > short_start_coupling_thd)) {
-			TPD_INFO("%s: point(%d) up, maybe finger touch short edge screen.\n", __func__, index);
+			GRIP_TP_INFO("%s: point(%d) up, maybe finger touch short edge screen.\n", __func__, index);
 			grip_info->large_finger_status[index] = TYPE_SHORT_EDGE_TOUCH;
 			ret = false;
 		}
@@ -3096,18 +3103,18 @@ static bool touchup_judged_V2(struct kernel_grip_info *grip_info, int index)
 		   (POS_HORIZON_T_LEFT_CORNER == pos) || (POS_HORIZON_T_RIGHT_CORNER == pos)) {
 		if (((abs(startx_coupling_result - secondx_coupling_result) < long_hold_maxfsr_gap) && (startx_coupling_result > long_start_coupling_thd)) ||
 		    (secondx_coupling_result > long_start_coupling_thd)) {
-			TPD_INFO("%s: point(%d) up, maybe finger touch long corner edge screen.\n", __func__, index);
+			GRIP_TP_INFO("%s: point(%d) up, maybe finger touch long corner edge screen.\n", __func__, index);
 			grip_info->large_finger_status[index] = TYPE_LONG_EDGE_TOUCH;
 			return false;
 		}
 		if (((abs(starty_coupling_result - secondy_coupling_result) < short_hold_maxfsr_gap) && (starty_coupling_result > short_start_coupling_thd)) ||
 		    (secondy_coupling_result > short_start_coupling_thd)) {
-			TPD_INFO("%s: point(%d) up, maybe finger touch short corner edge screen.\n", __func__, index);
+			GRIP_TP_INFO("%s: point(%d) up, maybe finger touch short corner edge screen.\n", __func__, index);
 			grip_info->large_finger_status[index] = TYPE_SHORT_EDGE_TOUCH;
 			return false;
 		}
 		if (!grip_info->point_unmoved[index] && grip_info->corner_move_rejected) {
-			TPD_INFO("%s: id(%d) judge corner short move.\n", __func__, index);
+			GRIP_TP_INFO("%s: id(%d) judge corner short move.\n", __func__, index);
 			grip_info->large_finger_status[index] = TYPE_CORNER_SHORT_MOVE;
 			return false;
 		}
@@ -3115,7 +3122,7 @@ static bool touchup_judged_V2(struct kernel_grip_info *grip_info, int index)
 		   (POS_HORIZON_B_LEFT_TOP == pos) || (POS_HORIZON_B_RIGHT_TOP == pos) ||
 		   (POS_HORIZON_T_LEFT_TOP == pos) || (POS_HORIZON_T_RIGHT_TOP == pos)) {
 		if (delta_time_ms > grip_info->normal_tap_max_time_ms) {
-			TPD_INFO("%s: id(%d) reject top corner long press.\n", __func__, index);
+			GRIP_TP_INFO("%s: id(%d) reject top corner long press.\n", __func__, index);
 			grip_info->large_finger_status[index] = TYPE_TOP_LONG_PRESS;
 			return false;
 		}
@@ -3125,12 +3132,12 @@ static bool touchup_judged_V2(struct kernel_grip_info *grip_info, int index)
 		}
 		if (((abs(starty_coupling_result - secondy_coupling_result) < short_hold_maxfsr_gap) && (starty_coupling_result > short_start_coupling_thd)) ||
 			(secondy_coupling_result > short_start_coupling_thd)) {
-			TPD_INFO("%s: point(%d) up, maybe finger touch short middle edge screen.\n", __func__, index);
+			GRIP_TP_INFO("%s: point(%d) up, maybe finger touch short middle edge screen.\n", __func__, index);
 			grip_info->large_finger_status[index] = TYPE_SHORT_EDGE_TOUCH;
 			ret = false;
 		}
 	} else {
-		TPD_INFO("%s: should never get here.\n", __func__);
+		GRIP_TP_INFO("%s: should never get here.\n", __func__);
 	}
 
 	return ret;
@@ -3159,7 +3166,7 @@ static int curved_large_handle_V2(struct kernel_grip_info *grip_info, int obj_at
 						assign_filtered_data(grip_info, m_index, &points[m_index]);
 						add_filter_data_tail(grip_info, m_index, tmp_point);
 						grip_info->makeup_cnt[m_index]++;
-						TPD_INFO("id:%d makeup :%d times.(%d %d)\n", m_index, grip_info->makeup_cnt[m_index], points[m_index].x, points[m_index].y);
+						GRIP_TP_INFO("id:%d makeup :%d times.(%d %d)\n", m_index, grip_info->makeup_cnt[m_index], points[m_index].x, points[m_index].y);
 					} else {    //means we have make up to the real point
 						grip_info->makeup_cnt[m_index] = MAKEUP_REAL_POINT;
 					}
@@ -3196,13 +3203,15 @@ static int curved_large_handle_V2(struct kernel_grip_info *grip_info, int obj_at
 					assign_filtered_data(grip_info, m_index, &points[m_index]);
 					add_filter_data_tail(grip_info, m_index, tmp_point);
 					grip_info->makeup_cnt[m_index]++;
-					TPD_INFO("id:%d makeup m:%d times.(%d %d)(%d %d %d %d)\n", m_index, grip_info->makeup_cnt[m_index], points[m_index].x, points[m_index].y,
+					GRIP_TP_INFO("id:%d makeup m:%d times.(%d %d)(%d %d %d %d)\n", m_index, grip_info->makeup_cnt[m_index], points[m_index].x, points[m_index].y,
 						 points[m_index].tx_press, points[m_index].rx_press, points[m_index].tx_er, points[m_index].rx_er);
 				}
 			} else if (TYPE_REJECT_DONE == grip_info->large_reject[m_index]) {
 				obj_final = obj_final & (~(1 << m_index));                //if already reject, just mask it
 			} else {
-				TPD_DETAIL("id:%d, rx:%d, tx:%d, rx_er:%d(%d), tx_er:%d(%d). (%d %d)\n", m_index, points[m_index].rx_press, points[m_index].tx_press, points[m_index].rx_er, points[m_index].rx_er * points[m_index].rx_press, points[m_index].tx_er, points[m_index].tx_er * points[m_index].tx_press, points[m_index].x, points[m_index].y);
+				TP_DETAIL(grip_info->tp_index, "id:%d, rx:%d, tx:%d, rx_er:%d(%d), tx_er:%d(%d). (%d %d)\n", m_index, points[m_index].rx_press, points[m_index].tx_press,
+					points[m_index].rx_er, points[m_index].rx_er * points[m_index].rx_press, points[m_index].tx_er,
+						points[m_index].tx_er * points[m_index].tx_press, points[m_index].x, points[m_index].y);
 				judge_state = large_shape_judged_V2(grip_info, points, m_index);
 				if (JUDGE_LARGE_OK == judge_state) {
 					obj_final = obj_final & (~(1 << m_index));                //reject for large shape
@@ -3217,7 +3226,7 @@ static int curved_large_handle_V2(struct kernel_grip_info *grip_info, int obj_at
 						assign_filtered_data(grip_info, m_index, &points[m_index]);  //makeup points
 						add_filter_data_tail(grip_info, m_index, tmp_point);
 						grip_info->makeup_cnt[m_index]++;
-						TPD_INFO("id:%d makeup n:%d times.(%d %d)(%d %d %d %d)\n", m_index, grip_info->makeup_cnt[m_index], points[m_index].x, points[m_index].y,
+						GRIP_TP_INFO("id:%d makeup n:%d times.(%d %d)(%d %d %d %d)\n", m_index, grip_info->makeup_cnt[m_index], points[m_index].x, points[m_index].y,
 							 points[m_index].tx_press, points[m_index].rx_press, points[m_index].tx_er, points[m_index].rx_er);
 					}
 				} else {
@@ -3227,7 +3236,8 @@ static int curved_large_handle_V2(struct kernel_grip_info *grip_info, int obj_at
 			}
 		} else { //finger up
 			if (grip_info->large_point_status[m_index] == DOWN_POINT) {
-				TPD_DETAIL("up id(%d) status: %d, %d, %d, %d.\n", m_index, grip_info->points_pos[m_index], grip_info->points_center_down[m_index], grip_info->large_out_status[m_index], grip_info->large_reject[m_index]);
+				TP_DETAIL(grip_info->tp_index, "up id(%d) status: %d, %d, %d, %d.\n", m_index, grip_info->points_pos[m_index],
+					grip_info->points_center_down[m_index], grip_info->large_out_status[m_index], grip_info->large_reject[m_index]);
 			}
 			if (grip_info->large_out_status[m_index]) {       //already exit the grip status
 				if (grip_info->makeup_cnt[m_index] > 0 && MAKEUP_REAL_POINT != grip_info->makeup_cnt[m_index]) {
@@ -3236,12 +3246,12 @@ static int curved_large_handle_V2(struct kernel_grip_info *grip_info, int obj_at
 					if (grip_info->edge_swipe_makeup_optimization_support && grip_info->makeup_cnt[m_index] == 1) {
 						points[m_index].x = (grip_info->coord_buf[(m_index + 1) * fiter_cnt - 1].x + grip_info->coord_buf[m_index * fiter_cnt].x) / 2;
 						points[m_index].y = (grip_info->coord_buf[(m_index + 1) * fiter_cnt - 1].y + grip_info->coord_buf[m_index * fiter_cnt].y) / 2;
-						TPD_INFO("id:%d makeup middle_point(%d %d) current_point(%d %d)\n", m_index, points[m_index].x, points[m_index].y,
+						GRIP_TP_INFO("id:%d makeup middle_point(%d %d) current_point(%d %d)\n", m_index, points[m_index].x, points[m_index].y,
 							 grip_info->coord_buf[(m_index + 1) * fiter_cnt - 1].x, grip_info->coord_buf[(m_index + 1) * fiter_cnt - 1].y);
 					} else {
 						points[m_index].x = grip_info->coord_buf[(m_index + 1) * fiter_cnt - 1].x;
 						points[m_index].y = grip_info->coord_buf[(m_index + 1) * fiter_cnt - 1].y;
-						TPD_INFO("start makeup real point:%d(%d, %d) into fifo.\n", m_index, points[m_index].x, points[m_index].y);
+						GRIP_TP_INFO("start makeup real point:%d(%d, %d) into fifo.\n", m_index, points[m_index].x, points[m_index].y);
 					}
 
 					grip_info->sync_up_makeup[m_index] = true;
@@ -3259,19 +3269,19 @@ static int curved_large_handle_V2(struct kernel_grip_info *grip_info, int obj_at
 					obj_final = obj_final | (1 << m_index);
 					points[m_index].x = grip_info->coord_buf[m_index * fiter_cnt].x;
 					points[m_index].y = grip_info->coord_buf[m_index * fiter_cnt].y;
-					TPD_INFO("makeup start point:%d(%d, %d) into fifo.\n", m_index, points[m_index].x, points[m_index].y);
+					GRIP_TP_INFO("makeup start point:%d(%d, %d) into fifo.\n", m_index, points[m_index].x, points[m_index].y);
 
 					grip_info->large_out_status[m_index] = true;
 					grip_info->sync_up_makeup[m_index] = true;
 					start_makeup_timer(grip_info, m_index);
 				} else {
-					TPD_INFO("reject id:%d for accidental touch.\n", m_index);
+					GRIP_TP_INFO("reject id:%d for accidental touch.\n", m_index);
 				}
 				grip_info->last_large_reject[m_index] = TYPE_REJECT_HOLD;                   //update last status, should not update this id while no touch down
 				grip_info->last_points_pos[m_index] = grip_info->points_pos[m_index];       //update last status, should not update this id while no touch down
 				record_point_info(grip_info, TYPE_LAST_POINT, m_index, points[m_index]);    //update last status, should not update this id while no touch down
 			} else if (TYPE_REJECT_DONE == grip_info->large_reject[m_index]) {
-				TPD_INFO("reject id:%d for large touch.\n", m_index);
+				GRIP_TP_INFO("reject id:%d for large touch.\n", m_index);
 				grip_info->last_large_reject[m_index] = TYPE_REJECT_DONE;                   //update last status, should not update this id while no touch down
 				grip_info->last_points_pos[m_index] = grip_info->points_pos[m_index];       //update last status, should not update this id while no touch down
 				record_point_info(grip_info, TYPE_LAST_POINT, m_index, points[m_index]);    //update last status, should not update this id while no touch down
@@ -3356,7 +3366,7 @@ int notify_prevention_handle(struct kernel_grip_info *grip_info,
 				}
 
 				grip_info->grip_hold_status[i] = 0;
-				TPD_INFO("id:%d report touch up firstly, left total(%d).\n", i,
+				GRIP_TP_INFO("id:%d report touch up firstly, left total(%d).\n", i,
 					 grip_info->record_total_cnt);
 
 			} else if (
@@ -3365,7 +3375,7 @@ int notify_prevention_handle(struct kernel_grip_info *grip_info,
 								 i);   /*point[i].status is 0, means no down and no up report*/
 
 			} else {
-				TPD_INFO("id:%d grip hold and reject by eli.\n", i);
+				GRIP_TP_INFO("id:%d grip hold and reject by eli.\n", i);
 			}
 		}
 	}
@@ -3776,7 +3786,7 @@ static int grip_area_add_modify(struct list_head *handle_list, char *in,
 	ret = str_parse(in, name, GRIP_TAG_SIZE, split_value, MAX_AREA_PARAMETER);
 
 	if (ret < 0) {
-		TPD_INFO("%s str parse failed.\n", __func__);
+		GRIP_TP_INFO("%s str parse failed.\n", __func__);
 		return -1;
 	}
 
@@ -3785,7 +3795,7 @@ static int grip_area_add_modify(struct list_head *handle_list, char *in,
 			grip_zone = (struct grip_zone_area *)pos;
 
 			if (strstr(name, grip_zone->name)) {
-				TPD_INFO("%s: same string(%s, %s).\n", __func__, name, grip_zone->name);
+				GRIP_TP_INFO("%s: same string(%s, %s).\n", __func__, name, grip_zone->name);
 				return -1;
 			}
 		}
@@ -3793,7 +3803,7 @@ static int grip_area_add_modify(struct list_head *handle_list, char *in,
 		grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
 
 		if (!grip_zone) {
-			TPD_INFO("%s kmalloc failed.\n", __func__);
+			GRIP_TP_INFO("%s kmalloc failed.\n", __func__);
 			return -1;
 		}
 
@@ -3806,7 +3816,7 @@ static int grip_area_add_modify(struct list_head *handle_list, char *in,
 		grip_zone->support_dir = split_value[5];
 		grip_zone->grip_side = split_value[6];
 		list_add_tail(&grip_zone->area_list, handle_list);
-		TPD_INFO("%s add: [%d, %d] [%d %d] %d %d %d.\n",
+		GRIP_TP_INFO("%s add: [%d, %d] [%d %d] %d %d %d.\n",
 			 grip_zone->name, grip_zone->start_x, grip_zone->start_y,
 			 grip_zone->x_width, grip_zone->y_width, grip_zone->exit_thd,
 			 grip_zone->support_dir, grip_zone->grip_side);
@@ -3816,7 +3826,7 @@ static int grip_area_add_modify(struct list_head *handle_list, char *in,
 			ret = op->set_fw_grip_area(ts->chip_data, grip_zone, true);
 
 			if (ret < 0) {
-				TPD_INFO("%s: set grip area in fw failed !\n", __func__);
+				GRIP_TP_INFO("%s: set grip area in fw failed !\n", __func__);
 				return ret;
 			}
 		}
@@ -3836,13 +3846,13 @@ static int grip_area_add_modify(struct list_head *handle_list, char *in,
 				if (grip_info->is_curved_screen) {
 					grip_zone->exit_tx_er = split_value[7];
 					grip_zone->exit_rx_er = split_value[8];
-					TPD_INFO("%s modify: [%d, %d] [%d %d] %d %d %d %d %d.\n",
+					GRIP_TP_INFO("%s modify: [%d, %d] [%d %d] %d %d %d %d %d.\n",
 						 grip_zone->name, grip_zone->start_x, grip_zone->start_y,
 						 grip_zone->x_width, grip_zone->y_width, grip_zone->exit_thd,
 						 grip_zone->support_dir, grip_zone->grip_side,
 						 grip_zone->exit_tx_er, grip_zone->exit_rx_er);
 				} else {
-					TPD_INFO("%s modify: [%d, %d] [%d %d] %d %d %d.\n",
+					GRIP_TP_INFO("%s modify: [%d, %d] [%d %d] %d %d %d.\n",
 						 grip_zone->name, grip_zone->start_x, grip_zone->start_y,
 						 grip_zone->x_width, grip_zone->y_width, grip_zone->exit_thd,
 						 grip_zone->support_dir, grip_zone->grip_side);
@@ -3853,7 +3863,7 @@ static int grip_area_add_modify(struct list_head *handle_list, char *in,
 					ret = op->set_fw_grip_area(ts->chip_data, grip_zone, true);
 
 					if (ret < 0) {
-						TPD_INFO("%s: set grip area in fw failed !\n", __func__);
+						GRIP_TP_INFO("%s: set grip area in fw failed !\n", __func__);
 						return ret;
 					}
 				}
@@ -3891,12 +3901,12 @@ static void grip_area_del(struct list_head *handle_list, char *in,
 			list_del(&grip_area->area_list);
 			kfree(grip_area);
 			grip_area = NULL;
-			TPD_INFO("%s:remove area: %s.\n", __func__, in);
+			GRIP_TP_INFO("%s:remove area: %s.\n", __func__, in);
 			return;
 		}
 	}
 
-	TPD_INFO("%s:can not found  area: %s.\n", __func__, in);
+	GRIP_TP_INFO("%s:can not found  area: %s.\n", __func__, in);
 	return;
 }
 
@@ -3920,14 +3930,14 @@ static void skip_area_modify(struct kernel_grip_info *grip_info, char *in)
 	ret = str_parse(in, name, GRIP_TAG_SIZE, split_value, MAX_AREA_PARAMETER);
 
 	if (ret < 0) {
-		TPD_INFO("%s str parse failed.\n", __func__);
+		GRIP_TP_INFO("%s str parse failed.\n", __func__);
 		return;
 	}
 
 	grip_info->no_handle_dir = split_value[0];
 	grip_info->no_handle_y1 = split_value[1];
 	grip_info->no_handle_y2 = split_value[2];
-	TPD_INFO("set skip (%d,%d,%d).\n", grip_info->no_handle_dir,
+	GRIP_TP_INFO("set skip (%d,%d,%d).\n", grip_info->no_handle_dir,
 		 grip_info->no_handle_y1, grip_info->no_handle_y2);
 
 	if (grip_info->grip_handle_in_fw && op && op->set_no_handle_area
@@ -3935,7 +3945,7 @@ static void skip_area_modify(struct kernel_grip_info *grip_info, char *in)
 		ret = op->set_no_handle_area(ts->chip_data, grip_info);
 
 		if (ret < 0) {
-			TPD_INFO("%s: set no handle area in fw failed !\n", __func__);
+			GRIP_TP_INFO("%s: set no handle area in fw failed !\n", __func__);
 		}
 	}
 
@@ -3971,13 +3981,13 @@ static int kernel_grip_parse(struct kernel_grip_info *grip_info, char *input,
 
 			if (end_pos - start_pos + 1 > GRIP_TAG_SIZE) {
 				input[i] = '\0';
-				TPD_INFO("found too long string:%s, return.\n", &input[start_pos]);
+				GRIP_TP_INFO("found too long string:%s, return.\n", &input[start_pos]);
 				return 0;
 			}
 
 			if (str_cnt >= MAX_STRING_CNT) {
 				input[i] = '\0';
-				TPD_INFO("found too many string:%d, last:%s.\n", str_cnt, &input[start_pos]);
+				GRIP_TP_INFO("found too many string:%d, last:%s.\n", str_cnt, &input[start_pos]);
 				return 0;
 			}
 
@@ -4059,88 +4069,88 @@ static int kernel_grip_parse(struct kernel_grip_info *grip_info, char *input,
 			if (OPERATE_MODIFY == cmd) {
 				if ((value = get_key_value(split_str[i], "condition_frame_limit")) >= 0) {
 					grip_info->condition_frame_limit = value;
-					TPD_INFO("change condition_frame_limit to %d.\n", value);
+					GRIP_TP_INFO("change condition_frame_limit to %d.\n", value);
 
 					if (grip_info->grip_handle_in_fw && op && op->set_condition_frame_limit
 					    && ts && !ts->loading_fw) {
 						ret = op->set_condition_frame_limit(ts->chip_data, value);
 
 						if (ret < 0) {
-							TPD_INFO("%s: set condition frame limit in fw failed !\n", __func__);
+							GRIP_TP_INFO("%s: set condition frame limit in fw failed !\n", __func__);
 						}
 					}
 
 				} else if ((value = get_key_value(split_str[i], "condition_updelay_ms")) >= 0) {
 					grip_info->condition_updelay_ms = value;
-					TPD_INFO("change condition_updelay_ms to %d.\n", value);
+					GRIP_TP_INFO("change condition_updelay_ms to %d.\n", value);
 
 				} else if ((value = get_key_value(split_str[i], "large_frame_limit"))  >= 0) {
 					grip_info->large_frame_limit = value;
-					TPD_INFO("change large_frame_limit to %d.\n", value);
+					GRIP_TP_INFO("change large_frame_limit to %d.\n", value);
 
 					if (grip_info->grip_handle_in_fw && op && op->set_large_frame_limit
 					    && ts && !ts->loading_fw) {
 						ret = op->set_large_frame_limit(ts->chip_data, value);
 
 						if (ret < 0) {
-							TPD_INFO("%s: set condition frame limit in fw failed !\n", __func__);
+							GRIP_TP_INFO("%s: set condition frame limit in fw failed !\n", __func__);
 						}
 					}
 
 				} else if ((value = get_key_value(split_str[i], "large_ver_thd"))  >= 0) {
 					grip_info->large_ver_thd = value;
-					TPD_INFO("change large_ver_thd to %d.\n", value);
+					GRIP_TP_INFO("change large_ver_thd to %d.\n", value);
 
 					if (grip_info->grip_handle_in_fw && op && op->set_large_ver_thd
 					    && ts && !ts->loading_fw) {
 						ret = op->set_large_ver_thd(ts->chip_data, value);
 
 						if (ret < 0) {
-							TPD_INFO("%s: set large ver thd in fw failed !\n", __func__);
+							GRIP_TP_INFO("%s: set large ver thd in fw failed !\n", __func__);
 						}
 					}
 
 				} else if ((value = get_key_value(split_str[i], "large_hor_thd"))  >= 0) {
 					grip_info->large_hor_thd = value;
-					TPD_INFO("change large_hor_thd to %d.\n", value);
+					GRIP_TP_INFO("change large_hor_thd to %d.\n", value);
 
 				} else if ((value = get_key_value(split_str[i], "large_hor_corner_thd")) >= 0) {
 					grip_info->large_hor_corner_thd = value;
-					TPD_INFO("change large_hor_corner_thd to %d.\n", value);
+					GRIP_TP_INFO("change large_hor_corner_thd to %d.\n", value);
 
 				} else if ((value = get_key_value(split_str[i],
 								  "large_ver_corner_thd"))  >= 0) {
 					grip_info->large_ver_corner_thd = value;
-					TPD_INFO("change large_ver_corner_thd to %d.\n", value);
+					GRIP_TP_INFO("change large_ver_corner_thd to %d.\n", value);
 
 				} else if ((value = get_key_value(split_str[i],
 								  "large_corner_frame_limit"))  >= 0) {
 					grip_info->large_corner_frame_limit = value;
-					TPD_INFO("change large_corner_frame_limit to %d.\n", value);
+					GRIP_TP_INFO("change large_corner_frame_limit to %d.\n", value);
 
 					if (grip_info->grip_handle_in_fw && op && op->set_large_corner_frame_limit
 					    && ts && !ts->loading_fw) {
 						ret = op->set_large_corner_frame_limit(ts->chip_data, value);
 
 						if (ret < 0) {
-							TPD_INFO("%s: set large condition frame limit in fw failed !\n", __func__);
+							GRIP_TP_INFO("%s: set large condition frame limit in fw failed !\n", __func__);
 						}
 					}
 
 				} else if ((value = get_key_value(split_str[i],
 								  "large_ver_corner_width"))  >= 0) {
 					grip_info->large_ver_corner_width = value;
-					TPD_INFO("change large_ver_corner_width to %d.\n", value);
+					GRIP_TP_INFO("change large_ver_corner_width to %d.\n", value);
 
 				} else if ((value = get_key_value(split_str[i],
 								  "large_hor_corner_width"))  >= 0) {
 					grip_info->large_hor_corner_width = value;
-					TPD_INFO("change large_hor_corner_width to %d.\n", value);
+					GRIP_TP_INFO("change large_hor_corner_width to %d.\n", value);
 
 				} else if ((value = get_key_value(split_str[i],
 								  "large_corner_distance"))  >= 0) {
 					grip_info->large_corner_distance = value;
-					TPD_INFO("change large_corner_distance to %d.\n", value);
+					GRIP_TP_INFO("change large_corner_distance to %d.\n", value);
 
 				} else if ((value = get_key_value(split_str[i], "grip_disable_level"))  >= 0) {
 					grip_info->grip_disable_level |= 1 << value;
@@ -4149,10 +4159,10 @@ static int kernel_grip_parse(struct kernel_grip_info *grip_info, char *input,
 						ret = op->set_disable_level(ts->chip_data, grip_info->grip_disable_level);
 
 						if (ret < 0) {
-							TPD_INFO("%s: set disable level in fw failed !\n", __func__);
+							GRIP_TP_INFO("%s: set disable level in fw failed !\n", __func__);
 						}
 					}
-					TPD_INFO("change grip_disable_level to %d.\n", value);
+					GRIP_TP_INFO("change grip_disable_level to %d.\n", value);
 
 				} else if ((value = get_key_value(split_str[i], "grip_enable_level"))  >= 0) {
 					grip_info->grip_disable_level &= ~(1 << value);
@@ -4161,134 +4171,134 @@ static int kernel_grip_parse(struct kernel_grip_info *grip_info, char *input,
 						ret = op->set_disable_level(ts->chip_data, grip_info->grip_disable_level);
 
 						if (ret < 0) {
-							TPD_INFO("%s: set disable level in fw failed !\n", __func__);
+							GRIP_TP_INFO("%s: set disable level in fw failed !\n", __func__);
 						}
 					}
-					TPD_INFO("change grip_enable_level to %d.\n", value);
+					GRIP_TP_INFO("change grip_enable_level to %d.\n", value);
 
 				} else if ((value = get_key_value(split_str[i], "large_detect_time_ms"))  >= 0) {
 					grip_info->large_detect_time_ms = value;
-					TPD_INFO("change large_detect_time_ms to %d.\n", value);
+					GRIP_TP_INFO("change large_detect_time_ms to %d.\n", value);
 				} else if ((value = get_key_value(split_str[i], "down_delta_time_ms"))  >= 0) {
 					grip_info->down_delta_time_ms = value;
-					TPD_INFO("change down_delta_time_ms to %d.\n", value);
+					GRIP_TP_INFO("change down_delta_time_ms to %d.\n", value);
 				} else {
-					TPD_INFO("not support:%s.\n", split_str[i]);
+					GRIP_TP_INFO("not support:%s.\n", split_str[i]);
 				}
 
 			} else {
-				TPD_INFO("not support %d opeartion for long sid curved screen parameter modify.\n", cmd);
+				GRIP_TP_INFO("not support %d opeartion for long sid curved screen parameter modify.\n", cmd);
 			}
 		} else if (OBJECT_LONG_CURVED_PARAMETER == object) {
 			if (OPERATE_MODIFY == cmd) {
 				if ((value = get_key_value(split_str[i], "edge_finger_thd")) >= 0) {
 					long_side_para->edge_finger_thd = value;
-					TPD_INFO("change long side edge_finger_thd to %d.\n", value);
+					GRIP_TP_INFO("change long side edge_finger_thd to %d.\n", value);
 				} else if ((value = get_key_value(split_str[i], "hold_finger_thd")) >= 0) {
 					long_side_para->hold_finger_thd = value;
-					TPD_INFO("change long side hold_finger_thd to %d.\n", value);
+					GRIP_TP_INFO("change long side hold_finger_thd to %d.\n", value);
 				} else if ((value = get_key_value(split_str[i], "normal_finger_thd_1"))  >= 0) {
 					long_side_para->normal_finger_thd_1 = value;
-					TPD_INFO("change long side normal_finger_thd_1 to %d.\n", value);
+					GRIP_TP_INFO("change long side normal_finger_thd_1 to %d.\n", value);
 				} else if ((value = get_key_value(split_str[i], "normal_finger_thd_2"))  >= 0) {
 					long_side_para->normal_finger_thd_2 = value;
-					TPD_INFO("change long side normal_finger_thd_2 to %d.\n", value);
+					GRIP_TP_INFO("change long side normal_finger_thd_2 to %d.\n", value);
 				} else if ((value = get_key_value(split_str[i], "normal_finger_thd_3"))  >= 0) {
 					long_side_para->normal_finger_thd_3 = value;
-					TPD_INFO("change long side normal_finger_thd_3 to %d.\n", value);
+					GRIP_TP_INFO("change long side normal_finger_thd_3 to %d.\n", value);
 				} else if ((value = get_key_value(split_str[i], "large_palm_thd_1"))  >= 0) {
 					long_side_para->large_palm_thd_1 = value;
-					TPD_INFO("change long side large_palm_thd_1 to %d.\n", value);
+					GRIP_TP_INFO("change long side large_palm_thd_1 to %d.\n", value);
 				} else if ((value = get_key_value(split_str[i], "large_palm_thd_2")) >= 0) {
 					long_side_para->large_palm_thd_2 = value;
-					TPD_INFO("change long side large_palm_thd_2 to %d.\n", value);
+					GRIP_TP_INFO("change long side large_palm_thd_2 to %d.\n", value);
 				} else if ((value = get_key_value(split_str[i], "small_palm_thd_1"))  >= 0) {
 					long_side_para->small_palm_thd_1 = value;
-					TPD_INFO("change long side small_palm_thd_1 to %d.\n", value);
+					GRIP_TP_INFO("change long side small_palm_thd_1 to %d.\n", value);
 				} else if ((value = get_key_value(split_str[i], "small_palm_thd_2"))  >= 0) {
 					long_side_para->small_palm_thd_2 = value;
-					TPD_INFO("change long side small_palm_thd_2 to %d.\n", value);
+					GRIP_TP_INFO("change long side small_palm_thd_2 to %d.\n", value);
 				} else if ((value = get_key_value(split_str[i], "palm_thd_1"))  >= 0) {
 					long_side_para->palm_thd_1 = value;
-					TPD_INFO("change long side palm_thd_1 to %d.\n", value);
+					GRIP_TP_INFO("change long side palm_thd_1 to %d.\n", value);
 				} else if ((value = get_key_value(split_str[i], "palm_thd_2"))  >= 0) {
 					long_side_para->palm_thd_2 = value;
-					TPD_INFO("change long side palm_thd_2 to %d.\n", value);
+					GRIP_TP_INFO("change long side palm_thd_2 to %d.\n", value);
 				} else {
-					TPD_INFO("not support:%s.\n", split_str[i]);
+					GRIP_TP_INFO("not support:%s.\n", split_str[i]);
 				}
 			} else {
-				TPD_INFO("not support %d opeartion for long sid curved screen parameter modify.\n", cmd);
+				GRIP_TP_INFO("not support %d opeartion for long sid curved screen parameter modify.\n", cmd);
 			}
 		} else if (OBJECT_SHORT_CURVED_PARAMETER == object) {
 			if (OPERATE_MODIFY == cmd) {
 				if ((value = get_key_value(split_str[i], "edge_finger_thd")) >= 0) {
 					short_side_para->edge_finger_thd = value;
-					TPD_INFO("change short side edge_finger_thd to %d.\n", value);
+					GRIP_TP_INFO("change short side edge_finger_thd to %d.\n", value);
 				} else if ((value = get_key_value(split_str[i], "hold_finger_thd")) >= 0) {
 					short_side_para->hold_finger_thd = value;
-					TPD_INFO("change short side hold_finger_thd to %d.\n", value);
+					GRIP_TP_INFO("change short side hold_finger_thd to %d.\n", value);
 				} else if ((value = get_key_value(split_str[i], "normal_finger_thd_1"))  >= 0) {
 					short_side_para->normal_finger_thd_1 = value;
-					TPD_INFO("change short side normal_finger_thd_1 to %d.\n", value);
+					GRIP_TP_INFO("change short side normal_finger_thd_1 to %d.\n", value);
 				} else if ((value = get_key_value(split_str[i], "normal_finger_thd_2"))  >= 0) {
 					short_side_para->normal_finger_thd_2 = value;
-					TPD_INFO("change short side normal_finger_thd_2 to %d.\n", value);
+					GRIP_TP_INFO("change short side normal_finger_thd_2 to %d.\n", value);
 				} else if ((value = get_key_value(split_str[i], "normal_finger_thd_3"))  >= 0) {
 					short_side_para->normal_finger_thd_3 = value;
-					TPD_INFO("change short side normal_finger_thd_3 to %d.\n", value);
+					GRIP_TP_INFO("change short side normal_finger_thd_3 to %d.\n", value);
 				} else if ((value = get_key_value(split_str[i], "large_palm_thd_1"))  >= 0) {
 					short_side_para->large_palm_thd_1 = value;
-					TPD_INFO("change short side large_palm_thd_1 to %d.\n", value);
+					GRIP_TP_INFO("change short side large_palm_thd_1 to %d.\n", value);
 				} else if ((value = get_key_value(split_str[i], "large_palm_thd_2")) >= 0) {
 					short_side_para->large_palm_thd_2 = value;
-					TPD_INFO("change short side large_palm_thd_2 to %d.\n", value);
+					GRIP_TP_INFO("change short side large_palm_thd_2 to %d.\n", value);
 				}  else if ((value = get_key_value(split_str[i], "small_palm_thd_1"))  >= 0) {
 					short_side_para->small_palm_thd_1 = value;
-					TPD_INFO("change short side small_palm_thd_1 to %d.\n", value);
+					GRIP_TP_INFO("change short side small_palm_thd_1 to %d.\n", value);
 				} else if ((value = get_key_value(split_str[i], "small_palm_thd_2"))  >= 0) {
 					short_side_para->small_palm_thd_2 = value;
-					TPD_INFO("change short side small_palm_thd_2 to %d.\n", value);
+					GRIP_TP_INFO("change short side small_palm_thd_2 to %d.\n", value);
 				} else if ((value = get_key_value(split_str[i], "palm_thd_1"))  >= 0) {
 					short_side_para->palm_thd_1 = value;
-					TPD_INFO("change short side palm_thd_1 to %d.\n", value);
+					GRIP_TP_INFO("change short side palm_thd_1 to %d.\n", value);
 				} else if ((value = get_key_value(split_str[i], "palm_thd_2"))  >= 0) {
 					short_side_para->palm_thd_2 = value;
-					TPD_INFO("change short side palm_thd_2 to %d.\n", value);
+					GRIP_TP_INFO("change short side palm_thd_2 to %d.\n", value);
 				} else {
-					TPD_INFO("not support:%s.\n", split_str[i]);
+					GRIP_TP_INFO("not support:%s.\n", split_str[i]);
 				}
 			} else {
-				TPD_INFO("not support %d opeartion for short sid curved screen parameter modify.\n", cmd);
+				GRIP_TP_INFO("not support %d opeartion for short sid curved screen parameter modify.\n", cmd);
 			}
 		} else if ((OBJECT_CONDITION_AREA == object) || (OBJECT_LARGE_AREA == object) ||
 			   (OBJECT_ELI_AREA == object) || (OBJECT_DEAD_AREA == object)) {
 			if (OPERATE_ADD == cmd) {
-				TPD_DETAIL("add %d by %s.\n", object, split_str[i]);
+				TP_DETAIL(grip_info->tp_index, "add %d by %s.\n", object, split_str[i]);
 				grip_area_add_modify(handle_list, split_str[i], true,
 						     grip_info);       /*add new area to list*/
 
 			} else if (OPERATE_DELTE == cmd) {
-				TPD_DETAIL("del %d by %s.\n", object, split_str[i]);
+				TP_DETAIL(grip_info->tp_index, "del %d by %s.\n", object, split_str[i]);
 				/*del area from list*/
 				grip_area_del(handle_list, split_str[i], grip_info);
 
 			} else if (OPERATE_MODIFY == cmd) {
-				TPD_DETAIL("modify %d by %s.\n", object, split_str[i]);
+				TP_DETAIL(grip_info->tp_index, "modify %d by %s.\n", object, split_str[i]);
 				grip_area_add_modify(handle_list, split_str[i], false,
 						     grip_info);       /*modify paramter of the area*/
 
 			} else {
-				TPD_INFO("not support %d opeartion for area modify.\n", cmd);
+				GRIP_TP_INFO("not support %d opeartion for area modify.\n", cmd);
 			}
 
 		} else if (OBJECT_SKIP_HANDLE == object) {
 			if (OPERATE_MODIFY == cmd) {
-				TPD_INFO("modify %d by %s.\n", object, split_str[i]);
+				GRIP_TP_INFO("modify %d by %s.\n", object, split_str[i]);
 				skip_area_modify(grip_info, split_str[i]);
 
 			} else {
-				TPD_INFO("not support %d opeartion for skip handle modify.\n", cmd);
+				GRIP_TP_INFO("not support %d opeartion for skip handle modify.\n", cmd);
 			}
 		} else if (OBJECT_PARAMETER_V2 == object) {
 			if (OPERATE_MODIFY == cmd) {
@@ -4303,15 +4313,15 @@ static int kernel_grip_parse(struct kernel_grip_info *grip_info, char *input,
 					/*update the current reclining_mode_data*/
 					grip_prase_reclining_mode_handle(grip_info);
 					touch_misc_state_change(ts, IOC_STATE_PREVENTION_PARA_CHANGE, 1);
-					TPD_INFO("change %s to %d.\n", key_addr_arrays[in].name, value);
+					GRIP_TP_INFO("change %s to %d.\n", key_addr_arrays[in].name, value);
 					if (0 == strcmp(key_addr_arrays[in].name, "set_ime_showing")) {
 						disable_algo_for_ime_showing(grip_info);
 					}
 				} else {
-					TPD_INFO("not found:%d or addr is NULL.\n", in);
+					GRIP_TP_INFO("not found:%d or addr is NULL.\n", in);
 				}
 			} else {
-				TPD_INFO("not support %d opeartion for V2 parameter modify.\n", cmd);
+				GRIP_TP_INFO("not support %d opeartion for V2 parameter modify.\n", cmd);
 			}
 		}
 
@@ -4335,12 +4345,12 @@ static ssize_t kernel_grip_write(struct file *file, const char __user *buffer,
 	}
 
 	if (count > PAGESIZE) {
-		TPD_INFO("%s: count is too large :%d.\n",  __func__, (int)count);
+		GRIP_TP_INFO("%s: count is too large :%d.\n",  __func__, (int)count);
 		return count;
 	}
 
 	if (copy_from_user(buf, buffer, count)) {
-		TPD_INFO("%s: read proc input error.\n", __func__);
+		GRIP_TP_INFO("%s: read proc input error.\n", __func__);
 		return count;
 	}
 
@@ -4427,7 +4437,7 @@ static ssize_t proc_touch_dir_write(struct file *file,
 
 	mutex_unlock(&grip_info->grip_mutex);
 
-	TPD_INFO("%s: value = %d\n", __func__, temp);
+	GRIP_TP_INFO("%s: value = %d\n", __func__, temp);
 	return count;
 }
 
@@ -4471,12 +4481,13 @@ static void transform_reclining_para(struct kernel_grip_info *grip_info)
 
 static void grip_prase_reclining_mode_handle(struct kernel_grip_info *grip_info)
 {
-	TPD_INFO("%s: enter.\n", __func__);
 
 	if (!grip_info) {
 		TPD_INFO("%s: grip_info is null.\n", __func__);
 		return;
 	}
+
+	GRIP_TP_INFO("%s: enter.\n", __func__);
 	if (grip_info->reclining_mode_support) {
 		if (VERTICAL_RECLINING_MODE == grip_info->touch_reclining_mode) {
 			transform_reclining_para(grip_info);
@@ -4546,7 +4557,7 @@ static ssize_t proc_touch_reclining_write(struct file *file,
 	tp_copy_from_user(buf, sizeof(buf), buffer, count, 2);
 
 	if (kstrtoint(buf, 10, &temp)) {
-		TPD_INFO("%s: kstrtoint error\n", __func__);
+		GRIP_TP_INFO("%s: kstrtoint error\n", __func__);
 		return count;
 	}
 
@@ -4558,7 +4569,7 @@ static ssize_t proc_touch_reclining_write(struct file *file,
 	mutex_unlock(&grip_info->grip_mutex);
 	grip_info->last_reclining_mode = grip_info->touch_reclining_mode;
 
-	TPD_INFO("%s: touch_reclining_mode = %d\n", __func__, temp);
+	GRIP_TP_INFO("%s: touch_reclining_mode = %d\n", __func__, temp);
 	return count;
 }
 
@@ -4579,7 +4590,7 @@ void init_kernel_grip_proc(struct proc_dir_entry *prEntry_tp,
 
 	if (prEntry_tmp == NULL) {
 		ret = -ENOMEM;
-		TPD_INFO("%s: Couldn't create kernel grip proc entry, %d\n", __func__,
+		GRIP_TP_INFO("%s: Couldn't create kernel grip proc entry, %d\n", __func__,
 			 __LINE__);
 	}
 
@@ -4588,7 +4599,7 @@ void init_kernel_grip_proc(struct proc_dir_entry *prEntry_tp,
 
 	if (prEntry_tmp == NULL) {
 		ret = -ENOMEM;
-		TPD_INFO("%s: Couldn't create oplus_tp_direction proc entry, %d\n", __func__,
+		GRIP_TP_INFO("%s: Couldn't create oplus_tp_direction proc entry, %d\n", __func__,
 			 __LINE__);
 	}
 
@@ -4597,7 +4608,7 @@ void init_kernel_grip_proc(struct proc_dir_entry *prEntry_tp,
 					       &touch_reclining_proc_fops, grip_info);
 		if (prEntry_tmp == NULL) {
 			ret = -ENOMEM;
-			TPD_INFO("%s: Couldn't create reclining_mode proc entry, %d\n", __func__,
+			GRIP_TP_INFO("%s: Couldn't create reclining_mode proc entry, %d\n", __func__,
 				 __LINE__);
 		}
 	}
@@ -4690,7 +4701,7 @@ static int kernel_grip_init_v4(struct kernel_grip_info *grip_info, struct device
 		grip_info->long_hold_x_width = 0xffff;/*default value 0, no need to change it*/
 		grip_info->long_hold_y_width = grip_info->max_y / 4;
 		grip_info->finger_hold_matched_hor_support = 0;
-		TPD_INFO("large long finger hold long_fingerhold_condition2 using default.\n");
+		GRIP_TP_INFO("large long finger hold long_fingerhold_condition2 using default.\n");
 	} else {
 		grip_info->long_hold_x_width = temp_array[0];
 		grip_info->long_hold_y_width = temp_array[1];
@@ -4702,7 +4713,7 @@ static int kernel_grip_init_v4(struct kernel_grip_info *grip_info, struct device
 		grip_info->top_matched_times_thd = 3;
 		grip_info->top_matched_xfsr_thd = 80;
 		grip_info->large_ver_top_exit_distance = 200;
-		TPD_INFO("large long finger hold long_fingerhold_condition2 using default.\n");
+		GRIP_TP_INFO("large long finger hold long_fingerhold_condition2 using default.\n");
 	} else {
 		grip_info->top_matched_times_thd = temp_array[0];
 		grip_info->top_matched_xfsr_thd = temp_array[1];
@@ -4713,7 +4724,7 @@ static int kernel_grip_init_v4(struct kernel_grip_info *grip_info, struct device
 	if (ret) {
 		grip_info->large_hor_top_x_width = 280;
 		grip_info->large_hor_top_y_height = 1000;
-		TPD_INFO("large long finger hold hor_long_top_corner_config using default.\n");
+		GRIP_TP_INFO("large long finger hold hor_long_top_corner_config using default.\n");
 	} else {
 		grip_info->large_hor_top_x_width = temp_array[0];
 		grip_info->large_hor_top_y_height = temp_array[1];
@@ -4725,7 +4736,7 @@ static int kernel_grip_init_v4(struct kernel_grip_info *grip_info, struct device
 		grip_info->large_top_middle_height = 500;
 		grip_info->large_top_middle_exit_distance = 500;
 		grip_info->large_bottom_middle_support = 0;
-		TPD_INFO("vertical top bottom middle config using default.\n");
+		GRIP_TP_INFO("vertical top bottom middle config using default.\n");
 	} else {
 		grip_info->large_top_middle_width = temp_array[0];
 		grip_info->large_top_middle_height = temp_array[1];
@@ -4738,7 +4749,7 @@ static int kernel_grip_init_v4(struct kernel_grip_info *grip_info, struct device
 		grip_info->large_corner_hor_x_width = 0;
 		grip_info->large_corner_hor_y_height = 0;
 		grip_info->corner_eliminate_without_time = 0;
-		TPD_INFO("corner_eliminate_point_type config using default.\n");
+		GRIP_TP_INFO("corner_eliminate_point_type config using default.\n");
 	} else {
 		grip_info->corner_eliminate_point_type = temp_array[0];
 		grip_info->large_corner_hor_x_width = temp_array[1];
@@ -4754,7 +4765,7 @@ static int kernel_grip_init_v4(struct kernel_grip_info *grip_info, struct device
 		grip_info->large_long_y1_width = 0;
 		normal_data->large_long_debounce_ms = 300;
 		grip_info->long_eliminate_point_support = false;
-		TPD_INFO("long_hold_eliminate_point_type config using default.\n");
+		GRIP_TP_INFO("long_hold_eliminate_point_type config using default.\n");
 	} else {
 		grip_info->long_eliminate_point_type = temp_array[0];
 		grip_info->large_long_x2_width = temp_array[1];
@@ -4770,7 +4781,7 @@ static int kernel_grip_init_v4(struct kernel_grip_info *grip_info, struct device
 		grip_info->finger_hold_differ_hor_support = 0;
 		normal_data->finger_hold_differ_size_x = 0;
 		normal_data->finger_hold_differ_size_debounce_ms = 300;
-		TPD_INFO("finger_hold_differ_size config using default.\n");
+		GRIP_TP_INFO("finger_hold_differ_size config using default.\n");
 	} else {
 		grip_info->finger_hold_differ_size_support = temp_array[0];
 		grip_info->finger_hold_differ_hor_support = temp_array[1];
@@ -4782,7 +4793,7 @@ static int kernel_grip_init_v4(struct kernel_grip_info *grip_info, struct device
 		normal_data->finger_hold_rx_rejec_thd = 0xff;
 		normal_data->finger_hold_max_rx_narrow_witdh = grip_info->edge_swipe_narrow_witdh;
 		normal_data->finger_hold_max_rx_exit_distance = grip_info->edge_swipe_exit_distance;
-		TPD_INFO("finger_hold_max_rx_exit_distance config using default.\n");
+		GRIP_TP_INFO("finger_hold_max_rx_exit_distance config using default.\n");
 	} else {
 		normal_data->finger_hold_rx_rejec_thd = temp_array[0];
 		normal_data->finger_hold_max_rx_narrow_witdh = temp_array[1];
@@ -4795,7 +4806,7 @@ static int kernel_grip_init_v4(struct kernel_grip_info *grip_info, struct device
 		normal_data->max_rx_stable_time_thd = 150;
 		normal_data->max_rx_narrow_witdh = grip_info->edge_swipe_narrow_witdh;
 		normal_data->max_rx_exit_distance = grip_info->edge_swipe_exit_distance;
-		TPD_INFO("max_rx_exit_distance config using default.\n");
+		GRIP_TP_INFO("max_rx_exit_distance config using default.\n");
 	} else {
 		grip_info->max_rx_matched_support = temp_array[0];
 		normal_data->max_rx_rejec_thd = temp_array[1];
@@ -4809,7 +4820,7 @@ static int kernel_grip_init_v4(struct kernel_grip_info *grip_info, struct device
 		normal_data->dynamic_finger_hold_narrow_witdh = grip_info->edge_swipe_narrow_witdh;
 		normal_data->dynamic_finger_hold_exit_distance = grip_info->edge_swipe_exit_distance;
 		normal_data->dynamic_finger_hold_size_x = 30;
-		TPD_INFO("dynamic_finger_hold_exit_distance config using default.\n");
+		GRIP_TP_INFO("dynamic_finger_hold_exit_distance config using default.\n");
 	} else {
 		grip_info->dynamic_finger_hold_exit_support = temp_array[0];
 		normal_data->dynamic_finger_hold_narrow_witdh = temp_array[1];
@@ -4822,7 +4833,7 @@ static int kernel_grip_init_v4(struct kernel_grip_info *grip_info, struct device
 		normal_data->edge_sliding_exit_yfsr_thd = 0xffff;
 		normal_data->edge_sliding_exit_distance = grip_info->max_y / 3;
 		grip_info->edge_swipe_makeup_optimization_support = 0;
-		TPD_INFO("edge_sliding_matched_support config using default.\n");
+		GRIP_TP_INFO("edge_sliding_matched_support config using default.\n");
 	} else {
 		grip_info->edge_sliding_matched_support = temp_array[0];
 		normal_data->edge_sliding_exit_yfsr_thd = temp_array[1];
@@ -4830,12 +4841,20 @@ static int kernel_grip_init_v4(struct kernel_grip_info *grip_info, struct device
 		grip_info->edge_swipe_makeup_optimization_support = temp_array[3];
 	}
 
+	ret = of_property_read_u32_array(dev->of_node, "prevention,large_corner_judge_condition_ime", temp_array, 5);
+	if (ret) {
+		grip_info->large_corner_detect_time_ms_ime = grip_info->large_corner_detect_time_ms;
+		GRIP_TP_INFO("large corner judge condition using default.\n");
+	} else {
+		grip_info->large_corner_detect_time_ms_ime = temp_array[0];
+	}
+
 	transform_normal_para(grip_info);
 
 	ret = of_property_read_u32_array(dev->of_node, (char *)"prevention,reclining_mode_support", temp_array, 1);
 	if (ret) {
 		grip_info->reclining_mode_support = 0;
-		TPD_INFO("reclining_mode_support config using default.\n");
+		GRIP_TP_INFO("reclining_mode_support config using default.\n");
 	} else {
 		grip_info->reclining_mode_support = temp_array[0];
 	}
@@ -4843,7 +4862,7 @@ static int kernel_grip_init_v4(struct kernel_grip_info *grip_info, struct device
 	if (ret) {
 		reclining_data->large_long_x1_width = normal_data->large_long_x1_width;
 		reclining_data->large_long_debounce_ms = normal_data->large_long_debounce_ms;
-		TPD_INFO("long_hold_eliminate_point_type config using default.\n");
+		GRIP_TP_INFO("long_hold_eliminate_point_type config using default.\n");
 	} else {
 		reclining_data->large_long_x1_width = temp_array[3];
 		reclining_data->large_long_debounce_ms = temp_array[5];
@@ -4852,7 +4871,7 @@ static int kernel_grip_init_v4(struct kernel_grip_info *grip_info, struct device
 	if (ret) {
 		reclining_data->finger_hold_differ_size_x = normal_data->finger_hold_differ_size_x;
 		reclining_data->finger_hold_differ_size_debounce_ms = normal_data->finger_hold_differ_size_debounce_ms;
-		TPD_INFO("finger_hold_differ_size config using default.\n");
+		GRIP_TP_INFO("finger_hold_differ_size config using default.\n");
 	} else {
 		reclining_data->finger_hold_differ_size_x = temp_array[2];
 		reclining_data->finger_hold_differ_size_debounce_ms = temp_array[3];
@@ -4862,7 +4881,7 @@ static int kernel_grip_init_v4(struct kernel_grip_info *grip_info, struct device
 		reclining_data->finger_hold_rx_rejec_thd = normal_data->finger_hold_rx_rejec_thd;
 		reclining_data->finger_hold_max_rx_narrow_witdh = normal_data->finger_hold_max_rx_narrow_witdh;
 		reclining_data->finger_hold_max_rx_exit_distance = normal_data->finger_hold_max_rx_exit_distance;
-		TPD_INFO("finger_hold_max_rx_exit_distance config using default.\n");
+		GRIP_TP_INFO("finger_hold_max_rx_exit_distance config using default.\n");
 	} else {
 		reclining_data->finger_hold_rx_rejec_thd = temp_array[0];
 		reclining_data->finger_hold_max_rx_narrow_witdh = temp_array[1];
@@ -4874,7 +4893,7 @@ static int kernel_grip_init_v4(struct kernel_grip_info *grip_info, struct device
 		reclining_data->max_rx_stable_time_thd = normal_data->max_rx_stable_time_thd;
 		reclining_data->max_rx_narrow_witdh = normal_data->max_rx_exit_distance;
 		reclining_data->max_rx_exit_distance = normal_data->max_rx_exit_distance;
-		TPD_INFO("max_rx_exit_distance config using default.\n");
+		GRIP_TP_INFO("max_rx_exit_distance config using default.\n");
 	} else {
 		reclining_data->max_rx_rejec_thd = temp_array[1];
 		reclining_data->max_rx_stable_time_thd = temp_array[2];
@@ -4886,7 +4905,7 @@ static int kernel_grip_init_v4(struct kernel_grip_info *grip_info, struct device
 		reclining_data->dynamic_finger_hold_narrow_witdh = normal_data->dynamic_finger_hold_narrow_witdh;
 		reclining_data->dynamic_finger_hold_exit_distance = normal_data->dynamic_finger_hold_narrow_witdh;
 		reclining_data->dynamic_finger_hold_size_x = normal_data->dynamic_finger_hold_narrow_witdh;
-		TPD_INFO("dynamic_finger_hold_exit_distance config using default.\n");
+		GRIP_TP_INFO("dynamic_finger_hold_exit_distance config using default.\n");
 	} else {
 		reclining_data->dynamic_finger_hold_narrow_witdh = temp_array[1];
 		reclining_data->dynamic_finger_hold_exit_distance = temp_array[2];
@@ -4896,7 +4915,7 @@ static int kernel_grip_init_v4(struct kernel_grip_info *grip_info, struct device
 	if (ret) {
 		reclining_data->edge_sliding_exit_yfsr_thd = normal_data->edge_sliding_exit_yfsr_thd;
 		reclining_data->edge_sliding_exit_distance = normal_data->edge_sliding_exit_distance;
-		TPD_INFO("edge_sliding_matched_support config using default.\n");
+		GRIP_TP_INFO("edge_sliding_matched_support config using default.\n");
 	} else {
 		reclining_data->edge_sliding_exit_yfsr_thd = temp_array[1];
 		reclining_data->edge_sliding_exit_distance = grip_info->max_y / temp_array[2];
@@ -4908,7 +4927,7 @@ static int kernel_grip_init_v4(struct kernel_grip_info *grip_info, struct device
 		reclining_data->long_stable_coupling_thd = normal_data->long_stable_coupling_thd;
 		reclining_data->long_hold_changed_thd = normal_data->long_hold_changed_thd;
 		reclining_data->long_hold_maxfsr_gap = normal_data->long_hold_maxfsr_gap;
-		TPD_INFO("long_edge_condition_recli using default.\n");
+		GRIP_TP_INFO("long_edge_condition_recli using default.\n");
 	} else {
 		reclining_data->long_start_coupling_thd = temp_array[0];
 		reclining_data->long_stable_coupling_thd = temp_array[1];
@@ -4950,7 +4969,7 @@ static int kernel_grip_init_V2(struct kernel_grip_info *grip_info, struct device
 	if (ret) {
 		grip_info->max_x = 1080;
 		grip_info->max_y = 2340;
-		TPD_INFO("panel coords using default.\n");
+		GRIP_TP_INFO("panel coords using default.\n");
 	} else {
 		grip_info->max_x = temp_array[0];
 		grip_info->max_y = temp_array[1];
@@ -4960,7 +4979,7 @@ static int kernel_grip_init_V2(struct kernel_grip_info *grip_info, struct device
 	if (ret) {
 		grip_info->tx_num = 0;
 		grip_info->rx_num = 0;
-		TPD_INFO("panel tx rx not set.\n");
+		GRIP_TP_INFO("panel tx rx not set.\n");
 	} else {
 		grip_info->tx_num = temp_array[0];
 		grip_info->rx_num = temp_array[1];
@@ -4969,7 +4988,7 @@ static int kernel_grip_init_V2(struct kernel_grip_info *grip_info, struct device
 	ret = of_property_read_u32_array(dev->of_node, "prevention,grip_disable_level", temp_array, 1);
 	if (ret) {
 		grip_info->grip_disable_level = 0;
-		TPD_INFO("grip disable level using default.\n");
+		GRIP_TP_INFO("grip disable level using default.\n");
 	} else {
 		grip_info->grip_disable_level = temp_array[0];
 	}
@@ -4986,13 +5005,13 @@ static int kernel_grip_init_V2(struct kernel_grip_info *grip_info, struct device
 		makeup_para[2] = 2;
 		makeup_para[3] = 2;
 		makeup_para[4] = 1;
-		TPD_INFO("makeup cnt and weight using default.\n");
+		GRIP_TP_INFO("makeup cnt and weight using default.\n");
 	}
 
 	ret = of_property_read_u32_array(dev->of_node, "prevention,updelay_time_ms", temp_array, 1);
 	if (ret) {
 		grip_info->report_updelay_ms = 30;
-		TPD_INFO("grip updelay time using default.\n");
+		GRIP_TP_INFO("grip updelay time using default.\n");
 	} else {
 		grip_info->report_updelay_ms = temp_array[0];
 	}
@@ -5001,7 +5020,7 @@ static int kernel_grip_init_V2(struct kernel_grip_info *grip_info, struct device
 	if (ret) {
 		grip_info->large_corner_width = 200;
 		grip_info->large_corner_height = 300;
-		TPD_INFO("large corner range using default.\n");
+		GRIP_TP_INFO("large corner range using default.\n");
 	} else {
 		grip_info->large_corner_width = temp_array[0];
 		grip_info->large_corner_height = temp_array[1];
@@ -5014,7 +5033,7 @@ static int kernel_grip_init_V2(struct kernel_grip_info *grip_info, struct device
 		grip_info->large_corner_exit_distance = 75;
 		grip_info->xfsr_corner_exit_thd = 4;
 		grip_info->yfsr_corner_exit_thd = 4;
-		TPD_INFO("large corner judge condition using default.\n");
+		GRIP_TP_INFO("large corner judge condition using default.\n");
 	} else {
 		grip_info->large_corner_detect_time_ms = temp_array[0];
 		grip_info->large_corner_debounce_ms = temp_array[1];
@@ -5022,13 +5041,14 @@ static int kernel_grip_init_V2(struct kernel_grip_info *grip_info, struct device
 		grip_info->xfsr_corner_exit_thd = temp_array[3];
 		grip_info->yfsr_corner_exit_thd = temp_array[4];
 	}
+	grip_info->large_corner_detect_time_ms_restore = grip_info->large_corner_detect_time_ms;
 
 	ret = of_property_read_u32_array(dev->of_node, "prevention,trx_reject_condition", temp_array, 3);
 	if (ret) {
 		grip_info->trx_reject_thd = 8;
 		grip_info->rx_reject_thd = 5;
 		grip_info->tx_reject_thd = 5;
-		TPD_INFO("tx rx reject condition using default.\n");
+		GRIP_TP_INFO("tx rx reject condition using default.\n");
 	} else {
 		grip_info->trx_reject_thd = temp_array[0];
 		grip_info->rx_reject_thd = temp_array[1];
@@ -5040,7 +5060,7 @@ static int kernel_grip_init_V2(struct kernel_grip_info *grip_info, struct device
 		grip_info->long_detect_time_ms = 400;
 		grip_info->large_reject_debounce_time_ms = 60;
 		grip_info->fsr_stable_time_thd = 30;
-		TPD_INFO("large judge times using default.\n");
+		GRIP_TP_INFO("large judge times using default.\n");
 	} else {
 		grip_info->long_detect_time_ms = temp_array[0];
 		grip_info->large_reject_debounce_time_ms = temp_array[1];
@@ -5052,7 +5072,7 @@ static int kernel_grip_init_V2(struct kernel_grip_info *grip_info, struct device
 		grip_info->xfsr_normal_exit_thd = 8;
 		grip_info->yfsr_normal_exit_thd = 8;
 		grip_info->exit_match_thd = 2;
-		TPD_INFO("large exit condition using default.\n");
+		GRIP_TP_INFO("large exit condition using default.\n");
 	} else {
 		grip_info->xfsr_normal_exit_thd = temp_array[0];
 		grip_info->yfsr_normal_exit_thd = temp_array[1];
@@ -5063,7 +5083,7 @@ static int kernel_grip_init_V2(struct kernel_grip_info *grip_info, struct device
 	if (ret) {
 		grip_info->single_channel_x_len = 40;
 		grip_info->single_channel_y_len = 40;
-		TPD_INFO("single channel width using default.\n");
+		GRIP_TP_INFO("single channel width using default.\n");
 	} else {
 		grip_info->single_channel_x_len = temp_array[0];
 		grip_info->single_channel_y_len = temp_array[1];
@@ -5073,7 +5093,7 @@ static int kernel_grip_init_V2(struct kernel_grip_info *grip_info, struct device
 	if (ret) {
 		grip_info->normal_tap_min_time_ms = 45;
 		grip_info->normal_tap_max_time_ms = 150;
-		TPD_INFO("normal tap condition using default.\n");
+		GRIP_TP_INFO("normal tap condition using default.\n");
 	} else {
 		grip_info->normal_tap_min_time_ms = temp_array[0];
 		grip_info->normal_tap_max_time_ms = temp_array[1];
@@ -5085,7 +5105,7 @@ static int kernel_grip_init_V2(struct kernel_grip_info *grip_info, struct device
 		normal_data->long_stable_coupling_thd = 95;
 		normal_data->long_hold_changed_thd = 160;
 		normal_data->long_hold_maxfsr_gap = 200;
-		TPD_INFO("large long edge hold condition using default.\n");
+		GRIP_TP_INFO("large long edge hold condition using default.\n");
 	} else {
 		normal_data->long_start_coupling_thd = temp_array[0];
 		normal_data->long_stable_coupling_thd = temp_array[1];
@@ -5100,7 +5120,7 @@ static int kernel_grip_init_V2(struct kernel_grip_info *grip_info, struct device
 		grip_info->long_hold_divided_factor = 6;    //default value, no need to change it
 		grip_info->xfsr_hold_exit_thd = 0;
 		grip_info->yfsr_hold_exit_thd = 0;
-		TPD_INFO("large long finger hold condition using default.\n");
+		GRIP_TP_INFO("large long finger hold condition using default.\n");
 	} else {
 		grip_info->long_hold_debounce_time_ms = temp_array[0];
 		grip_info->long_hold_divided_factor = temp_array[1];
@@ -5114,7 +5134,7 @@ static int kernel_grip_init_V2(struct kernel_grip_info *grip_info, struct device
 		grip_info->short_stable_coupling_thd = 91;
 		grip_info->short_hold_changed_thd = 160;
 		grip_info->short_hold_maxfsr_gap = 200;
-		TPD_INFO("large short edge hold condition using default.\n");
+		GRIP_TP_INFO("large short edge hold condition using default.\n");
 	} else {
 		grip_info->short_start_coupling_thd = temp_array[0];
 		grip_info->short_stable_coupling_thd = temp_array[1];
@@ -5127,7 +5147,7 @@ static int kernel_grip_init_V2(struct kernel_grip_info *grip_info, struct device
 		grip_info->large_top_width = 400;
 		grip_info->large_top_height = 600;
 		grip_info->large_top_exit_distance = 200;
-		TPD_INFO("top corner config using default.\n");
+		GRIP_TP_INFO("top corner config using default.\n");
 	} else {
 		grip_info->large_top_width = temp_array[0];
 		grip_info->large_top_height = temp_array[1];
@@ -5138,7 +5158,7 @@ static int kernel_grip_init_V2(struct kernel_grip_info *grip_info, struct device
 	if (ret) {
 		grip_info->edge_swipe_narrow_witdh = 80;
 		grip_info->edge_swipe_exit_distance = 300;
-		TPD_INFO("edge swipe config using default.\n");
+		GRIP_TP_INFO("edge swipe config using default.\n");
 	} else {
 		grip_info->edge_swipe_narrow_witdh = temp_array[0];
 		grip_info->edge_swipe_exit_distance = temp_array[1];
@@ -5149,7 +5169,7 @@ static int kernel_grip_init_V2(struct kernel_grip_info *grip_info, struct device
 		grip_info->trx_strict_reject_thd = 7;
 		grip_info->rx_strict_reject_thd = 5;
 		grip_info->tx_strict_reject_thd = 5;
-		TPD_INFO("trx strict reject using default.\n");
+		GRIP_TP_INFO("trx strict reject using default.\n");
 	} else {
 		grip_info->trx_strict_reject_thd = temp_array[0];
 		grip_info->rx_strict_reject_thd = temp_array[1];
@@ -5160,7 +5180,7 @@ static int kernel_grip_init_V2(struct kernel_grip_info *grip_info, struct device
 	if (ret) {
 		grip_info->long_strict_start_coupling_thd = 89;
 		grip_info->long_strict_stable_coupling_thd = 49;
-		TPD_INFO("long strict edge condition using default.\n");
+		GRIP_TP_INFO("long strict edge condition using default.\n");
 	} else {
 		grip_info->long_strict_start_coupling_thd = temp_array[0];
 		grip_info->long_strict_stable_coupling_thd = temp_array[1];
@@ -5171,7 +5191,7 @@ static int kernel_grip_init_V2(struct kernel_grip_info *grip_info, struct device
 	if (ret) {
 		grip_info->short_strict_start_coupling_thd = 89;
 		grip_info->short_strict_stable_coupling_thd = 49;
-		TPD_INFO("short strict edge condition using default.\n");
+		GRIP_TP_INFO("short strict edge condition using default.\n");
 	} else {
 		grip_info->short_strict_start_coupling_thd = temp_array[0];
 		grip_info->short_strict_stable_coupling_thd = temp_array[1];
@@ -5181,7 +5201,7 @@ static int kernel_grip_init_V2(struct kernel_grip_info *grip_info, struct device
 	if (ret) {
 		grip_info->xfsr_strict_exit_thd = grip_info->xfsr_normal_exit_thd;
 		grip_info->yfsr_strict_exit_thd = grip_info->xfsr_normal_exit_thd;
-		TPD_INFO("large strict exit condition using default.\n");
+		GRIP_TP_INFO("large strict exit condition using default.\n");
 	} else {
 		grip_info->xfsr_strict_exit_thd = temp_array[0];
 		grip_info->yfsr_strict_exit_thd = temp_array[1];
@@ -5190,14 +5210,14 @@ static int kernel_grip_init_V2(struct kernel_grip_info *grip_info, struct device
 	ret = of_property_read_u32_array(dev->of_node, "prevention,corner_move_rejected", temp_array, 1);
 	if (ret) {
 		grip_info->corner_move_rejected = 0;
-		TPD_INFO("corner move rejected using default.\n");
+		GRIP_TP_INFO("corner move rejected using default.\n");
 	} else {
 		grip_info->corner_move_rejected = temp_array[0];
 	}
 
 	grip_info->corner_eliminate_point_support = of_property_read_bool(dev->of_node, "prevention,corner_eliminate_point_support");
 	if (grip_info->corner_eliminate_point_support) {
-		TPD_INFO("corner eliminate point enable.\n");
+		GRIP_TP_INFO("corner eliminate point enable.\n");
 	}
 
 	grip_info->coord_filter_cnt = makeup_para[0];
@@ -5230,7 +5250,7 @@ static int kernel_grip_init_V2(struct kernel_grip_info *grip_info, struct device
 	grip_info->is_curved_screen_v4 = of_property_read_bool(dev->of_node, "prevention,curved_screen_V4")
 		|| of_property_read_bool(dev->of_node, "prevention,curved_screen_v4");
 	if (grip_info->is_curved_screen_v4) {
-	    TPD_INFO("this is is_curved_screen_v4.\n");
+	    GRIP_TP_INFO("this is is_curved_screen_v4.\n");
 	    ret = kernel_grip_init_v4(grip_info, dev);
 	    if (ret < 0) {
 	    	return 0;
@@ -5277,7 +5297,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 	}
 
 	grip_info->p_ts = ts;
-
+	grip_info->tp_index = ts->tp_index;
 	grip_info->coord_buf = NULL;
 	grip_info->grip_up_handle_wq = NULL;
 
@@ -5289,7 +5309,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 	if (ret) {
 		grip_info->max_x = 1080;
 		grip_info->max_y = 2340;
-		TPD_INFO("panel coords using default.\n");
+		GRIP_TP_INFO("panel coords using default.\n");
 
 	} else {
 		grip_info->max_x = temp_array[0];
@@ -5301,7 +5321,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 
 	if (ret) {
 		grip_info->grip_disable_level = 0;
-		TPD_INFO("grip disable level using default.\n");
+		GRIP_TP_INFO("grip disable level using default.\n");
 
 	} else {
 		grip_info->grip_disable_level = temp_array[0];
@@ -5314,7 +5334,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		no_handle_para[0] = 0;
 		no_handle_para[1] = 0;
 		no_handle_para[2] = 0;
-		TPD_INFO("grip no handle para using default.\n");
+		GRIP_TP_INFO("grip no handle para using default.\n");
 	}
 
 	ret = of_property_read_u32_array(dev->of_node, "prevention,dead_area_width",
@@ -5323,7 +5343,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 	if (ret) {
 		dead_width[0] = 10;
 		dead_width[1] = 10;
-		TPD_INFO("panel coords using default.\n");
+		GRIP_TP_INFO("panel coords using default.\n");
 	}
 
 	ret = of_property_read_u32_array(dev->of_node, "prevention,makeup_cnt_weight",
@@ -5335,7 +5355,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		makeup_para[2] = 2;
 		makeup_para[3] = 2;
 		makeup_para[4] = 1;
-		TPD_INFO("makeup cnt and weight using default.\n");
+		GRIP_TP_INFO("makeup cnt and weight using default.\n");
 	}
 
 	ret = of_property_read_u32_array(dev->of_node, "prevention,large_judge_para",
@@ -5345,7 +5365,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		large_para[0] = 3;
 		large_para[1] = 300;
 		large_para[2] = 300;
-		TPD_INFO("large judge para using default.\n");
+		GRIP_TP_INFO("large judge para using default.\n");
 	}
 
 	ret = of_property_read_u32_array(dev->of_node,
@@ -5358,15 +5378,15 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		large_corner_para[3] = 30;
 		large_corner_para[4] = 30;
 		large_corner_para[5] = 1;
-		TPD_INFO("large corner judge para using default.\n");
+		GRIP_TP_INFO("large corner judge para using default.\n");
 	}
 	grip_info->is_curved_screen = of_property_read_bool(dev->of_node, "prevention,curved_screen");
 	if (grip_info->is_curved_screen) {
-		TPD_INFO("this is curved screen.\n");
+		GRIP_TP_INFO("this is curved screen.\n");
 	}
 	grip_info->is_curved_screen_V2 = of_property_read_bool(dev->of_node, "prevention,curved_screen_V2");
 	if (grip_info->is_curved_screen_V2) {
-		TPD_INFO("this is curved screen V2.\n");
+		GRIP_TP_INFO("this is curved screen V2.\n");
 		ret = kernel_grip_init_V2(grip_info, dev);
 		if (ret < 0) {
 			return NULL;
@@ -5388,7 +5408,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 			long_judge_para[8] = 5;
 			long_judge_para[9] = 3;
 			long_judge_para[10] = 3;
-			TPD_INFO("curved large long side judge para using default.\n");
+			GRIP_TP_INFO("curved large long side judge para using default.\n");
 		}
 
 		ret = of_property_read_u32_array(dev->of_node, "prevention,large_curved_short_judge_para", short_judge_para, 11);
@@ -5404,7 +5424,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 			short_judge_para[8] = 5;
 			short_judge_para[9] = 2;
 			short_judge_para[10] = 2;
-			TPD_INFO("curved large corner judge para using default.\n");
+			GRIP_TP_INFO("curved large corner judge para using default.\n");
 		}
 
 		ret = of_property_read_u32_array(dev->of_node, "prevention,curved_large_area_width", curved_large_width, 5);
@@ -5414,13 +5434,13 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 			curved_large_width[2] = 80;
 			curved_large_width[3] = 2;
 			curved_large_width[4] = 2;
-			TPD_INFO("curved large area width para using default.\n");
+			GRIP_TP_INFO("curved large area width para using default.\n");
 		}
 
 		ret = of_property_read_u32_array(dev->of_node, "prevention,grip_large_detect_time", temp_array, 1);
 		if (ret) {
 			grip_info->large_detect_time_ms = 150;
-			TPD_INFO("grip large detect times using default.\n");
+			GRIP_TP_INFO("grip large detect times using default.\n");
 		} else {
 			grip_info->large_detect_time_ms = temp_array[0];
 		}
@@ -5428,7 +5448,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		ret = of_property_read_u32_array(dev->of_node, "prevention,grip_down_delta_time", temp_array, 1);
 		if (ret) {
 			grip_info->down_delta_time_ms = 100;
-			TPD_INFO("grip down delta time using default.\n");
+			GRIP_TP_INFO("grip down delta time using default.\n");
 		} else {
 			grip_info->down_delta_time_ms = temp_array[0];
 		}
@@ -5440,7 +5460,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 	if (ret) {
 		cond_para[0] = 40;
 		cond_para[1] = 50;
-		TPD_INFO("condition judge para using default.\n");
+		GRIP_TP_INFO("condition judge para using default.\n");
 	}
 
 	ret = of_property_read_u32_array(dev->of_node,
@@ -5451,7 +5471,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		cond_width[1] = 30;
 		cond_width[2] = 100;
 		cond_width[3] = 80;
-		TPD_INFO("condition area width using default.\n");
+		GRIP_TP_INFO("condition area width using default.\n");
 	}
 
 	ret = of_property_read_u32_array(dev->of_node, "prevention,large_area_width",
@@ -5460,7 +5480,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 	if (ret) {
 		large_width[0] = 100;
 		large_width[1] = 100;
-		TPD_INFO("large area width using default.\n");
+		GRIP_TP_INFO("large area width using default.\n");
 	}
 
 	ret = of_property_read_u32_array(dev->of_node, "prevention,large_corner_width",
@@ -5470,7 +5490,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		large_corner_width[0] = 120;
 		large_corner_width[1] = 200;
 		large_corner_width[2] = 20;
-		TPD_INFO("large corner width using default.\n");
+		GRIP_TP_INFO("large corner width using default.\n");
 	}
 
 	ret = of_property_read_u32_array(dev->of_node, "prevention,eli_area_width",
@@ -5483,14 +5503,14 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		eli_width[3] = 120;
 		eli_width[4] = 250;
 		eli_width[5] = 120;
-		TPD_INFO("eli area width using default.\n");
+		GRIP_TP_INFO("eli area width using default.\n");
 	}
 
 	grip_info->grip_handle_in_fw = of_property_read_bool(dev->of_node,
 				       "prevention,grip_handle_in_fw");
 
 	if (grip_info->grip_handle_in_fw) {
-		TPD_INFO("grip area will handle in fw.\n");
+		GRIP_TP_INFO("grip area will handle in fw.\n");
 	}
 
 
@@ -5498,7 +5518,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 					 "prevention,dir_change_set_grip");
 
 	if (grip_info->dir_change_set_grip) {
-		TPD_INFO("dir_change_set_grip in fw.\n");
+		GRIP_TP_INFO("dir_change_set_grip in fw.\n");
 	}
 
 	/*dead zone grip init*/
@@ -5517,7 +5537,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->dead_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for ver_left_dead failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for ver_left_dead failed.\n");
 	}
 
 	grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
@@ -5534,7 +5554,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->dead_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for ver_right_dead failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for ver_right_dead failed.\n");
 	}
 
 	grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
@@ -5551,7 +5571,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->dead_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for hor_left_dead failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for hor_left_dead failed.\n");
 	}
 
 	grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
@@ -5568,7 +5588,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->dead_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for hor_right_dead failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for hor_right_dead failed.\n");
 	}
 
 	grip_info->large_frame_limit = large_para[0];
@@ -5646,7 +5666,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->condition_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for coord_buffer failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for coord_buffer failed.\n");
 	}
 
 	grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
@@ -5664,7 +5684,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->condition_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for ver_right_condtion failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for ver_right_condtion failed.\n");
 	}
 
 	grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
@@ -5682,7 +5702,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->condition_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for hor_left_condtion failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for hor_left_condtion failed.\n");
 	}
 
 	grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
@@ -5700,7 +5720,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->condition_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for hor_right_condtion failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for hor_right_condtion failed.\n");
 	}
 
 	/*corner large grip init*/
@@ -5720,7 +5740,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->large_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for hor90_left_large_corner failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for hor90_left_large_corner failed.\n");
 	}
 
 	grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
@@ -5738,7 +5758,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->large_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for hor90_right_large_corner failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for hor90_right_large_corner failed.\n");
 	}
 
 	grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
@@ -5756,7 +5776,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->large_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for hor270_left_large_corner failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for hor270_left_large_corner failed.\n");
 	}
 
 	grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
@@ -5774,7 +5794,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->large_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for hor270_right_large_corner failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for hor270_right_large_corner failed.\n");
 	}
 
 	grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
@@ -5791,7 +5811,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->large_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for ver_left_bottom_large failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for ver_left_bottom_large failed.\n");
 	}
 
 	grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
@@ -5808,7 +5828,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->large_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for ver_right_bottom_large failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for ver_right_bottom_large failed.\n");
 	}
 
 	/*large grip init*/
@@ -5826,7 +5846,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->large_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for hor_left_large failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for hor_left_large failed.\n");
 	}
 
 	grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
@@ -5843,7 +5863,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->large_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for hor_right_large failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for hor_right_large failed.\n");
 	}
 
 	grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
@@ -5860,7 +5880,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->large_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for ver_left_large failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for ver_left_large failed.\n");
 	}
 
 	grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
@@ -5877,7 +5897,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->large_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for ver_right_large failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for ver_right_large failed.\n");
 	}
 	//curved large grip init
 	if (grip_info->is_curved_screen) {
@@ -5895,7 +5915,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 			grip_zone->support_dir = (1 << LANDSCAPE_SCREEN_90) | (1 << LANDSCAPE_SCREEN_270);
 			list_add_tail(&grip_zone->area_list, &grip_info->large_zone_list);
 		} else {
-			TPD_INFO("kzalloc grip_zone_area for hor_left_large failed.\n");
+			GRIP_TP_INFO("kzalloc grip_zone_area for hor_left_large failed.\n");
 		}
 		grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
 		if (grip_zone) {
@@ -5911,7 +5931,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 			grip_zone->support_dir = (1 << LANDSCAPE_SCREEN_90) | (1 << LANDSCAPE_SCREEN_270);
 			list_add_tail(&grip_zone->area_list, &grip_info->large_zone_list);
 		} else {
-			TPD_INFO("kzalloc grip_zone_area for hor_right_large failed.\n");
+			GRIP_TP_INFO("kzalloc grip_zone_area for hor_right_large failed.\n");
 		}
 		grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
 		if (grip_zone) {
@@ -5927,7 +5947,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 			grip_zone->support_dir = (1 << VERTICAL_SCREEN) | (1 << LANDSCAPE_SCREEN_90) | (1 << LANDSCAPE_SCREEN_270);
 			list_add_tail(&grip_zone->area_list, &grip_info->large_zone_list);
 		} else {
-			TPD_INFO("kzalloc grip_zone_area for ver_left_large failed.\n");
+			GRIP_TP_INFO("kzalloc grip_zone_area for ver_left_large failed.\n");
 		}
 		grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
 		if (grip_zone) {
@@ -5943,7 +5963,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 			grip_zone->support_dir = (1 << VERTICAL_SCREEN) | (1 << LANDSCAPE_SCREEN_90) | (1 << LANDSCAPE_SCREEN_270);
 			list_add_tail(&grip_zone->area_list, &grip_info->large_zone_list);
 		} else {
-			TPD_INFO("kzalloc grip_zone_area for ver_right_large failed.\n");
+			GRIP_TP_INFO("kzalloc grip_zone_area for ver_right_large failed.\n");
 		}
 	}
 
@@ -5979,7 +5999,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->elimination_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for ver_left_eli failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for ver_left_eli failed.\n");
 	}
 
 	grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
@@ -5995,7 +6015,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->elimination_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for ver_right_eli failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for ver_right_eli failed.\n");
 	}
 
 	grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
@@ -6011,7 +6031,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->elimination_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for hor_90_left_0_eli failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for hor_90_left_0_eli failed.\n");
 	}
 
 	grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
@@ -6027,7 +6047,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->elimination_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for hor_90_left_1_eli failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for hor_90_left_1_eli failed.\n");
 	}
 
 	grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
@@ -6043,7 +6063,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->elimination_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for hor_90_right_0_eli failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for hor_90_right_0_eli failed.\n");
 	}
 
 	grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
@@ -6059,7 +6079,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->elimination_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for hor_90_right_1_eli failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for hor_90_right_1_eli failed.\n");
 	}
 
 	grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
@@ -6075,7 +6095,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->elimination_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for hor_270_left_0_eli failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for hor_270_left_0_eli failed.\n");
 	}
 
 	grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
@@ -6091,7 +6111,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->elimination_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for hor_270_left_1_eli failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for hor_270_left_1_eli failed.\n");
 	}
 
 	grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
@@ -6107,7 +6127,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->elimination_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for hor_270_right_0_eli failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for hor_270_right_0_eli failed.\n");
 	}
 
 	grip_zone = kzalloc(sizeof(struct grip_zone_area), GFP_KERNEL);
@@ -6123,7 +6143,7 @@ struct kernel_grip_info *kernel_grip_init(struct device *dev)
 		list_add_tail(&grip_zone->area_list, &grip_info->elimination_zone_list);
 
 	} else {
-		TPD_INFO("kzalloc grip_zone_area for hor_270_right_1_eli failed.\n");
+		GRIP_TP_INFO("kzalloc grip_zone_area for hor_270_right_1_eli failed.\n");
 	}
 
 	return grip_info;

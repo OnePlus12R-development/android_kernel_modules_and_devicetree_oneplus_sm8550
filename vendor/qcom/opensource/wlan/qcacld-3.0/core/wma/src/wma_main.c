@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -120,6 +120,7 @@
 #include "wlan_fwol_ucfg_api.h"
 #include "wlan_tdls_api.h"
 #include "wlan_twt_cfg_ext_api.h"
+#include "wlan_mlo_mgr_sta.h"
 
 #define WMA_LOG_COMPLETION_TIMER 500 /* 500 msecs */
 #define WMI_TLV_HEADROOM 128
@@ -325,6 +326,22 @@ wma_get_concurrency_support(struct wlan_objmgr_psoc *psoc)
 }
 
 /**
+ * wma_update_set_feature_version() - Update the set feature version
+ *
+ * @fs: Feature set structure in which version needs to be updated.
+ *
+ * Version 1 - Base feature version
+ * Version 2 - WMI_HOST_VENDOR1_REQ1_VERSION_3_30 updated.
+ * Version 3 - min sleep period for TWT and Scheduled PM in FW updated
+ *
+ * Return: None
+ */
+static void wma_update_set_feature_version(struct target_feature_set *fs)
+{
+	fs->feature_set_version = 4;
+}
+
+/**
  * wma_set_feature_set_info() - Set feature set info
  * @wma_handle: WMA handle
  * @feature_set: Feature set structure which needs to be filled
@@ -340,7 +357,7 @@ static void wma_set_feature_set_info(tp_wma_handle wma_handle,
 	struct wlan_scan_features scan_feature_set;
 	struct wlan_twt_features twt_feature_set;
 	struct wlan_mlme_features mlme_feature_set;
-	struct wlan_tdls_features tdls_feature_set;
+	struct wlan_tdls_features tdls_feature_set = {0};
 
 	psoc = wma_handle->psoc;
 	if (!psoc) {
@@ -437,9 +454,9 @@ static void wma_set_feature_set_info(tp_wma_handle wma_handle,
 	feature_set->supported_dot11mode = feature_set->wifi_standard;
 	feature_set->sap_wpa3_support = true;
 	feature_set->assurance_disconnect_reason_api = true;
-	feature_set->frame_pcap_log_mgmt = true;
-	feature_set->frame_pcap_log_ctrl = true;
-	feature_set->frame_pcap_log_data = true;
+	feature_set->frame_pcap_log_mgmt = false;
+	feature_set->frame_pcap_log_ctrl = false;
+	feature_set->frame_pcap_log_data = false;
 
 	/*
 	 * This information is hardcoded based on hdd_sta_akm_suites,
@@ -479,7 +496,8 @@ static void wma_set_feature_set_info(tp_wma_handle wma_handle,
 	feature_set->peer_bigdata_getbssinfo_support = true;
 	feature_set->peer_bigdata_assocreject_info_support = true;
 	feature_set->peer_getstainfo_support = true;
-	feature_set->feature_set_version = 1;
+	feature_set->feature_set_version = 2;
+	wma_update_set_feature_version(feature_set);
 }
 
 /**
@@ -1154,6 +1172,18 @@ static inline bool wma_is_tx_chainmask_valid(int value,
 	return false;
 }
 
+#ifdef QCA_MULTIPASS_SUPPORT
+inline bool wma_is_multipass_sap(struct target_psoc_info *tgt_hdl)
+{
+	return tgt_hdl->info.service_ext2_param.is_multipass_sap;
+}
+#else
+inline bool wma_is_multipass_sap(struct target_psoc_info *tgt_hdl)
+{
+	return false;
+}
+#endif
+
 /**
  * wma_convert_ac_value() - map ac setting to the value to be used in FW.
  * @ac_value: ac value to be mapped.
@@ -1178,6 +1208,50 @@ static inline wmi_traffic_ac wma_convert_ac_value(uint32_t ac_value)
 	return WMI_AC_MAX;
 }
 
+#ifdef WLAN_FEATURE_11BE
+/**
+ * wma_set_per_link_amsdu_cap() - Set AMSDU/AMPDU capability per link to FW.
+ * @wma: wma handle
+ * @privcmd: pointer to set command parameters
+ * @aggr_type: aggregration type
+ *
+ * Return: QDF_STATUS_SUCCESS if set command is sent successfully, else
+ * QDF_STATUS_E_FAILURE
+ */
+static QDF_STATUS
+wma_set_per_link_amsdu_cap(tp_wma_handle wma, wma_cli_set_cmd_t *privcmd,
+			   wmi_vdev_custom_aggr_type_t aggr_type)
+{
+	uint8_t vdev_id;
+	uint8_t op_mode;
+	QDF_STATUS ret = QDF_STATUS_E_FAILURE;
+
+	for (vdev_id = 0; vdev_id < WLAN_MAX_VDEVS; vdev_id++) {
+		op_mode = wlan_get_opmode_from_vdev_id(wma->pdev, vdev_id);
+		if (op_mode == QDF_STA_MODE) {
+			ret = wma_set_tx_rx_aggr_size(vdev_id,
+						      privcmd->param_value,
+						      privcmd->param_value,
+						      aggr_type);
+			if (QDF_IS_STATUS_ERROR(ret)) {
+				wma_err("set_aggr_size failed for vdev: %d, ret %d",
+					vdev_id, ret);
+				return ret;
+			}
+		}
+	}
+
+	return ret;
+}
+#else
+static inline QDF_STATUS
+wma_set_per_link_amsdu_cap(tp_wma_handle wma, wma_cli_set_cmd_t *privcmd,
+			   wmi_vdev_custom_aggr_type_t aggr_type)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
+
 /**
  * wma_process_cli_set_cmd() - set parameters to fw
  * @wma: wma handle
@@ -1196,6 +1270,7 @@ static void wma_process_cli_set_cmd(tp_wma_handle wma,
 	struct pdev_params pdev_param = {0};
 	void *soc = cds_get_context(QDF_MODULE_ID_SOC);
 	struct target_psoc_info *tgt_hdl;
+	enum wlan_eht_mode eht_mode;
 
 	if (!mac) {
 		wma_err("Failed to get mac");
@@ -1301,13 +1376,24 @@ static void wma_process_cli_set_cmd(tp_wma_handle wma,
 					WMI_VDEV_CUSTOM_AGGR_TYPE_AMPDU;
 			}
 
-			ret = wma_set_tx_rx_aggr_size(vid,
-						      privcmd->param_value,
-						      privcmd->param_value,
-						      aggr_type);
-			if (QDF_IS_STATUS_ERROR(ret)) {
-				wma_err("set_aggr_size failed ret %d", ret);
-				return;
+			wlan_mlme_get_eht_mode(wma->psoc, &eht_mode);
+			if (eht_mode == WLAN_EHT_MODE_MLSR ||
+			    eht_mode == WLAN_EHT_MODE_MLMR) {
+				ret = wma_set_per_link_amsdu_cap(wma, privcmd,
+								 aggr_type);
+				if (QDF_IS_STATUS_ERROR(ret))
+					return;
+			} else {
+				ret = wma_set_tx_rx_aggr_size(
+							vid,
+							privcmd->param_value,
+							privcmd->param_value,
+							aggr_type);
+				if (QDF_IS_STATUS_ERROR(ret)) {
+					wma_err("set_aggr_size failed ret %d",
+						ret);
+					return;
+				}
 			}
 			break;
 		case GEN_PARAM_CRASH_INJECT:
@@ -5057,6 +5143,38 @@ static inline void wma_get_dynamic_vdev_macaddr_support(
 }
 #endif
 
+#ifdef WLAN_FEATURE_NAN
+/**
+ * wma_nan_set_pairing_feature() - set feature bit for Secure NAN if max
+ * pairing session has non-zero value.
+ *
+ * Return: none
+ */
+static void wma_nan_set_pairing_feature(void)
+{
+	tp_wma_handle wma_handle = cds_get_context(QDF_MODULE_ID_WMA);
+	struct target_psoc_info *tgt_hdl;
+	struct wlan_objmgr_psoc *psoc;
+
+	if (!wma_handle) {
+		wma_err("wma handle is null");
+		return;
+	}
+
+	psoc = wma_handle->psoc;
+	tgt_hdl = wlan_psoc_get_tgt_if_handle(psoc);
+	if (!tgt_hdl) {
+		wma_err("tgt_hdl is null");
+		return;
+	}
+
+	if (tgt_hdl->info.service_ext2_param.max_nan_pairing_sessions) {
+		wma_set_fw_wlan_feat_caps(SECURE_NAN);
+		wma_debug("Secure NAN is enabled");
+	}
+}
+#endif /* WLAN_FEATURE_NAN */
+
 /**
  * wma_update_target_services() - update target services from wma handle
  * @wmi_handle: Unified wmi handle
@@ -5149,6 +5267,7 @@ static inline void wma_update_target_services(struct wmi_unified *wmi_handle,
 #ifdef WLAN_FEATURE_NAN
 	if (wmi_service_enabled(wmi_handle, wmi_service_nan))
 		g_fw_wlan_feat_caps |= (1 << NAN);
+	wma_nan_set_pairing_feature();
 #endif /* WLAN_FEATURE_NAN */
 
 	if (wmi_service_enabled(wmi_handle, wmi_service_rtt))
@@ -5765,9 +5884,11 @@ static void wma_green_ap_register_handlers(tp_wma_handle wma_handle)
 		target_if_green_ap_register_egap_event_handler(
 					wma_handle->pdev);
 
+	target_if_green_ap_register_ll_ps_event_handler(wma_handle->pdev);
+
 }
 #else
-static void wma_green_ap_register_handlers(tp_wma_handle wma_handle)
+static inline void wma_green_ap_register_handlers(tp_wma_handle wma_handle)
 {
 }
 #endif
@@ -6186,6 +6307,11 @@ static void wma_set_mlme_caps(struct wlan_objmgr_psoc *psoc)
 				      wmi_service_suiteb_roam_support);
 	if (tgt_cap)
 		akm_bitmap |= (1 << AKM_SUITEB);
+
+	tgt_cap = wmi_service_enabled(wma->wmi_handle,
+				      wmi_service_wpa3_sha384_roam_support);
+	if (tgt_cap)
+		akm_bitmap |= (1 << AKM_SAE_EXT);
 
 	status = mlme_set_tgt_wpa3_roam_cap(psoc, akm_bitmap);
 	if (QDF_IS_STATUS_ERROR(status))
@@ -7077,10 +7203,13 @@ static void wma_update_hw_mode_config(tp_wma_handle wma_handle,
 				     fw_config_bits);
 }
 
+#define MAX_GRP_KEY 16
+
 int wma_rx_service_ready_ext2_event(void *handle, uint8_t *ev, uint32_t len)
 {
 	tp_wma_handle wma_handle = (tp_wma_handle)handle;
 	struct target_psoc_info *tgt_hdl;
+	target_resource_config *wlan_res_cfg;
 	QDF_STATUS status;
 
 	wma_debug("Enter");
@@ -7093,6 +7222,12 @@ int wma_rx_service_ready_ext2_event(void *handle, uint8_t *ev, uint32_t len)
 		wma_err("target psoc info is NULL");
 		return -EINVAL;
 	}
+
+	wlan_res_cfg = target_psoc_get_wlan_res_cfg(tgt_hdl);
+
+	if (wlan_mlme_is_multipass_sap(wma_handle->psoc))
+		wlan_res_cfg->max_num_group_keys = MAX_GRP_KEY;
+
 	status = policy_mgr_update_sbs_freq(wma_handle->psoc, tgt_hdl);
 	if (QDF_IS_STATUS_ERROR(status))
 		return -EINVAL;
@@ -8785,8 +8920,8 @@ static QDF_STATUS wma_mc_process_msg(struct scheduler_msg *msg)
 		goto end;
 	}
 
-	wma_debug("msg->type = %x %s", msg->type,
-		 mac_trace_get_wma_msg_string(msg->type));
+	wma_nofl_debug("Handle msg %s(0x%x)",
+		       mac_trace_get_wma_msg_string(msg->type), msg->type);
 
 	wma_handle = cds_get_context(QDF_MODULE_ID_WMA);
 	if (!wma_handle) {
@@ -9412,6 +9547,12 @@ static QDF_STATUS wma_mc_process_msg(struct scheduler_msg *msg)
 		break;
 	case WMA_TWT_NUDGE_DIALOG_REQUEST:
 		wma_twt_process_nudge_dialog(wma_handle, msg->bodyptr);
+		qdf_mem_free(msg->bodyptr);
+		break;
+	case WMA_UPDATE_EDCA_PIFS_PARAM_IND:
+		wma_update_edca_pifs_param(
+				wma_handle,
+				(struct edca_pifs_vparam *)msg->bodyptr);
 		qdf_mem_free(msg->bodyptr);
 		break;
 	default:

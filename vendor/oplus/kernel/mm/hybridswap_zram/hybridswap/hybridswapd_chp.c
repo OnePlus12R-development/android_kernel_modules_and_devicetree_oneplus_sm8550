@@ -1313,6 +1313,7 @@ static void shrink_memcg_anon_pages(struct reclaim_control *rc)
 {
 	unsigned long memcgs_pages = 0;
 	unsigned long start = jiffies;
+	unsigned long reclaim_jiffies;
 	struct mem_cgroup *memcg = NULL;
 
 	if (unlikely(!boost_reclaim(rc, false)))
@@ -1327,7 +1328,8 @@ static void shrink_memcg_anon_pages(struct reclaim_control *rc)
 
 	rc->to_reclaim = min(rc->to_reclaim, (long)memcgs_pages);
 	rc->loop = rc->to_reclaim / per_cycle_pages;
-	mm_trace_fmt_begin("%d %ld", rc->type, rc->to_reclaim);
+	mm_trace_fmt_begin("%d,%ld,%lu,%lu", rc->type, rc->to_reclaim,
+			   global_zone_page_state(NR_FREE_PAGES), chp_free_pages());
 again:
 	while ((memcg = get_next_memcg(memcg))) {
 		memcg_hybs_t *hybs;
@@ -1376,9 +1378,14 @@ out:
 		chp_reclaim_failed += 1;
 
 	mm_trace_fmt_end();
-	chp_logi("type:%d to_reclaim:%ld reclaimed:%lu boosted:%d elapse:%dms\n",
-		 rc->type, rc->to_reclaim, rc->reclaimed, rc->boosted(rc),
-		 jiffies_to_msecs(jiffies - start));
+
+	/* reclaim : sleep = 1 : 1 */
+	reclaim_jiffies = jiffies - start;
+	set_current_state(TASK_INTERRUPTIBLE);
+	schedule_timeout(reclaim_jiffies);
+
+	chp_logi("type:%d to_reclaim:%ld reclaimed:%lu boosted:%d reclaim_jiffies:%lu\n",
+		 rc->type, rc->to_reclaim, rc->reclaimed, rc->boosted(rc), reclaim_jiffies);
 	return;
 }
 
@@ -1650,6 +1657,22 @@ static void vh_alloc_pages_slowpath(void *data, gfp_t gfp_flags,
 {
 	if (gfp_flags & __GFP_KSWAPD_RECLAIM)
 		wake_up_all_hybridswapds();
+}
+
+static void vh_shrink_slab_bypass(void *data, gfp_t gfp_mask, int nid,
+			   struct mem_cgroup *memcg, int priority,
+			   bool *bypass)
+{
+	/*
+	 * 1. hybridswapd do not shirink slab.
+	 * 2. thread who is doing force shrink, bypass shrink slab
+	 */
+	if (current_is_hybrid_swapd() || (current->flags & PF_BYPASS_SHRINK_SLAB) || current->prio > 120)
+		*bypass = true;
+#if IS_ENABLED(CONFIG_KSHRINK_SLABD)
+	else
+		should_shrink_async(data, gfp_mask, nid, memcg, priority, bypass);
+#endif
 }
 
 static int create_hybridswapd_thread(void)
@@ -2011,4 +2034,5 @@ void hybridswapd_chp_ops_init(struct hybridswapd_operations *ops)
 
 	ops->vh_alloc_pages_slowpath = vh_alloc_pages_slowpath;
 	ops->vh_tune_scan_type = vh_tune_scan_type;
+	ops->vh_shrink_slab_bypass = vh_shrink_slab_bypass;
 }

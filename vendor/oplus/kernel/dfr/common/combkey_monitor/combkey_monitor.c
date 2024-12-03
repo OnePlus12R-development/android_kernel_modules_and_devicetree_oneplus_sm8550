@@ -19,6 +19,9 @@
 #include "../../include/theia_send_event.h"
 #include "../../include/theia_bright_black_check.h"
 #endif
+#define CREATE_TRACE_POINTS
+#include "combkey_trace.h"
+#include <linux/time.h>
 
 #define KEY_DOWN_VALUE 1
 #define KEY_UP_VALUE 0
@@ -27,6 +30,11 @@ static struct delayed_work g_check_combkey_long_press_work;
 static struct delayed_work g_check_pwrkey_long_press_work;
 #define CHECK_COMBKEY_LONG_PRESS_MS 6000
 #define CHECK_PWRKEY_LONG_PRESS_MS 8000
+
+#define SYSTEM_ID 20120
+#define COMBKEY_DCS_TAG      "CriticalLog"
+#define COMBKEY_DCS_EVENTID  "Theia"
+#define PWRKEY_LONG_PRESS    "TheiaPwkLongPress"
 
 static bool is_pwrkey_down;
 static bool is_volumup_down;
@@ -45,12 +53,20 @@ static void combkey_long_press_callback(struct work_struct *work)
 		0, "kpdpwr_resin_bark happen");
 }
 
+static long get_timestamp_ms(void)
+{
+	struct timespec64 now;
+	ktime_get_real_ts64(&now);
+	return timespec64_to_ns(&now) / NSEC_PER_MSEC;
+}
+
 static void pwrkey_long_press_callback(struct work_struct *work)
 {
 	pr_info("called. send long press pwrkey to theia.\n");
 	theia_send_event(THEIA_EVENT_PWK_LONGPRESS, THEIA_LOGINFO_KERNEL_LOG
 		 | THEIA_LOGINFO_ANDROID_LOG | THEIA_LOGINFO_DUMPSYS_SF | THEIA_LOGINFO_BINDER_INFO,
 		0, "pwrkey long press happen");
+	trace_combkey_monitor(get_timestamp_ms(), SYSTEM_ID, COMBKEY_DCS_TAG, COMBKEY_DCS_EVENTID, PWRKEY_LONG_PRESS);
 }
 
 static int combkey_monitor_notifier_call(struct notifier_block *nb, unsigned long type, void *data)
@@ -63,7 +79,6 @@ static int combkey_monitor_notifier_call(struct notifier_block *nb, unsigned lon
 		pr_info("pwrkey handle enter.\n");
 		if (param->down == KEY_DOWN_VALUE) {
 			is_pwrkey_down = true;
-			set_pwk_flag(true);
 			pr_info("pwrkey pressed, call pwrkey monitor checker.\n");
 			black_screen_timer_restart();
 			bright_screen_timer_restart();

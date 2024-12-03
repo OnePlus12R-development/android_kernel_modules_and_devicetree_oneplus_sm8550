@@ -111,17 +111,14 @@ qdf_export_symbol(wlan_reg_get_pwrmode_chan_list);
 
 #ifdef CONFIG_REG_CLIENT
 QDF_STATUS
-wlan_reg_get_6g_power_type_for_ctry(struct wlan_objmgr_psoc *psoc,
-				    struct wlan_objmgr_pdev *pdev,
-				    uint8_t *ap_ctry, uint8_t *sta_ctry,
-				    enum reg_6g_ap_type *pwr_type_6g,
-				    bool *ctry_code_match,
-				    enum reg_6g_ap_type ap_pwr_type,
-				    uint32_t chan_freq)
+wlan_reg_get_best_6g_power_type(struct wlan_objmgr_psoc *psoc,
+				struct wlan_objmgr_pdev *pdev,
+				enum reg_6g_ap_type *pwr_type_6g,
+				enum reg_6g_ap_type ap_pwr_type,
+				uint32_t chan_freq)
 {
-	return reg_get_6g_power_type_for_ctry(psoc, pdev, ap_ctry, sta_ctry,
-					      pwr_type_6g, ctry_code_match,
-					      ap_pwr_type, chan_freq);
+	return reg_get_best_6g_power_type(psoc, pdev, pwr_type_6g,
+					  ap_pwr_type, chan_freq);
 }
 #endif
 
@@ -747,6 +744,15 @@ bool wlan_reg_is_etsi13_srd_chan_allowed_master_mode(struct wlan_objmgr_pdev
 	return reg_is_etsi13_srd_chan_allowed_master_mode(pdev);
 }
 
+bool wlan_reg_is_6ghz_band_set(struct wlan_objmgr_pdev *pdev)
+{
+	return reg_is_6ghz_band_set(pdev);
+}
+
+bool wlan_reg_get_keep_6ghz_sta_cli_connection(struct wlan_objmgr_pdev *pdev)
+{
+	return reg_get_keep_6ghz_sta_cli_connection(pdev);
+}
 bool wlan_reg_get_fcc_constraint(struct wlan_objmgr_pdev *pdev, uint32_t freq)
 {
 	return reg_get_fcc_constraint(pdev, freq);
@@ -1074,6 +1080,15 @@ enum channel_enum wlan_reg_get_chan_enum_for_freq(qdf_freq_t freq)
 	return reg_get_chan_enum_for_freq(freq);
 }
 
+QDF_STATUS
+wlan_reg_get_min_max_bw_for_chan_index(struct wlan_objmgr_pdev *pdev,
+				       enum channel_enum chan_idx,
+				       uint16_t *min_bw, uint16_t *max_bw)
+{
+	return reg_get_min_max_bw_on_cur_chan_list(pdev,
+						   chan_idx, min_bw, max_bw);
+}
+
 bool wlan_reg_is_freq_present_in_cur_chan_list(struct wlan_objmgr_pdev *pdev,
 					       qdf_freq_t freq)
 {
@@ -1152,6 +1167,34 @@ bool wlan_reg_is_dfs_in_secondary_list_for_freq(struct wlan_objmgr_pdev *pdev,
 						qdf_freq_t freq)
 {
 	return reg_is_dfs_in_secondary_list_for_freq(pdev, freq);
+}
+
+QDF_STATUS
+wlan_reg_get_chan_pwr_attr_from_secondary_list_for_freq(
+				struct wlan_objmgr_pdev *pdev, qdf_freq_t freq,
+				bool *is_psd, uint16_t *tx_power,
+				uint16_t *psd_eirp, uint32_t *flags)
+{
+	return reg_get_channel_power_attr_from_secondary_list_for_freq(
+			pdev, freq, is_psd, tx_power, psd_eirp, flags);
+}
+
+QDF_STATUS
+wlan_reg_decide_6ghz_power_within_bw_for_freq(struct wlan_objmgr_pdev *pdev,
+					      qdf_freq_t freq,
+					      enum phy_ch_width bw,
+					      bool *is_psd,
+					      uint16_t *min_tx_power,
+					      int16_t *min_psd_eirp,
+					      enum reg_6g_ap_type *power_type)
+{
+	return reg_decide_6ghz_power_within_bw_for_freq(pdev,
+							freq,
+							bw,
+							is_psd,
+							min_tx_power,
+							min_psd_eirp,
+							power_type);
 }
 #endif
 
@@ -1358,6 +1401,23 @@ void wlan_reg_set_create_punc_bitmap(struct ch_params *ch_params,
 {
 	reg_set_create_punc_bitmap(ch_params, is_create_punc_bitmap);
 }
+
+#ifdef CONFIG_REG_CLIENT
+QDF_STATUS wlan_reg_apply_puncture(struct wlan_objmgr_pdev *pdev,
+				   uint16_t puncture_bitmap,
+				   qdf_freq_t freq,
+				   enum phy_ch_width bw,
+				   qdf_freq_t cen320_freq)
+{
+	return reg_apply_puncture(pdev, puncture_bitmap, freq, bw,
+				  cen320_freq);
+}
+
+QDF_STATUS wlan_reg_remove_puncture(struct wlan_objmgr_pdev *pdev)
+{
+	return reg_remove_puncture(pdev);
+}
+#endif
 #endif /* WLAN_FEATURE_11BE */
 
 #ifdef CONFIG_REG_6G_PWRMODE
@@ -1701,6 +1761,21 @@ wlan_reg_get_cur_6g_client_type(struct wlan_objmgr_pdev *pdev,
 					  reg_cur_6g_client_mobility_type);
 }
 
+qdf_export_symbol(wlan_reg_get_cur_6g_client_type);
+
+QDF_STATUS
+wlan_reg_set_cur_6ghz_client_type(struct wlan_objmgr_pdev *pdev,
+				  enum reg_6g_client_type in_6ghz_client_type)
+{
+	return reg_set_cur_6ghz_client_type(pdev, in_6ghz_client_type);
+}
+
+QDF_STATUS
+wlan_reg_set_6ghz_client_type_from_target(struct wlan_objmgr_pdev *pdev)
+{
+	return reg_set_6ghz_client_type_from_target(pdev);
+}
+
 bool wlan_reg_is_6g_psd_power(struct wlan_objmgr_pdev *pdev)
 {
 	return reg_is_6g_psd_power(pdev);
@@ -1991,3 +2066,19 @@ wlan_reg_modify_indoor_concurrency(struct wlan_objmgr_pdev *pdev,
 		return reg_remove_indoor_concurrency(pdev, vdev_id, freq);
 }
 #endif
+
+void
+wlan_reg_register_is_chan_connected_callback(struct wlan_objmgr_psoc *psoc,
+					     void *cbk)
+{
+	reg_register_is_chan_connected_callback(psoc,
+					(reg_is_chan_connected_callback)cbk);
+}
+
+void
+wlan_reg_unregister_is_chan_connected_callback(struct wlan_objmgr_psoc *psoc,
+					       void *cbk)
+{
+	reg_unregister_is_chan_connected_callback(psoc,
+					(reg_is_chan_connected_callback)cbk);
+}

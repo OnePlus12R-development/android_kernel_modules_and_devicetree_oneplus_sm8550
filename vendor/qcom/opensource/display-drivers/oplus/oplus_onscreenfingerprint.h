@@ -66,6 +66,7 @@ struct oplus_ofp_params {
 													 bit(6):ultrasonic fingerprint
 													 bit(7):ultra low power aod
 													 bit(8):fod color feature flag
+													 bit(9):video mode aod && fod
 													*/
 	bool fp_type_compatible_mode;					/* indicates whether fp type compatible mode is set or not */
 	bool need_to_bypass_gamut;						/* indicates whether gamut needs to be bypassed in aod/fod scenarios or not */
@@ -168,6 +169,7 @@ bool oplus_ofp_optical_new_solution_is_enabled(void);
 bool oplus_ofp_local_hbm_is_enabled(void);
 bool oplus_ofp_ultrasonic_is_enabled(void);
 bool oplus_ofp_ultra_low_power_aod_is_enabled(void);
+bool oplus_ofp_video_mode_aod_fod_is_enabled(void);
 bool oplus_ofp_get_hbm_state(void);
 bool oplus_ofp_get_ultra_low_power_aod_state(void);
 int oplus_ofp_property_update(void *sde_connector, void *sde_connector_state, int prop_id, uint64_t prop_val);
@@ -194,6 +196,7 @@ void oplus_ofp_aod_display_on_set_work_handler(struct work_struct *work_item);
 int oplus_ofp_aod_display_on_set(void *sde_encoder_phys);
 int oplus_ofp_aod_off_handle(void *dsi_display);
 int oplus_ofp_power_mode_handle(void *dsi_display, int power_mode);
+int oplus_ofp_video_mode_aod_handle(void *dsi_display, void *dsi_display_mode);
 void oplus_ofp_aod_off_set_work_handler(struct work_struct *work_item);
 int oplus_ofp_touchpanel_event_notifier_call(struct notifier_block *nb, unsigned long action, void *data);
 int oplus_ofp_aod_off_hbm_on_delay_check(void *sde_encoder_phys);

@@ -32,6 +32,7 @@
 #include <linux/aio.h>
 #include <linux/uio.h>
 #include <linux/version.h>
+#include <linux/seq_file.h>
 
 #include <asm/ioctls.h>
 
@@ -777,21 +778,95 @@ out_free_buffer:
 	return ret;
 }
 
+static int info_show(struct seq_file *m, void *unused)
+{
+	seq_printf(m, "%s version v%d.%d.%d based on kernel-5.10\n",
+		   DEV_NAME, OSVELTE_MAJOR, OSVELTE_MINOR, OSVELTE_PATCH_NUM);
+	if (OSVELTE_FEATURE_USE_HASHLIST)
+		seq_printf(m, "hash_data_size: %zu\n",
+			   proc_memstat_fd_data_size());
+	return 0;
+}
+DEFINE_PROC_SHOW_ATTRIBUTE(info);
+
+static const char *bg_kthread_comm[] = {
+	/* boost pool */
+	"bp_prefill_camera",
+	"bp_camera",
+	"bp_mtk_mm",
+	/* hybridswapd */
+	"hybridswapd",
+	/* chp kthread */
+	"khpage_poold",
+	/* uxmem refill kthread */
+	"ux_page_pool_",
+};
+
+static int bg_kthread_show(struct seq_file *s, void *unused)
+{
+	int i;
+	struct task_struct *p;
+
+	seq_printf(s, "%-16s\t%-8s\t%-8s\n", "comm", "pid", "cpus");
+
+	rcu_read_lock();
+	for_each_process(p) {
+		if (!(p->flags & PF_KTHREAD))
+			continue;
+
+		for (i = 0; i < ARRAY_SIZE(bg_kthread_comm); i++)
+			if (strstr(p->comm, bg_kthread_comm[i]))
+				seq_printf(s, "%-16s\t%-8d\t%*pbl\n",
+					   p->comm, p->tgid,
+					   cpumask_pr_args(p->cpus_ptr));
+	}
+	rcu_read_unlock();
+	return 0;
+}
+DEFINE_PROC_SHOW_ATTRIBUTE(bg_kthread);
+
 static int __init logger_init(void)
 {
 	int ret;
-
-	ret = create_log(DEV_NAME, 1*1024*1024);
-	if (unlikely(ret))
+	struct proc_dir_entry *root;
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_MM_OSVELTE_DBG)
+	struct proc_dir_entry *subdir_root;
+#endif
+	/* create osvelte procfs */
+	root = proc_mkdir(DEV_NAME, NULL);
+	if (!root) {
+		pr_err("create osvelte dir failed\n");
+		ret = -ENOMEM;
 		goto out;
+	}
 
-	ret = osvelte_lowmem_dbg_init();
-	if (unlikely(ret))
-		goto out;
+	proc_create("info", 0444, root, &info_proc_ops);
+	proc_create("bg_kthread", 0444, root, &bg_kthread_proc_ops);
 
-	ret = sys_memstat_init();
+	ret = osvelte_lowmem_dbg_init(root);
 	if (unlikely(ret))
-		goto out;
+		goto remove_procfs;
+
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_MM_OSVELTE_DBG)
+	subdir_root = proc_mkdir(mtrack_text[MTRACK_DMABUF], root);
+	if (subdir_root)
+		create_dmabuf_procfs(subdir_root);
+#ifdef CONFIG_ASHMEM
+	subdir_root = proc_mkdir(mtrack_text[MTRACK_ASHMEM], root);
+	if (subdir_root)
+		create_ashmem_procfs(subdir_root);
+#endif /* CONFIG_ASHMEM */
+#endif /* CONFIG_OPLUS_FEATURE_MM_OSVELTE_DBG */
+	ret = sys_memstat_init(root);
+	if (unlikely(ret))
+		goto remove_procfs;
+
+	ret = create_log(DEV_NAME, 512 * 1024);
+	if (unlikely(ret))
+		goto remove_procfs;
+	return 0;
+remove_procfs:
+	remove_proc_subtree(DEV_NAME, NULL);
 out:
 	return ret;
 }
@@ -809,6 +884,7 @@ static void __exit logger_exit(void)
 		kfree(current_log);
 	}
 
+	remove_proc_subtree(DEV_NAME, NULL);
 	osvelte_lowmem_dbg_exit();
 	sys_memstat_exit();
 }

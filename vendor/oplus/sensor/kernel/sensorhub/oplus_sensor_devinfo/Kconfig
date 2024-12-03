@@ -15,3 +15,9 @@ config OPLUS_FEATURE_SENSOR_DEVINFO_V2
 	default n
 	help
 	  It support sensor_devinfo.
+
+config OPLUS_SENSOR_USE_BLANK_MODE
+        tristate "for oplus customization"
+        default n
+        help
+          It support sensor_devinfo.

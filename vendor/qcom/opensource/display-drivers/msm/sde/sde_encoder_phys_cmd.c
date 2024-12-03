@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -1185,7 +1185,6 @@ static int _get_tearcheck_threshold(struct sde_encoder_phys *phys_enc)
 		SDE_DEBUG_CMDENC(cmd_enc,
 			"extra_time:%lld  threshold_lines:%u adjusted_threshold_lines:%u\n",
 			extra_time_ns, threshold_lines, adjusted_threshold_lines);
-
 		SDE_EVT32(qsync_mode, qsync_min_fps, default_fps, info->jitter_numer,
 			info->jitter_denom, yres, extra_time_ns, default_line_time_ns,
 			adjusted_threshold_lines);
@@ -1579,11 +1578,34 @@ static void sde_encoder_phys_cmd_get_hw_resources(
 	hw_res->intfs[phys_enc->intf_idx - INTF_0] = INTF_MODE_CMD;
 }
 
+static void _sde_encoder_phys_wait_for_vsync_on_autorefresh_busy(struct sde_encoder_phys *phys_enc)
+{
+	u32 autorefresh_status;
+	int ret = 0;
+
+	if (!phys_enc || !phys_enc->hw_intf || !phys_enc->hw_intf->ops.get_autorefresh_status) {
+		SDE_ERROR("invalid params\n");
+		return;
+	}
+
+	autorefresh_status = phys_enc->hw_intf->ops.get_autorefresh_status(phys_enc->hw_intf);
+	if (autorefresh_status) {
+		ret = sde_encoder_wait_for_event(phys_enc->parent, MSM_ENC_VBLANK);
+		if (ret) {
+			autorefresh_status = phys_enc->hw_intf->ops.get_autorefresh_status(
+					phys_enc->hw_intf);
+			SDE_ERROR("wait for vblank timed out, autorefresh_status:%d\n",
+					autorefresh_status);
+		}
+	}
+}
+
 static int sde_encoder_phys_cmd_prepare_for_kickoff(
 		struct sde_encoder_phys *phys_enc,
 		struct sde_encoder_kickoff_params *params)
 {
 	struct sde_hw_tear_check tc_cfg = {0};
+	struct sde_encoder_virt *sde_enc;
 	struct sde_encoder_phys_cmd *cmd_enc =
 			to_sde_encoder_phys_cmd(phys_enc);
 	int ret = 0;
@@ -1596,10 +1618,11 @@ static int sde_encoder_phys_cmd_prepare_for_kickoff(
 	SDE_DEBUG_CMDENC(cmd_enc, "pp %d\n", phys_enc->hw_pp->idx - PINGPONG_0);
 
 	phys_enc->frame_trigger_mode = params->frame_trigger_mode;
+	sde_enc = to_sde_encoder_virt(phys_enc->parent);
 	SDE_EVT32(DRMID(phys_enc->parent), phys_enc->hw_pp->idx - PINGPONG_0,
 			atomic_read(&phys_enc->pending_kickoff_cnt),
 			atomic_read(&cmd_enc->autorefresh.kickoff_cnt),
-			phys_enc->frame_trigger_mode);
+			phys_enc->frame_trigger_mode, phys_enc->cont_splash_enabled);
 
 	if (phys_enc->frame_trigger_mode == FRAME_DONE_WAIT_DEFAULT) {
 		/*
@@ -1615,6 +1638,9 @@ static int sde_encoder_phys_cmd_prepare_for_kickoff(
 			SDE_ERROR("failed wait_for_idle: %d\n", ret);
 		}
 	}
+
+	if (phys_enc->cont_splash_enabled)
+		_sde_encoder_phys_wait_for_vsync_on_autorefresh_busy(phys_enc);
 
 	if (phys_enc->recovered) {
 		recovery_events = sde_encoder_recovery_events_enabled(
@@ -1680,7 +1706,6 @@ static bool _sde_encoder_phys_cmd_needs_vsync_change(
 
 	sde_encoder_helper_get_jitter_bounds_ns(info->frame_rate, info->jitter_numer,
 			info->jitter_denom, &l_bound, &u_bound);
-
 	if (!l_bound || !u_bound) {
 		SDE_ERROR_CMDENC(cmd_enc, "invalid vsync jitter bounds\n");
 		return false;
@@ -1749,6 +1774,15 @@ static int _sde_encoder_phys_cmd_wait_for_wr_ptr(
 
 	ret = sde_encoder_helper_wait_for_irq(phys_enc, INTR_IDX_WRPTR,
 			&wait_info);
+
+	/*
+	 * if hwfencing enabled, try again to wait for up to the extended timeout time in
+	 * increments as long as fence has not been signaled.
+	 */
+	if (ret == -ETIMEDOUT && phys_enc->sde_kms->catalog->hw_fence_rev)
+		ret = sde_encoder_helper_hw_fence_extended_wait(phys_enc, ctl, &wait_info,
+			INTR_IDX_WRPTR);
+
 	if (ret == -ETIMEDOUT) {
 		struct sde_hw_ctl *ctl = phys_enc->hw_ctl;
 
@@ -1778,6 +1812,10 @@ static int _sde_encoder_phys_cmd_wait_for_wr_ptr(
 					lock_flags);
 			}
 		}
+
+		/* if we timeout after the extended wait, reset mixers and do sw override */
+		if (ret && phys_enc->sde_kms->catalog->hw_fence_rev)
+			sde_encoder_helper_hw_fence_sw_override(phys_enc, ctl);
 	}
 
 	cmd_enc->wr_ptr_wait_success = (ret == 0) ? true : false;
@@ -2130,6 +2168,7 @@ static void _sde_encoder_autorefresh_disable_seq2(
 			tear_status.write_count);
 	}
 }
+
 static void _sde_encoder_phys_disable_autorefresh(struct sde_encoder_phys *phys_enc)
 {
 	struct sde_encoder_phys_cmd *cmd_enc = to_sde_encoder_phys_cmd(phys_enc);
@@ -2299,6 +2338,8 @@ static void sde_encoder_phys_cmd_init_ops(struct sde_encoder_phys_ops *ops)
 	ops->collect_misr = sde_encoder_helper_collect_misr;
 	ops->add_to_minidump = sde_encoder_phys_cmd_add_enc_to_minidump;
 	ops->disable_autorefresh = _sde_encoder_phys_disable_autorefresh;
+	ops->wait_for_vsync_on_autorefresh_busy =
+			_sde_encoder_phys_wait_for_vsync_on_autorefresh_busy;
 }
 
 static inline bool sde_encoder_phys_cmd_intf_te_supported(

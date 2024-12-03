@@ -72,6 +72,21 @@ void oplus_init_sensor_state(struct SensorState *mSensorState)
 	mSensorState[SENSOR_TYPE_PALM_DETECT].rate = SENSOR_RATE_ONCHANGE;
 	#endif
 
+#ifdef CONFIG_OPLUS_FEATURE_PHONE_PROX
+        mSensorState[SENSOR_TYPE_PHONE_PROX].sensorType = SENSOR_TYPE_PHONE_PROX;
+        mSensorState[SENSOR_TYPE_PHONE_PROX].rate = SENSOR_RATE_ONCHANGE;
+#endif
+
+#ifdef CONFIG_OPLUS_FEATURE_GESTURE_PROX
+        mSensorState[SENSOR_TYPE_GESTURE_PROX].sensorType = SENSOR_TYPE_GESTURE_PROX;
+        mSensorState[SENSOR_TYPE_GESTURE_PROX].rate = SENSOR_RATE_ONCHANGE;
+#endif
+
+#ifdef CONFIG_OPLUS_FEATURE_AMBIENTE_PROX
+        mSensorState[SENSOR_TYPE_AMBIENTE_PROX].sensorType = SENSOR_TYPE_AMBIENTE_PROX;
+        mSensorState[SENSOR_TYPE_AMBIENTE_PROX].rate = SENSOR_RATE_ONCHANGE;
+#endif
+
 	#ifndef _OPLUS_SENSOR_HUB_VI
 	/*mtk 2.0 need to add gain info*/
 	p = &mSensorState[SENSOR_TYPE_CAMERA_PROTECT];
@@ -151,6 +166,27 @@ void oplus_init_sensor_state(struct SensorState *mSensorState)
 	strlcpy(p->name, "palm_detect", sizeof(p->name));
 	strlcpy(p->vendor, "oplus", sizeof(p->vendor));
 	#endif
+
+#ifdef CONFIG_OPLUS_FEATURE_PHONE_PROX
+        p = &mSensorState[SENSOR_TYPE_PHONE_PROX];
+        p->gain = 1;
+        strlcpy(p->name, "phone_prox", sizeof(p->name));
+        strlcpy(p->vendor, "oplus", sizeof(p->vendor));
+#endif
+
+#ifdef CONFIG_OPLUS_FEATURE_GESTURE_PROX
+        p = &mSensorState[SENSOR_TYPE_GESTURE_PROX];
+        p->gain = 1;
+        strlcpy(p->name, "gesture_prox", sizeof(p->name));
+        strlcpy(p->vendor, "oplus", sizeof(p->vendor));
+#endif
+
+#ifdef CONFIG_OPLUS_FEATURE_AMBIENTE_PROX
+        p = &mSensorState[SENSOR_TYPE_AMBIENTE_PROX];
+        p->gain = 1;
+        strlcpy(p->name, "ambiente_prox", sizeof(p->name));
+        strlcpy(p->vendor, "oplus", sizeof(p->vendor));
+#endif
 
 	pr_err("set gain = 1----\n");
 	#endif
@@ -243,6 +279,21 @@ static int handle_to_index(int handle)
 #ifdef CONFIG_OPLUS_FEATURE_SENSOR_MONITOR
 	case ID_SENSOR_MONITOR:
 		index = sensor_monitor;
+		break;
+#endif
+#ifdef CONFIG_OPLUS_FEATURE_PHONE_PROX
+	case ID_PHONE_PROX:
+		index = phone_prox;
+		break;
+#endif
+#ifdef CONFIG_OPLUS_FEATURE_GESTURE_PROX
+	case ID_GESTURE_PROX:
+		index = gesture_prox;
+		break;
+#endif
+#ifdef CONFIG_OPLUS_FEATURE_AMBIENTE_PROX
+	case ID_AMBIENTE_PROX:
+		index = ambiente_prox;
 		break;
 #endif
 	default:

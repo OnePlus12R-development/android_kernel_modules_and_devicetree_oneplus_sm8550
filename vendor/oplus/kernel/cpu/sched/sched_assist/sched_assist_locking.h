@@ -15,6 +15,7 @@ bool task_inlock(struct oplus_task_struct *ots);
 int sched_assist_locking_init(void);
 void sched_assist_locking_exit(void);
 void locking_state_systrace_c(unsigned int cpu, struct task_struct *p);
+void locking_tick_hit(struct task_struct *prev, struct task_struct *next);
 bool task_skip_protect(struct task_struct *p);
 void check_preempt_tick_handler_locking(struct task_struct *p,
 			unsigned long *ideal_runtime, bool *skip_preempt,

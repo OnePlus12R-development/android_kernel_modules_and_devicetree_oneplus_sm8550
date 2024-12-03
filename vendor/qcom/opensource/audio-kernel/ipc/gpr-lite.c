@@ -1,6 +1,6 @@
 /* Copyright (c) 2011-2017, 2019-2021 The Linux Foundation. All rights reserved.
  * Copyright (c) 2018, Linaro Limited
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -103,6 +103,11 @@ int gpr_send_pkt(struct gpr_device *adev, struct gpr_pkt *pkt)
 	uint32_t pkt_size;
 	int ret;
 
+	if (gpr_get_q6_state() == GPR_SUBSYS_DOWN) {
+		pr_err_ratelimited("%s: q6 state is down\n", __func__, adev);
+		return -EINVAL;
+	}
+
 	if(!adev)
 	{
 		pr_err_ratelimited("%s: enter pointer adev[%pK] \n", __func__, adev);
@@ -130,18 +135,17 @@ int gpr_send_pkt(struct gpr_device *adev, struct gpr_pkt *pkt)
 		dev_err_ratelimited_not_fb(gpr->dev,"%s: domain_id[%d], Still Dsp is not Up\n",
 			__func__, adev->domain_id);
 #else /* CONFIG_OPLUS_FEATURE_MM_FEEDBACK */
-		dev_err_ratelimited(gpr->dev, "%s: domain_id[%d], Still Dsp is not Up\n",
-			__func__, adev->domain_id);
+		dev_err_ratelimited(gpr->dev, "%s:  Still Dsp is not Up\n", __func__);
 #endif /* CONFIG_OPLUS_FEATURE_MM_FEEDBACK */
 		return -ENETRESET;
-		} else if ((adev->domain_id == GPR_DOMAIN_MODEM) &&
+	} else if ((adev->domain_id == GPR_DOMAIN_MODEM) &&
 		   (gpr_get_modem_state() == GPR_SUBSYS_DOWN)) {
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_MM_FEEDBACK)
 		dev_err_ratelimited_not_fb(gpr->dev, "%s: domain_id[%d], Still Modem is not Up\n",
 			__func__, adev->domain_id );
 #else /* CONFIG_OPLUS_FEATURE_MM_FEEDBACK */
-		dev_err_ratelimited(gpr->dev, "%s: domain_id[%d], Still Modem is not Up\n",
-			__func__, adev->domain_id );
+		dev_err_ratelimited(gpr->dev, "%s:  Still Modem is not Up\n",
+			__func__);
 #endif /* CONFIG_OPLUS_FEATURE_MM_FEEDBACK */
 		return -ENETRESET;
 	}
@@ -156,7 +160,6 @@ int gpr_send_pkt(struct gpr_device *adev, struct gpr_pkt *pkt)
 		adev->svc_id, __func__, pkt_size);
 	ret = rpmsg_trysend(gpr->ch, pkt, pkt_size);
 	spin_unlock_irqrestore(&adev->lock, flags);
-
 	return ret ? ret : pkt_size;
 }
 EXPORT_SYMBOL_GPL(gpr_send_pkt);

@@ -69,6 +69,15 @@
 #ifdef CONFIG_SND_SOC_OPLUS_PA_MANAGER
 #include "../../qcom/oplus_speaker_manager/oplus_speaker_manager_codec.h"
 #endif
+
+#ifdef OPLUS_ARCH_EXTENDS
+/*Add for calibration range*/
+#define SMART_PA_RANGE_DEFAULT_MIN (6000)
+#define SMART_PA_RANGE_DEFAULT_MAX (10000)
+#define SMART_PA_FREQ_RANGE_DEFAULT_MIN (0)
+#define SMART_PA_FREQ_RANGE_DEFAULT_MAX (2000)
+#endif /* OPLUS_ARCH_EXTENDS */
+
 #define SIPA_NAME							("sipa")
 #define SIPA_I2C_NAME						(SIPA_NAME)
 
@@ -163,6 +172,9 @@ void sipa_speaker_mute_set(struct oplus_speaker_device *speaker_device, int enab
 int sipa_volme_boost_set(struct oplus_speaker_device *speaker_device, int level);
 #define OPLUS_AUDIO_PA_BOOST_VOLTAGE_MAX_LEVEL 4
 #endif /* OPLUS_AUDIO_PA_BOOST_VOLTAGE */
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_MM_FEEDBACK)
+static int sia81xx_check_status_reg(sipa_dev_t *si_pa);
+#endif /* CONFIG_OPLUS_FEATURE_MM_FEEDBACK */
 #endif /* CONFIG_SND_SOC_OPLUS_PA_MANAGER */
 
 static int sipa_resume(
@@ -843,6 +855,16 @@ int sipa_pa_enable_by_scene(int channel, unsigned int scene, int enable)
 		if (enable) {
 			sipa_resume(si_pa);
 		} else {
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_MM_FEEDBACK)
+			/* 2022/12/23, Add for pa status err feedback. */
+			if ((si_pa->chip_type == CHIP_TYPE_SIA8109) || \
+					(si_pa->chip_type == CHIP_TYPE_SIA8159) || (si_pa->chip_type == CHIP_TYPE_SIA81X9)) {
+				if (si_pa->need_chk_err) {
+					sia81xx_check_status_reg(si_pa);
+					si_pa->need_chk_err = false;
+				}
+			}
+#endif
 			sipa_suspend(si_pa);
 		}
 	}
@@ -1018,6 +1040,141 @@ void sipa_speaker_mute_set(struct oplus_speaker_device *speaker_device, int enab
 	}
 }
 #endif /* OPLUS_FEATURE_SPEAKER_MUTE */
+
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_MM_FEEDBACK)
+#define ERROR_INFO_MAX_LEN                 32
+#define CHECK_BITS                         2
+
+enum {
+	CHECK_8109 = 0,
+	CHECK_8159,
+	CHECK_MAX
+};
+
+struct check_status_err {
+	int bit;
+	uint16_t err_val;
+	char info[ERROR_INFO_MAX_LEN];
+};
+
+struct sia_reg_check {
+	unsigned int reg;
+	unsigned int mask; /*status reg check bit mask*/
+	unsigned int normal; /*status reg mask normal value*/
+	struct check_status_err err[CHECK_BITS];
+};
+
+static const struct sia_reg_check chk_fb[CHECK_MAX] = {
+	{0x20, 0x05, 0x00, {{0, 1, "OverTemperature"}, {2, 1, "CurrentHigh"}}}, /*for 8109*/
+	{0x11, 0x09, 0x00, {{0, 1, "OverTemperature"}, {3, 1, "CurrentHigh"}}} /*for 8159*/
+};
+
+static int sia81xx_check_status_reg(sipa_dev_t *si_pa)
+{
+	char reg_val = 0;
+	char fd_buf[MM_KEVENT_MAX_PAYLOAD_SIZE] = {0};
+	char info[MM_KEVENT_MAX_PAYLOAD_SIZE] = {0};
+	int offset = 0;
+	int i = 0;
+	int num = si_pa->channel_num;
+	int err = 0;
+	unsigned int idx = 0;
+
+	if (si_pa->chip_type == CHIP_TYPE_SIA8109) {
+		idx = CHECK_8109;
+	} else if ((si_pa->chip_type == CHIP_TYPE_SIA8159) || (si_pa->chip_type == CHIP_TYPE_SIA81X9)) {
+		idx = CHECK_8159;
+	} else {
+		pr_err("%s: unsupport chip_type = %d check status reg\n", __func__, si_pa->chip_type);
+		return 1;
+	}
+
+	pr_info("%s: chip_type = %d check status reg\n", __func__, si_pa->chip_type);
+
+	err = sipa_regmap_read(si_pa->regmap, si_pa->chip_type, chk_fb[idx].reg, 1, &reg_val);
+	if ((0 == err) && (chk_fb[idx].normal != (reg_val & chk_fb[idx].mask))) {
+		pr_err("%s: SPK%d status error, reg[0x%x] = 0x%x\n", \
+			__func__, num, chk_fb[idx].reg, reg_val);
+
+		offset = strlen(info);
+		scnprintf(info + offset, sizeof(info) - offset - 1, "SPK%d:reg[0x%x]=0x%x,", \
+			num, chk_fb[idx].reg, reg_val);
+		for (i = 0; i < CHECK_BITS; i++) {
+			if (chk_fb[idx].err[i].err_val == (1 & (reg_val >> chk_fb[idx].err[i].bit))) {
+				offset = strlen(info);
+				scnprintf(info + offset, sizeof(info) - offset - 1, "%s,", chk_fb[idx].err[i].info);
+			}
+		}
+	}
+
+	/* feedback the check error */
+	offset = strlen(info);
+	if ((offset > 0) && (offset < MM_KEVENT_MAX_PAYLOAD_SIZE)) {
+		fd_buf[offset] = '\0';
+		scnprintf(fd_buf, sizeof(fd_buf) - 1, "payload@@%s", info);
+		mm_fb_audio_kevent_named(OPLUS_AUDIO_EVENTID_SMARTPA_ERR,
+				MM_FB_KEY_RATELIMIT_1MIN, fd_buf);
+		pr_err("%s: fd_buf=%s\n", __func__, fd_buf);
+	}
+
+	return 1;
+}
+
+void sipa_speaker_check_feeback_get(struct oplus_speaker_device *speaker_device, int *enable)
+{
+	sipa_dev_t *si_pa = NULL;
+	int i = 0;
+	int channel = 0;
+
+	channel = speaker_device->type - L_SPK;
+
+	for (i = 0; i < ARRAY_SIZE(g_sipa_dev); i++) {
+		if ((g_sipa_dev[i] != NULL)
+			&& (channel == g_sipa_dev[i]->channel_num)) {
+			si_pa = g_sipa_dev[i];
+			break;
+		}
+	}
+
+	if (si_pa != NULL) {
+		*enable = si_pa->need_chk_err;
+		pr_info("%s: get sipa check feeback enable: %d, channel = %d", __func__, *enable, channel);
+	} else {
+		*enable = false;
+		pr_err("%s: get sipa check feeback fail, channel = %d", __func__, channel);
+	}
+}
+
+
+void sipa_speaker_check_feeback_set(struct oplus_speaker_device *speaker_device, int enable)
+{
+	sipa_dev_t *si_pa = NULL;
+	int i = 0;
+	int channel = 0;
+
+	channel = speaker_device->type - L_SPK;
+
+	for (i = 0; i < ARRAY_SIZE(g_sipa_dev); i++) {
+		if ((g_sipa_dev[i] != NULL)
+			&& (channel == g_sipa_dev[i]->channel_num)) {
+			si_pa = g_sipa_dev[i];
+			break;
+		}
+	}
+
+	if (si_pa != NULL) {
+		if (enable) {
+			pr_info("%s: sipa check feeback\n", __func__);
+			si_pa->need_chk_err = true;
+		} else {
+			pr_info("%s: sipa no cheack feeback\n", __func__);
+			si_pa->need_chk_err = false;
+		}
+	} else {
+		pr_err("%s: sipa = NULL, channel = %d", __func__, channel);
+	}
+}
+#endif /* CONFIG_OPLUS_FEATURE_MM_FEEDBACK */
 #endif /* CONFIG_SND_SOC_OPLUS_PA_MANAGER */
 
 static int sipa_resume(
@@ -1281,6 +1438,51 @@ int sipa_multi_channel_reg_dump(void)
 	return 0;
 }
 EXPORT_SYMBOL(sipa_multi_channel_reg_dump);
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_MM_FEEDBACK)
+/* 2023/04/18, Add for smartpa err feedback. */
+static int sia91xx_set_check_feedback(struct snd_kcontrol *kcontrol,
+				   struct snd_ctl_elem_value *ucontrol)
+{
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(4, 16, 28))
+	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	sipa_dev_t *si_pa = snd_soc_component_get_drvdata(component);
+#else
+	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	sipa_dev_t *si_pa = snd_soc_codec_get_drvdata(codec);
+#endif
+	int need_chk = ucontrol->value.integer.value[0];
+
+	if (need_chk) {
+		si_pa->need_chk_err = need_chk;
+	}
+	pr_info("%s: chk_err = %d, channel_num = %d\n",
+		__func__, si_pa->need_chk_err, si_pa->channel_num);
+
+	return 0;
+}
+
+static int sia91xx_get_check_feedback(struct snd_kcontrol *kcontrol,
+						struct snd_ctl_elem_value *ucontrol)
+{
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(4, 16, 28))
+	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	sipa_dev_t *si_pa = snd_soc_component_get_drvdata(component);
+#else
+	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	sipa_dev_t *si_pa = snd_soc_codec_get_drvdata(codec);
+#endif
+	ucontrol->value.integer.value[0] = si_pa->need_chk_err;
+	pr_info("%s: chk_err = %d, channel_num = %d\n",
+		__func__, si_pa->need_chk_err, si_pa->channel_num);
+
+	return 0;
+}
+
+static char const *sia91xx_check_feedback_text[] = {"Off", "On"};
+static const struct soc_enum sia91xx_check_feedback_enum =
+	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(sia91xx_check_feedback_text), sia91xx_check_feedback_text);
+#endif /*OPLUS_FEATURE_MM_FEEDBACK*/
+
 
 /********************************************************************
  * device attr option
@@ -1882,6 +2084,189 @@ static int sipa_reg_set(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+#ifdef OPLUS_ARCH_EXTENDS
+static int sipa_get_freq_support(
+		struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(4, 16, 28))
+	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	sipa_dev_t *si_pa = snd_soc_component_get_drvdata(component);
+#else
+	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	sipa_dev_t *si_pa = snd_soc_codec_get_drvdata(codec);
+#endif
+
+	ucontrol->value.integer.value[0] = si_pa->is_use_freq ? 1 : 0;
+
+	pr_debug("%s: freq support = %d, channle = %d \n",
+			__func__, ucontrol->value.integer.value[0], si_pa->channel_num);
+
+	return 0;
+}
+
+static int sipa_get_min_freq(
+		struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(4, 16, 28))
+	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	sipa_dev_t *si_pa = snd_soc_component_get_drvdata(component);
+#else
+	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	sipa_dev_t *si_pa = snd_soc_codec_get_drvdata(codec);
+#endif
+
+	ucontrol->value.integer.value[0] = si_pa->min_freq;
+
+	pr_debug("%s: min freq = %d, channle = %d \n",
+			__func__, ucontrol->value.integer.value[0], si_pa->channel_num);
+
+	return 0;
+}
+
+static int sipa_get_max_freq(
+		struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(4, 16, 28))
+	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	sipa_dev_t *si_pa = snd_soc_component_get_drvdata(component);
+#else
+	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	sipa_dev_t *si_pa = snd_soc_codec_get_drvdata(codec);
+#endif
+
+	ucontrol->value.integer.value[0] = si_pa->max_freq;
+
+	pr_debug("%s: max freq = %d, channle = %d \n",
+			__func__, ucontrol->value.integer.value[0], si_pa->channel_num);
+
+	return 0;
+}
+
+
+static int sipa_get_min_mohms(
+		struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(4, 16, 28))
+	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	sipa_dev_t *si_pa = snd_soc_component_get_drvdata(component);
+#else
+	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	sipa_dev_t *si_pa = snd_soc_codec_get_drvdata(codec);
+#endif
+
+	ucontrol->value.integer.value[0] = si_pa->min_mohms;
+
+	pr_debug("%s: min mohms = %d, channle = %d \n",
+			__func__, ucontrol->value.integer.value[0], si_pa->channel_num);
+
+	return 0;
+}
+
+static int sipa_get_max_mohms(
+		struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(4, 16, 28))
+	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	sipa_dev_t *si_pa = snd_soc_component_get_drvdata(component);
+#else
+	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	sipa_dev_t *si_pa = snd_soc_codec_get_drvdata(codec);
+#endif
+
+	ucontrol->value.integer.value[0] = si_pa->max_mohms;
+
+	pr_debug("%s: max mohms = %d, channle = %d \n",
+			__func__, ucontrol->value.integer.value[0], si_pa->channel_num);
+
+	return 0;
+}
+
+static int sipa_get_default_mohms(
+		struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(4, 16, 28))
+	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	sipa_dev_t *si_pa = snd_soc_component_get_drvdata(component);
+#else
+	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	sipa_dev_t *si_pa = snd_soc_codec_get_drvdata(codec);
+#endif
+
+	ucontrol->value.integer.value[0] = si_pa->default_mohms;
+
+	pr_debug("%s: default mohms = %d, channle = %d \n",
+			__func__, ucontrol->value.integer.value[0], si_pa->channel_num);
+
+	return 0;
+}
+#endif /* OPLUS_ARCH_EXTENDS */
+
+#ifdef OPLUS_FEATURE_SPEAKER_MUTE
+//Add for spk mute ctrl
+int speaker_mute_control = 0;
+static char const *spk_mute_ctrl_text[] = {"Off", "On"};
+static const struct soc_enum spk_mute_ctrl_enum =
+	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(spk_mute_ctrl_text), spk_mute_ctrl_text);
+
+static int sipa_spk_mute_ctrl_get(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	ucontrol->value.integer.value[0] = speaker_mute_control;
+	return 0;
+}
+
+static int sipa_spk_mute_ctrl_put(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	int i = 0;
+	sipa_dev_t *sipa = NULL;
+
+	int val = ucontrol->value.integer.value[0];
+
+	if (val == speaker_mute_control) {
+		pr_warn("Speaker mute is already %s\n", val == 1 ? "on" : "off");
+		return 1;
+	} else {
+		pr_warn("Speaker mute set to %s\n", val == 1 ? "on" : "off");
+		speaker_mute_control = val;
+	}
+
+	if (speaker_mute_control == 1) {
+		for (i = 0; i < ARRAY_SIZE(g_sipa_dev); i++) {
+			sipa = g_sipa_dev[i];
+			if (sipa &&
+				sipa->mute == SIPA_DEVICE_MUTE_OFF &&
+				sipa->scene == AUDIO_SCENE_RECEIVER &&
+				sipa->channel_num == 0) {
+				pr_info("%s: is handset mode\n", __func__);
+				return 0;
+			}
+		}
+	}
+
+	for (i = 0; i < ARRAY_SIZE(g_sipa_dev); i++) {
+		sipa = g_sipa_dev[i];
+		if (sipa && sipa->pstream) {
+			if (speaker_mute_control) {
+				sipa_regmap_set_chip_off(sipa);
+			} else {
+				sipa_reg_init(sipa);
+				sipa_regmap_write_sram(sipa);
+				sipa_regmap_set_chip_on(sipa);
+				sipa_regmap_check_trimming(sipa);
+			}
+		}
+	}
+	return 0;
+}
+#endif /* OPLUS_FEATURE_SPEAKER_MUTE */
+
 static const char *const power_function[] = { "Off", "On" };
 static const char *const audio_scene[] = { "Playback", "Voice", "Voip", "Receiver", "Factory", "FM" };
 
@@ -1899,6 +2284,12 @@ static const struct snd_kcontrol_new sipa_controls[] = {
 	SOC_ENUM_EXT("Sipa Audio Scene", audio_scene_enum,
 			sipa_audio_scene_get, sipa_audio_scene_set),
 
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_MM_FEEDBACK)
+	/* 2023/04/18, Add for smartpa err feedback. */
+	SOC_ENUM_EXT("SIA_CHECK_FEEDBACK", sia91xx_check_feedback_enum,
+			   sia91xx_get_check_feedback, sia91xx_set_check_feedback),
+#endif
+
 	SOC_SINGLE_EXT("Sipa Pvdd Limit", SND_SOC_NOPM, 0, 5000000, 0,
 			sipa_pvdd_limit_get, sipa_pvdd_limit_set),
 
@@ -1912,6 +2303,24 @@ static const struct snd_kcontrol_new sipa_controls[] = {
 		sipa_mute_get, sipa_mute_set),
 
 	SND_SOC_BYTES_TLV("Sipa reg", REG_DATA_LEN, sipa_reg_get, sipa_reg_set),
+#ifdef OPLUS_ARCH_EXTENDS
+	SOC_SINGLE_EXT("Sipa Freq Support", SND_SOC_NOPM, 0, 1, 0,
+			sipa_get_freq_support, NULL),
+	SOC_SINGLE_EXT("Sipa min freq", SND_SOC_NOPM, 0, 10000, 0,
+			sipa_get_min_freq, NULL),
+	SOC_SINGLE_EXT("Sipa max freq", SND_SOC_NOPM, 0, 10000, 0,
+			sipa_get_max_freq, NULL),
+	SOC_SINGLE_EXT("Sipa min mohms", SND_SOC_NOPM, 0, 100000, 0,
+			sipa_get_min_mohms, NULL),
+	SOC_SINGLE_EXT("Sipa max mohms", SND_SOC_NOPM, 0, 100000, 0,
+			sipa_get_max_mohms, NULL),
+	SOC_SINGLE_EXT("Sipa default mohms", SND_SOC_NOPM, 0, 100000, 0,
+			sipa_get_default_mohms, NULL),
+#endif /* OPLUS_ARCH_EXTENDS */
+#ifdef OPLUS_FEATURE_SPEAKER_MUTE
+	SOC_ENUM_EXT("Speaker_Mute_Switch", spk_mute_ctrl_enum,
+			sipa_spk_mute_ctrl_get, sipa_spk_mute_ctrl_put),
+#endif /* OPLUS_FEATURE_SPEAKER_MUTE */
 };
 
 static const struct snd_soc_dai_ops sia91xx_dai_ops = {
@@ -2528,6 +2937,13 @@ int sipa_i2c_probe(
 					speaker_device->speaker_mute_set = sipa_speaker_mute_set;
 				#endif /* OPLUS_FEATURE_SPEAKER_MUTE */
 					speaker_device->speaker_mute_get = NULL;
+				#if IS_ENABLED(CONFIG_OPLUS_FEATURE_MM_FEEDBACK)
+					speaker_device->speaker_check_feeback_set = sipa_speaker_check_feeback_set;
+					speaker_device->speaker_check_feeback_get = sipa_speaker_check_feeback_get;
+				#else
+					speaker_device->speaker_check_feeback_set = NULL;
+					speaker_device->speaker_check_feeback_get = NULL;
+				#endif
 				}
 
 				spk_dev_node = oplus_speaker_pa_register(speaker_device);
@@ -2574,7 +2990,11 @@ int sipa_i2c_probe(
 		pr_info("[info][%s] snd_soc_register_codec ret = %d !\n", __func__, ret);
 	}
 
+#ifdef CONFIG_SND_SOC_OPLUS_PA_MANAGER
+	if ((!IS_SUPPORT_OWI_TYPE(si_pa->chip_type)) && (detect_i2c_slave(si_pa) == 0)) {
+#else
 	if (!IS_SUPPORT_OWI_TYPE(si_pa->chip_type)) {
+#endif /* CONFIG_SND_SOC_OPLUS_PA_MANAGER */
 		/* load firmware */
 		sipa_param_load_fw(&client->dev, sipa_fw_name);
 	}
@@ -2814,6 +3234,44 @@ static int sipa_property_init(struct device_node *sipa_of_node, sipa_dev_t *si_p
 
 	si_pa->rst_pin = rst_pin;
 	si_pa->owi_pin = owi_pin;
+
+#ifdef OPLUS_ARCH_EXTENDS
+	si_pa->is_use_freq = of_property_read_bool(sipa_of_node, "is_use_freq");
+	pr_info("is_use_freq : %d\n", si_pa->is_use_freq);
+
+	ret = of_property_read_u32(sipa_of_node, "sipa_min_freq", &si_pa->min_freq);
+	if (ret) {
+		pr_err("Failed to parse sipa_min_freq node\n");
+		si_pa->min_freq = SMART_PA_FREQ_RANGE_DEFAULT_MIN;
+	}
+
+	ret = of_property_read_u32(sipa_of_node, "sipa_max_freq", &si_pa->max_freq);
+	if (ret) {
+		pr_err("Failed to parse sipa_max_freq node\n");
+		si_pa->max_freq = SMART_PA_FREQ_RANGE_DEFAULT_MAX;
+	}
+
+	ret = of_property_read_u32(sipa_of_node, "sipa_min_range", &si_pa->min_mohms);
+	if (ret) {
+		pr_err("Failed to parse spk_min_range node\n");
+		si_pa->min_mohms = SMART_PA_RANGE_DEFAULT_MIN;
+	}
+
+	ret = of_property_read_u32(sipa_of_node, "sipa_max_range", &si_pa->max_mohms);
+	if (ret) {
+		pr_err("Failed to parse spk_max_range node\n");
+		si_pa->max_mohms = SMART_PA_RANGE_DEFAULT_MAX;
+	}
+
+	ret = of_property_read_u32(sipa_of_node, "sipa_default_mohm", &si_pa->default_mohms);
+	if (ret) {
+		pr_err("Failed to parse default impedance node\n");
+		si_pa->default_mohms = 0;
+	}
+
+	pr_info("%s: min_mohms=%u, max_mohms=%u, default_mohms=%u\n",
+			__func__, si_pa->min_mohms, si_pa->max_mohms, si_pa->default_mohms);
+#endif /* OPLUS_ARCH_EXTENDS */
 
 	return 0;
 }

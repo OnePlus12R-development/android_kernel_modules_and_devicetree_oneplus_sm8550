@@ -20,6 +20,8 @@ bool proc_show_enabled = true;
 module_param(proc_show_enabled, bool, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(proc_show_enabled, " Debug proc");
 
+#define LABEL_BUF_LEN 50
+static char label_buf[LABEL_BUF_LEN] = {"common"};
 static struct proc_dir_entry *storage_procfs;
 static struct proc_dir_entry *io_metrics_procfs;
 static struct proc_dir_entry *io_metrics_control_procfs;
@@ -35,7 +37,24 @@ struct sample_cycle sample_cycle_config[] = {
     {   CYCLE_FOREVER,    "forever", 3153600000000000000}, /* 总流量 */
 };
 
+#define CREATE_IO_METRICS_CONTROL_NODE(__name, __parent)            \
+    proc_create(#__name, S_IRUGO | S_IWUGO, __parent, &__name ## _proc_ops)
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+#define DEFINE_IO_METRICS_CONTROL(__name)                           \
+static int __name ## _open(struct inode *inode, struct file *file)  \
+{                                                                   \
+    return single_open(file, __name ## _show, file);     \
+}                                                                   \
+                                                                    \
+static const struct proc_ops __name ## _proc_ops = {                \
+    .proc_open  = __name ## _open,                                  \
+    .proc_read  = seq_read,                                         \
+    .proc_write = __name ## _write,                                 \
+    .proc_lseek = seq_lseek,                                        \
+    .proc_release   = single_release,                               \
+}
+
 static const struct proc_ops block_metrics_proc_fops = {
     .proc_open      = block_metrics_proc_open,
     .proc_read      = seq_read,
@@ -57,6 +76,20 @@ static const struct proc_ops ufs_metrics_proc_fops = {
     .proc_release   = single_release,
 };
 #else
+#define DEFINE_IO_METRICS_CONTROL(__name)                           \
+static int __name ## _open(struct inode *inode, struct file *file)  \
+{                                                                   \
+    return single_open(file, __name ## _show, file);     \
+}                                                                   \
+                                                                    \
+static const struct file_operations __name ## _proc_ops = {         \
+    .open   = __name ## _open,                                      \
+    .read   = seq_read,                                             \
+    .write  = __name ## _write,                                     \
+    .llseek = seq_lseek,                                            \
+    .release    = single_release,                                   \
+}
+
 static const struct file_operations block_metrics_proc_fops = {
     .open      = block_metrics_proc_open,
     .read      = seq_read,
@@ -154,6 +187,7 @@ static ssize_t io_metrics_control_write(struct file *file,
             f2fs_metrics_reset();
             block_metrics_reset();
             ufs_metrics_reset();
+            strcpy(label_buf, "common");
         }
     } else if (!strcmp(file->f_path.dentry->d_iname, "abnormal_io_enabled")) {
         ret = kstrtoint(strstrip(buffer), len, &value);
@@ -319,6 +353,35 @@ struct {
     {NULL,                               0,                 0}
 };
 
+static int label_show(struct seq_file *seq_filp, void *data)
+{
+    struct file *file = (struct file *)seq_filp->private;
+    seq_printf(seq_filp, "%s\n", label_buf);
+    if (proc_show_enabled) {
+        io_metrics_print("%s(%d) read %s/%s: %s\n",
+            current->comm, current->pid, file->f_path.dentry->d_parent->d_iname,
+            file->f_path.dentry->d_iname, label_buf);
+    }
+
+    return 0;
+}
+
+static ssize_t label_write(struct file *file,
+                       const char __user *buf, size_t len, loff_t *ppos)
+{
+    len = len < (LABEL_BUF_LEN - 1) ? len : (LABEL_BUF_LEN - 1);
+    if (copy_from_user(label_buf, buf, len)) {
+        return -EFAULT;
+    }
+    label_buf[LABEL_BUF_LEN - 1] = '\0';
+    *ppos += len;
+    io_metrics_print("%s(%d) write %s to %s/%s\n", current->comm, current->pid, label_buf,
+                     file->f_path.dentry->d_parent->d_iname, file->f_path.dentry->d_iname);
+
+    return len;
+}
+DEFINE_IO_METRICS_CONTROL(label);
+
 int io_metrics_procfs_init(void)
 {
     int i = 0;
@@ -396,6 +459,7 @@ int io_metrics_procfs_init(void)
             }
         }
     }
+    CREATE_IO_METRICS_CONTROL_NODE(label, io_metrics_control_procfs);
 
     return 0;
 

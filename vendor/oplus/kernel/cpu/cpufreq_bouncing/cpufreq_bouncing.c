@@ -35,8 +35,8 @@ struct cpufreq_bouncing {
 	int first_cpu;
 
 	/* statistics */
-	u64 last_ts;
-	u64 last_freq_update_ts;
+	atomic64_t last_ts;
+	atomic64_t last_freq_update_ts;
 	u64 acc;
 
 	/* restriction */
@@ -219,8 +219,8 @@ static int enable_store(const char *buf, const struct kernel_param *kp)
 		/* cb_do_core_boost_work(); */
 
 		/* reset acc */
-		cb->last_ts = 0;
-		cb->last_freq_update_ts = 0;
+		atomic64_set(&cb->last_ts, 0);
+		atomic64_set(&cb->last_freq_update_ts, 0);
 		cb->acc = 0;
 		cb->cur_level = cb->max_level ? cb->max_level : NR_FREQ - 1;
 	}
@@ -329,8 +329,8 @@ static int cb_config_store(const char *buf, const struct kernel_param *kp)
 
 	/* begin update config */
 	cb->enable = false;
-	cb->last_ts = 0;
-	cb->last_freq_update_ts = 0;
+	atomic64_set(&cb->last_ts, 0);
+	atomic64_set(&cb->last_freq_update_ts, 0);
 	cb->acc = 0;
 	cb->limit_level = v.limit_level;
 	cb->limit_freq = cb->freqs[cb->limit_level];
@@ -356,8 +356,8 @@ static int cb_config_show(char *buf, const struct kernel_param *kp)
 		cb = &cb_stuff[i];
 		cnt += snprintf(buf + cnt, PAGE_SIZE - cnt, "=====\n");
 		cnt += snprintf(buf + cnt, PAGE_SIZE - cnt, "clus %d (switch %d) first_cpu %d ctl %d\n", i, cb_switch, cb->first_cpu, cb->ctl_inited);
-		cnt += snprintf(buf + cnt, PAGE_SIZE - cnt, "last_ts: %llu\n", cb->last_ts);
-		cnt += snprintf(buf + cnt, PAGE_SIZE - cnt, "last_freq_update_ts: %llu\n", cb->last_freq_update_ts);
+		cnt += snprintf(buf + cnt, PAGE_SIZE - cnt, "last_ts: %llu\n", atomic64_read(&cb->last_ts));
+		cnt += snprintf(buf + cnt, PAGE_SIZE - cnt, "last_freq_update_ts: %llu\n", atomic64_read(&cb->last_freq_update_ts));
 		cnt += snprintf(buf + cnt, PAGE_SIZE - cnt, "acc: %llu\n", cb->acc);
 
 		cnt += snprintf(buf + cnt, PAGE_SIZE - cnt, "limit_freq: %d\n", cb->limit_freq);
@@ -512,8 +512,8 @@ void cb_reset(int cpu, u64 time)
 	if (!clus_isolated(cpufreq_cpu_get_raw(cpu)))
 		return;
 
-	cb->last_ts = time;
-	cb->last_freq_update_ts = time;
+	atomic64_set(&cb->last_ts, time);
+	atomic64_set(&cb->last_freq_update_ts, time);
 	cb->acc = 0;
 	cb->cur_level = cb->max_level;
 }
@@ -546,15 +546,16 @@ void cb_update(struct cpufreq_policy *pol, u64 time)
 		cb->acc = 0;
 
 	/* for first update */
-	if (unlikely(!cb->last_ts))
-		cb->last_ts = cb->last_freq_update_ts = time;
-
+	if (unlikely(!atomic64_read(&cb->last_ts))) {
+		atomic64_set(&cb->last_ts, time);
+		atomic64_set(&cb->last_freq_update_ts, time);
+	}
 	/*
 	 * not count flag only affects to delta.
 	 * keep update_delta to let limit_freq has time to restore
 	 */
-	delta = ((min_over_target_freq || isolated) ? 0 : (time - cb->last_ts));
-	update_delta = time - cb->last_freq_update_ts;
+	delta = ((min_over_target_freq || isolated) ? 0 : (time - atomic64_read(&cb->last_ts)));
+	update_delta = time - atomic64_read(&cb->last_freq_update_ts);
 
 	/* check cpufreq */
 	if (pol->cur >= cb->limit_freq) {
@@ -571,14 +572,14 @@ void cb_update(struct cpufreq_policy *pol, u64 time)
 		/* check last update */
 		if (update_delta >= cb->down_limit_ns) {
 			cb->cur_level = max(prev_level - cb->down_speed, cb->limit_level);
-			cb->last_freq_update_ts = time;
+			atomic64_set(&cb->last_freq_update_ts, time);
 			cb->freqs_resident[prev_level] += update_delta;
 		}
 	} else {
 		/* check last update */
 		if (update_delta >= cb->up_limit_ns) {
 			cb->cur_level = min(prev_level + cb->up_speed, cb->max_level);
-			cb->last_freq_update_ts = time;
+			atomic64_set(&cb->last_freq_update_ts, time);
 			cb->freqs_resident[prev_level] += update_delta;
 		}
 	}
@@ -604,8 +605,8 @@ void cb_update(struct cpufreq_policy *pol, u64 time)
 			"min_over_target_freq %d isolated %d last_core_boost %d\n",
 			cpu,
 			NSEC_TO_MSEC(time),
-			NSEC_TO_MSEC(cb->last_ts),
-			NSEC_TO_MSEC(cb->last_freq_update_ts),
+			NSEC_TO_MSEC(atomic64_read(&cb->last_ts)),
+			NSEC_TO_MSEC(atomic64_read(&cb->last_freq_update_ts)),
 			NSEC_TO_MSEC(delta),
 			NSEC_TO_MSEC(update_delta),
 			pol->cur,
@@ -615,7 +616,7 @@ void cb_update(struct cpufreq_policy *pol, u64 time)
 			isolated,
 			last_core_boost);
 
-	cb->last_ts = time;
+	atomic64_set(&cb->last_ts, time);
 }
 EXPORT_SYMBOL(cb_update);
 

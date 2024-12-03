@@ -15,11 +15,16 @@
 #include <linux/sched/task.h>
 #include <trace/hooks/sched.h>
 #include <trace/hooks/creds.h>
+#include <trace/hooks/sys.h>
+#include <linux/string_helpers.h>
+#include <trace/events/sched.h>
 
 #include "../sched_assist/sa_exec.h"
 #include "../sched_assist/sa_common.h"
 #include "osi_debug.h"
 #include "osi_amu.h"
+
+
 
 pid_t global_pid;
 DEFINE_PER_CPU(u32, old_pid);
@@ -32,15 +37,22 @@ struct cpumask amu_cpus __read_mostly;
 EXPORT_SYMBOL(amu_cpus);
 bool is_support_amu;
 
-
-
 static atomic64_t nums_uid = ATOMIC64_INIT(0);
 DECLARE_HASHTABLE(amu_uid_table, 6);
 EXPORT_SYMBOL(amu_uid_table);
 DEFINE_SPINLOCK(amu_uid_lock);
 
+struct amu_tgid_struct {
+	pid_t tgid;
+	u64 uid_total_cycle;
+	u64 uid_total_inst;
+};
+
+static struct amu_tgid_struct sf_amu_struct, ss_amu_struct,
+			kworker_amu_struct, kswapd_amu_struct;
+
 #define ULONG_MAX_DEC_BIT                       (20)
-#define UID_PRINT_PER_LINE                      ((28) + 2*ULONG_MAX_DEC_BIT +(2))
+#define UID_PRINT_PER_LINE                      ((28) + 2*ULONG_MAX_DEC_BIT + (2) + (256))
 #define UID_PRINT_HEADER                        (60)
 
 #define ID_AA64PFR0_AMU_MASK	            ULL(0xf)
@@ -113,11 +125,44 @@ static __maybe_unused struct amu_uid_entry *find_or_add_uid(uid_t uid)
 	if (!amu_uid_entry)
 		return NULL;
 	atomic64_inc(&nums_uid);
-
 	amu_uid_entry->uid = uid;
 	hash_add(amu_uid_table, &amu_uid_entry->node, uid);
 
 	return amu_uid_entry;
+}
+
+static inline void state_target_tgid_data(struct task_struct *p, u64 instr, u64 cycle)
+{
+	unsigned long im_flag = IM_FLAG_NONE;
+	struct task_struct *leader;
+
+	rcu_read_lock();
+	if (pid_alive(p)) {
+		leader = rcu_dereference(p->group_leader);
+		if (pid_alive(leader))
+			im_flag = oplus_get_im_flag(leader);
+	}
+	rcu_read_unlock();
+	if (test_bit(IM_FLAG_SURFACEFLINGER, &im_flag)) {
+		sf_amu_struct.uid_total_cycle += cycle;
+		sf_amu_struct.uid_total_inst += instr;
+		sf_amu_struct.tgid = p->tgid;
+	} else if (test_bit(IM_FLAG_SYSTEMSERVER_PID, &im_flag)) {
+		ss_amu_struct.uid_total_cycle += cycle;
+		ss_amu_struct.uid_total_inst += instr;
+		ss_amu_struct.tgid = p->tgid;
+	}
+
+	if (p->flags & PF_WQ_WORKER) {
+		kworker_amu_struct.uid_total_cycle += cycle;
+		kworker_amu_struct.uid_total_inst += instr;
+		kworker_amu_struct.tgid = p->pid;
+	}
+	if (p->flags & PF_KSWAPD) {
+		kswapd_amu_struct.uid_total_cycle += cycle;
+		kswapd_amu_struct.uid_total_inst += instr;
+		kswapd_amu_struct.tgid = p->pid;
+	}
 }
 
 static void amu_sched_switch_handler(void *unused, bool preempt, struct task_struct *prev, struct task_struct *next)
@@ -141,6 +186,7 @@ static void amu_sched_switch_handler(void *unused, bool preempt, struct task_str
 		ots->amu_instruct += delta_amu_instrs;
 		ots->amu_cycle += delta_amu_cycle;
 		uid_struct = ots->uid_struct;
+		state_target_tgid_data(prev, delta_amu_instrs, delta_amu_cycle);
 		if (uid_struct) {
 			spin_lock_irqsave(&uid_struct->lock, flags);
 			uid_struct->uid_total_inst += delta_amu_instrs;
@@ -154,82 +200,53 @@ static void amu_sched_switch_handler(void *unused, bool preempt, struct task_str
 }
 
 
+/*
+ temporarily stat sf and ss amu data
+*/
 static ssize_t proc_osi_amu_read(struct file *file, char __user *buf,
 		size_t count, loff_t *ppos)
 {
-	struct task_struct *task = NULL, *t = NULL;
-	struct oplus_task_struct *ots;
-	pid_t tgid;
-	char buffer[256];
+	char buffer[1024];
 	size_t len = 0;
-	u64 tgid_inst = 0, tgid_cycle = 0;
+	unsigned long im_flag = IM_FLAG_NONE;
 
-	if (global_pid > 0 && global_pid <= PID_MAX_DEFAULT) {
-		rcu_read_lock();
-		task = find_task_by_vpid(global_pid);
-		if (task)
-			get_task_struct(task);
-		rcu_read_unlock();
+	len += snprintf(buffer + len, sizeof(buffer) - len, "%10s,%15s,%15s,%15s\n",
+		"tgid", "comm", "inst", "cycle");
+	len += snprintf(buffer + len, sizeof(buffer) - len, "%10d, surfaceflinger, %llu, %llu\n",
+			sf_amu_struct.tgid, sf_amu_struct.uid_total_inst, sf_amu_struct.uid_total_cycle);
+	len += snprintf(buffer + len, sizeof(buffer) - len, "%10d, system_server, %llu, %llu\n",
+			ss_amu_struct.tgid, ss_amu_struct.uid_total_inst, ss_amu_struct.uid_total_cycle);
+	len += snprintf(buffer + len, sizeof(buffer) - len, "%10d, kworker, %llu, %llu\n",
+			kworker_amu_struct.tgid, kworker_amu_struct.uid_total_inst, kworker_amu_struct.uid_total_cycle);
+	len += snprintf(buffer + len, sizeof(buffer) - len, "%10d, kswapd, %llu, %llu\n",
+			kswapd_amu_struct.tgid, kswapd_amu_struct.uid_total_inst, kswapd_amu_struct.uid_total_cycle);
+	if (current && current->group_leader)
+		im_flag = oplus_get_im_flag(current->group_leader);
+	if (test_bit(IM_FLAG_MIDASD, &im_flag)) {
+		sf_amu_struct.uid_total_inst = 0ULL;
+		sf_amu_struct.uid_total_cycle = 0ULL;
+		ss_amu_struct.uid_total_inst = 0ULL;
+		ss_amu_struct.uid_total_cycle = 0ULL;
+		kswapd_amu_struct.uid_total_cycle = 0ULL;
+		kswapd_amu_struct.uid_total_inst = 0ULL;
+		kworker_amu_struct.uid_total_cycle = 0ULL;
+		kworker_amu_struct.uid_total_inst = 0ULL;
 	}
-	if (task) {
-		ots = get_oplus_task_struct(task);
-		if (ots)
-			len = snprintf(buffer, sizeof(buffer), "pid:%d, comm:%s, instr:%llu, cycle:%llu\n",
-				task->pid, task->comm, ots->amu_instruct, ots->amu_cycle);
-
-		tgid = task->tgid;
-
-		t = task;
-		read_lock(&tasklist_lock);
-		do {
-			ots = get_oplus_task_struct(t);
-			if (ots) {
-				tgid_inst += ots->amu_instruct;
-				tgid_cycle += ots->amu_cycle;
-			}
-		} while_each_thread(task, t);
-		read_unlock(&tasklist_lock);
-
-		put_task_struct(task);
-		len = snprintf(buffer, sizeof(buffer), "pid:%d, tgid:%d, instr:%llu, cycle:%llu\n",
-			global_pid, tgid, tgid_inst, tgid_cycle);
-	} else
-		len = snprintf(buffer, sizeof(buffer), "Can not find task\n");
 	return simple_read_from_buffer(buf, count, ppos, buffer, len);
-}
-
-static ssize_t proc_osi_amu_write(struct file *file,
-		const char __user *buf, size_t count, loff_t *ppos)
-{
-	char buffer[PROC_NUMBUF];
-	int  pid;
-	int  err;
-
-	memset(buffer, 0, sizeof(buffer));
-	if (count > sizeof(buffer) - 1)
-		count = sizeof(buffer) - 1;
-	if (copy_from_user(buffer, buf, count))
-		return -EFAULT;
-	err = kstrtouint(strstrip(buffer), 0, &pid);
-	if (err)
-		return err;
-	global_pid = pid;
-
-	return count;
 }
 
 static __maybe_unused void clear_amu_data(struct task_struct *p)
 {
-	int im_flag = IM_FLAG_NONE;
+	unsigned long im_flag = IM_FLAG_NONE;
 	struct amu_uid_entry *amu_uid_entry = NULL;
-        struct uid_struct *uid_struct;
+	struct uid_struct *uid_struct;
 	struct hlist_node *tmp;
 	unsigned long flags;
-        int bkt;
+	int bkt;
 
 	if (p && p->group_leader)
 		im_flag = oplus_get_im_flag(p->group_leader);
-	if (im_flag == IM_FLAG_MIDASD) {
+	if (test_bit(IM_FLAG_MIDASD, &im_flag)) {
 		spin_lock(&amu_uid_lock);
 		hash_for_each_safe(amu_uid_table, bkt, tmp, amu_uid_entry, node) {
 			if (amu_uid_entry && amu_uid_entry->uid_struct) {
@@ -251,37 +268,38 @@ static ssize_t proc_osi_amu_uid_read(struct file *file, char __user *buf,
 	int len = 0;
 	struct amu_uid_entry *amu_uid_entry = NULL;
 	struct uid_struct *uid_struct;
-	int bkt, i;
+	int bkt, i = 0;
 	uid_t uid;
 	ssize_t ret;
 	char *buffer;
-	u64 uid_cnt =  atomic64_read(&nums_uid);
-
-	buffer = kzalloc(uid_cnt * UID_PRINT_PER_LINE + UID_PRINT_HEADER, GFP_KERNEL);
-	if (!buffer)
-		return -ENOMEM;
-
-	pr_info("proc_osi_amu_uid_read, count:%d", uid_cnt);
-	len += sprintf(&buffer[len], "%10s,%15s,%15s,%15s\n",
-		"uid", "comm", "inst", "cycle");
+	u64 uid_cnt;
+	int alloc_bytes;
 
 	spin_lock(&amu_uid_lock);
+	uid_cnt = atomic64_read(&nums_uid);
+	alloc_bytes = uid_cnt * UID_PRINT_PER_LINE + UID_PRINT_HEADER;
+
+	buffer = kzalloc(alloc_bytes, GFP_ATOMIC);
+	if (!buffer) {
+		spin_unlock(&amu_uid_lock);
+		return -ENOMEM;
+	}
+	pr_info("proc_osi_amu_uid_read, count:%llu", uid_cnt);
+	len += snprintf(buffer + len, alloc_bytes - len, "%10s,%15s,%15s,%15s\n",
+		"uid", "comm", "inst", "cycle");
+
 	hash_for_each(amu_uid_table, bkt, amu_uid_entry, node) {
-		i = 0;
 		if (amu_uid_entry && amu_uid_entry->uid_struct) {
 			uid_struct = amu_uid_entry->uid_struct;
 			uid = uid_struct->uid;
-			if(++i > uid_cnt)
+			if (++i > uid_cnt) {
+				spin_unlock(&amu_uid_lock);
+				kfree(buffer);
 				return -EFAULT;
-			if (uid >= FIRST_APPLICATION_UID && uid <= LAST_APPLICATION_UID) {
-				len += sprintf(&buffer[len], "%10d,%15s,%llu,%llu\n",
-					uid_struct->uid, uid_struct->leader_comm,
-					uid_struct->uid_total_inst, uid_struct->uid_total_cycle);
-			} else {
-				len += sprintf(&buffer[len], "%10d,%15s,%llu,%llu\n",
-					uid_struct->uid, "RESERVED_UID",
-					uid_struct->uid_total_inst, uid_struct->uid_total_cycle);
 			}
+			len += snprintf(buffer + len, alloc_bytes - len, "%10d,%s,%llu,%llu\n",
+				uid_struct->uid, uid_struct->leader_comm,
+				uid_struct->uid_total_inst, uid_struct->uid_total_cycle);
 		}
 	}
 	spin_unlock(&amu_uid_lock);
@@ -310,7 +328,6 @@ static const struct proc_ops proc_osi_amu_uid_ops = {
 
 static const struct proc_ops proc_osi_amu_data_ops = {
 	.proc_read	=	proc_osi_amu_read,
-	.proc_write     =       proc_osi_amu_write,
 	.proc_lseek     =       default_llseek,
 };
 
@@ -365,8 +382,10 @@ static void dup_or_update_uid_struct(const struct task_struct *task, bool is_com
 			amu_uid_entry->uid_struct = new_uid_struct;
 		}
 		ots->uid_struct = amu_uid_entry->uid_struct;
-		if (is_commit_cred)
+		if (is_commit_cred) {
 			memcpy(ots->uid_struct->leader_comm, task->comm, TASK_COMM_LEN);
+			ots->uid_struct->leader_comm[TASK_COMM_LEN - 1] = '\0';
+		}
 	}
 	spin_unlock(&amu_uid_lock);
 }
@@ -376,17 +395,24 @@ void android_rvh_sched_fork_init_handler(void *unused, struct task_struct *task)
 	dup_or_update_uid_struct(task, false);
 }
 
+static char callstack[4][50];
+
 void android_rvh_commit_creds_handler(void *unused, const struct task_struct *task, const struct cred *cred)
 {
-	static char stack1[50], stack2[50];
-	sprintf(stack1, "%ps", CALLER_ADDR3);
-	sprintf(stack2, "%ps", CALLER_ADDR2);
+	int i;
+
+	sprintf(callstack[0], "%ps", __builtin_return_address(0));
+	sprintf(callstack[1], "%ps", __builtin_return_address(1));
+	sprintf(callstack[2], "%ps", __builtin_return_address(2));
+	sprintf(callstack[3], "%ps", __builtin_return_address(3));
 	/*
 	 *Note: main thread's cred derived from zygote64(uid is 0), so we should update
 	 *uid_struct when main thread setuid from userspace.
 	 */
-	if (!strcmp(stack1, "__sys_setresuid") || !strcmp(stack2, "__sys_setresuid")) {
-		dup_or_update_uid_struct(task, true);
+	for (i = 0; i < ARRAY_SIZE(callstack); i++) {
+		if (!strcmp(callstack[i], "__sys_setresuid") || !strcmp(callstack[i], "__sys_setuid")) {
+			dup_or_update_uid_struct(task, true);
+		}
 	}
 }
 
@@ -402,9 +428,37 @@ void osi_task_rename_handler(void *unused, struct task_struct *tsk, const char *
 	ots = get_oplus_task_struct(tsk);
 	if (!ots)
 		return;
-	if (ots->uid_struct)
+	if (ots->uid_struct) {
 		memcpy(ots->uid_struct->leader_comm, comm, TASK_COMM_LEN);
+		ots->uid_struct->leader_comm[TASK_COMM_LEN - 1] = '\0';
+	}
 }
+
+
+static void  __maybe_unused __kprobes fork_handler_post(struct kprobe *p, struct pt_regs *regs,
+					unsigned long flags)
+{
+	char *cmd = NULL;
+	struct task_struct *t = current;
+	struct oplus_task_struct *ots;
+
+	if (t->tgid != t->pid)
+		return;
+	ots = get_oplus_task_struct(t);
+	if (!ots)
+		return;
+	preempt_enable();
+	cmd = kstrdup_quotable_cmdline((struct task_struct *)t, GFP_KERNEL);
+	preempt_disable();
+	if (!cmd)
+		return;
+	if (ots->uid_struct) {
+		strlcpy(ots->uid_struct->cmdline, cmd, sizeof(ots->uid_struct->cmdline));
+		ots->uid_struct->cmdline[MAX_TASK_COMM_LEN - 1] = '\0';
+	}
+	kfree(cmd);
+}
+
 
 int osi_amu_init(struct proc_dir_entry *pde)
 {

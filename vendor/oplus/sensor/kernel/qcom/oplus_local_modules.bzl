@@ -45,7 +45,8 @@ def define_oplus_local_modules():
         includes = ["."],
         local_defines = ["CONFIG_OPLUS_SENSOR_FB_QC",
                          "CONFIG_OPLUS_SENSOR_DRM_PANEL_NOTIFY",
-                         "CONFIG_OPLUS_SENSOR_DRM_PANEL_ADFR_MIN_FPS"],
+                         "CONFIG_OPLUS_SENSOR_DRM_PANEL_ADFR_MIN_FPS",
+                         "CONFIG_OPLUS_SENSOR_USE_SCREENSHOT_INFO"],
         ko_deps = [
             "//vendor/oplus/sensor/kernel/qcom:oplus_sensor_feedback",
         ],
@@ -69,6 +70,9 @@ def define_oplus_local_modules():
         ]),
         includes = [],
         local_defines = ["CFG_OPLUS_ARCH_IS_QCOM"],
+        conditional_build = {
+            "OPLUS_FEATURE_BSP_DRV_INJECT_TEST": "1",
+        },
     )
 
     ddk_copy_to_dist_dir(
@@ -81,4 +85,9 @@ def define_oplus_local_modules():
             "oplus_sensor_feedback",
             "pseudo_sensor",
         ],
+        conditional_builds = {
+            "pseudo_sensor": {
+                "OPLUS_FEATURE_BSP_DRV_INJECT_TEST": "1",
+            },
+        },
     )

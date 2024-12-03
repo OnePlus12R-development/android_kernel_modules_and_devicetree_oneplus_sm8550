@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -31,6 +31,7 @@
 #include "nan_public_structs.h"
 #include "wlan_objmgr_cmn.h"
 #include "cfg_nan.h"
+#include "sir_mac_prot_def.h"
 
 struct wlan_objmgr_vdev;
 struct wlan_objmgr_psoc;
@@ -59,6 +60,17 @@ struct scheduler_msg;
 	QDF_TRACE_INFO_NO_FL(QDF_MODULE_ID_NAN, params)
 #define nan_nofl_debug(params...) \
 	QDF_TRACE_DEBUG_NO_FL(QDF_MODULE_ID_NAN, params)
+
+#define nan_alert_rl(params...) \
+	QDF_TRACE_FATAL_RL(QDF_MODULE_ID_NAN, params)
+#define nan_err_rl(params...) \
+	QDF_TRACE_ERROR_RL(QDF_MODULE_ID_NAN, params)
+#define nan_warn_rl(params...) \
+	QDF_TRACE_WARN_RL(QDF_MODULE_ID_NAN, params)
+#define nan_info_rl(params...) \
+	QDF_TRACE_INFO_RL(QDF_MODULE_ID_NAN, params)
+#define nan_debug_rl(params...) \
+	QDF_TRACE_DEBUG_RL(QDF_MODULE_ID_NAN, params)
 
 /**
  * enum nan_disc_state - NAN Discovery states
@@ -287,6 +299,20 @@ bool nan_is_disc_active(struct wlan_objmgr_psoc *psoc);
 QDF_STATUS
 nan_get_connection_info(struct wlan_objmgr_psoc *psoc, uint8_t *chan,
 			uint8_t *mac_id);
+
+/**
+ * nan_get_vdev_id_from_bssid() -get NAN vdev_id for NAN BSSID
+ * @pdev: PDEV object
+ * @bssid: BSSID present in mgmt frame
+ * @dbg_id: Object Manager ref debug id
+ *
+ * API to get NAN vdev_id for only NAN BSSID.
+ *
+ * Return: NAN vdev_id
+ */
+uint8_t nan_get_vdev_id_from_bssid(struct wlan_objmgr_pdev *pdev,
+				   tSirMacAddr bssid,
+				   wlan_objmgr_ref_dbgid dbg_id);
 
 #endif /* _WLAN_NAN_MAIN_I_H_ */
 #endif /* WLAN_FEATURE_NAN */

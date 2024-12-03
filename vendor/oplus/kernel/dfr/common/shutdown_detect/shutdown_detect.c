@@ -90,7 +90,7 @@
 #define BLOCK_SIZE_EMMC 512
 #define BLOCK_SIZE_UFS 4096
 
-#define SHUTDOWN_MAGIC_LEN 8
+#define SHUTDOWN_MAGIC_LEN 16
 
 #define ShutDownTO 0x9B
 
@@ -717,7 +717,7 @@ static int shutdown_detect_func(void *dummy)
 	/* timeout happened */
 	shutdown_timeout_flag_write(1);
 
-	if (OEM_RELEASE == get_eng_version()) {
+	if (get_eng_version() == OEM_RELEASE || get_eng_version() == AGING) {
 		if (is_shutdows) {
 			pr_err("shutdown_detect: shutdown or reboot? shutdown\n");
 			if (shutdown_task) {
@@ -746,7 +746,7 @@ static int __init init_shutdown_detect_ctrl(void)
 {
 	struct proc_dir_entry *pe;
 	pr_err("shutdown_detect:register shutdown_detect interface\n");
-	pe = proc_create("shutdown_detect", 0664, NULL, &shutdown_detect_fops);
+	pe = proc_create("shutdown_detect", 0666, NULL, &shutdown_detect_fops);
 	if (!pe) {
 		pr_err("shutdown_detect:Failed to register shutdown_detect interface\n");
 		return -ENOMEM;

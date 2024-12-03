@@ -1467,7 +1467,38 @@ static int focal_test_item(struct seq_file *s, struct touchpanel_data *ts,
 			error_count++;
 		}
 	}
+	tp_kfree((void **)&p_test_item_info);
 
+	p_test_item_info = get_test_item_info(p_focal_testdata->fw, TYPE_TEST10);
+
+	if (!p_test_item_info) {
+		TPD_INFO("item: %d get_test_item_info fail\n", TYPE_TEST10);
+
+	} else {
+		ret = fts_test_ops->test10(s, ts->chip_data, p_focal_testdata, p_test_item_info);
+
+		if (ret < 0) {
+			TPD_INFO("test%d failed! ret is %d\n", TYPE_TEST10, ret);
+			error_count++;
+		}
+		support_item++;
+	}
+	tp_kfree((void **)&p_test_item_info);
+
+	p_test_item_info = get_test_item_info(p_focal_testdata->fw, TYPE_TEST11);
+
+	if (!p_test_item_info) {
+		TPD_INFO("item: %d get_test_item_info fail\n", TYPE_TEST11);
+
+	} else {
+		ret = fts_test_ops->test11(s, ts->chip_data, p_focal_testdata, p_test_item_info);
+
+		if (ret < 0) {
+			TPD_INFO("test%d failed! ret is %d\n", TYPE_TEST11, ret);
+			error_count++;
+		}
+		support_item++;
+	}
 	if (!fts_test_ops->auto_test_endoperation) {
 		TPD_INFO("not support fts_test_ops->auto_test_preoperation callback\n");
 
@@ -1488,7 +1519,113 @@ END:
 	return error_count;
 }
 
+static int focal_black_test_item(struct seq_file *s, struct black_gesture_test *p, struct touchpanel_data *ts,
+			   struct auto_testdata *p_focal_testdata)
+{
+	int error_count = 0;
+	int ret = 0;
+	struct test_item_info *p_test_item_info = NULL;
+	struct focal_auto_test_operations *fts_test_ops = NULL;
+	struct com_test_data *com_test_data_p = NULL;
+	int support_item = 0;
 
+	TPD_INFO("%s + \n", __func__);
+	com_test_data_p = &ts->com_test_data;
+
+	if (!com_test_data_p || !com_test_data_p->chip_test_ops) {
+		if (p->message_size >= 30) {
+			snprintf(p->message, 30, "%d errors. %s", error_count, "com_test_data is null.");
+		}
+		TPD_INFO("%s: com_test_data is null\n", __func__);
+		error_count++;
+		goto END;
+	}
+
+	fts_test_ops = (struct focal_auto_test_operations *)
+		       com_test_data_p->chip_test_ops;
+
+	if (!fts_test_ops->black_screen_test_preoperation) {
+		TPD_INFO("not support fts_test_ops->black_screen_test_preoperation callback\n");
+
+	} else {
+		ret = fts_test_ops->black_screen_test_preoperation(s, ts->chip_data,
+				p_focal_testdata, p_test_item_info);
+		if (ret < 0) {
+			TPD_INFO("black_screen_test_preoperation failed\n");
+			error_count++;
+			goto END;
+		}
+	}
+
+	p_test_item_info = get_test_item_info(p_focal_testdata->fw, TYPE_TEST16);
+
+	if (!fts_test_ops->test16) {
+		TPD_INFO("item: %d get_test_item_info fail\n", TYPE_TEST16);
+
+	} else {
+		ret = fts_test_ops->test16(s, ts->chip_data, p_focal_testdata, p_test_item_info);
+
+		if (ret < 0) {
+			TPD_INFO("test%d failed! ret is %d\n", TYPE_TEST16, ret);
+			error_count++;
+		}
+		support_item++;
+	}
+	tp_kfree((void **)&p_test_item_info);
+
+	p_test_item_info = get_test_item_info(p_focal_testdata->fw, TYPE_TEST17);
+
+	if (!fts_test_ops->test17) {
+		TPD_INFO("item: %d get_test_item_info fail\n", TYPE_TEST17);
+
+	} else {
+		ret = fts_test_ops->test17(s, ts->chip_data, p_focal_testdata, p_test_item_info);
+
+		if (ret < 0) {
+			TPD_INFO("test%d failed! ret is %d\n", TYPE_TEST17, ret);
+			error_count++;
+		}
+		support_item++;
+	}
+	tp_kfree((void **)&p_test_item_info);
+
+	p_test_item_info = get_test_item_info(p_focal_testdata->fw, TYPE_TEST18);
+
+	if (!fts_test_ops->test18) {
+		TPD_INFO("item: %d get_test_item_info fail\n", TYPE_TEST18);
+
+	} else {
+		ret = fts_test_ops->test18(s, ts->chip_data, p_focal_testdata, p_test_item_info);
+
+		if (ret < 0) {
+			TPD_INFO("test%d failed! ret is %d\n", TYPE_TEST18, ret);
+			error_count++;
+		}
+		support_item++;
+	}
+
+	tp_kfree((void **)&p_test_item_info);
+
+	if (!fts_test_ops->auto_test_endoperation) {
+		TPD_INFO("not support fts_test_ops->auto_test_preoperation callback\n");
+
+	} else {
+		ret = fts_test_ops->auto_test_endoperation(s, ts->chip_data, p_focal_testdata,
+				p_test_item_info);
+
+		if (ret < 0) {
+			TPD_INFO("black_screen_endoperation failed\n");
+			error_count++;
+		}
+	}
+
+	TPD_INFO("%s - \n", __func__);
+END:
+	if (!support_item) {
+		error_count++;
+	}
+	return error_count;
+}
 static int focal_read_limit_fw(struct seq_file *s, struct touchpanel_data *ts,
 			       struct auto_testdata *p_focal_testdata)
 {
@@ -1501,7 +1638,7 @@ static int focal_read_limit_fw(struct seq_file *s, struct touchpanel_data *ts,
 	/*step4: decode the limit image*/
 	test_head = (struct auto_test_header *)fw->data;
 
-	TPD_INFO("%s, fw, magic1 = 0x%x, magic2 = 0x%x, test_item = 0x%x \n", __func__,
+	TPD_INFO("%s, fw, magic1 = 0x%x, magic2 = 0x%x, test_item = 0x%llx \n", __func__,
 		 test_head->magic1, test_head->magic2, test_head->test_item);
 	TPD_INFO("%s, fw.data = %p \n", __func__, fw->data);
 
@@ -1510,7 +1647,9 @@ static int focal_read_limit_fw(struct seq_file *s, struct touchpanel_data *ts,
 	if ((test_head->magic1 != Limit_MagicNum1)
 			|| (test_head->magic2 != Limit_MagicNum2)) {
 		TPD_INFO("limit image is not generated by oplus\n");
+		if(s) {
 		seq_printf(s, "limit image is not generated by oplus\n");
+		}
 		return  -1;
 	}
 
@@ -1527,7 +1666,52 @@ static int focal_read_limit_fw(struct seq_file *s, struct touchpanel_data *ts,
 	p_focal_testdata->pos = &ts->com_test_data.result_cur_len;
 	return 0;
 }
+static int focal_read_black_limit_fw(struct seq_file *s, struct black_gesture_test *p, struct touchpanel_data *ts,
+			       struct auto_testdata *p_focal_testdata)
+{
+	const struct firmware *fw = NULL;
+	struct auto_test_header *test_head = NULL;
+	uint32_t *p_data32 = NULL;
 
+	TPD_INFO("%s: enter\n", __func__);
+	fw = ts->com_test_data.limit_fw;
+	/*step4: decode the limit image*/
+	test_head = (struct auto_test_header *)fw->data;
+
+	TPD_INFO("%s, fw, magic1 = 0x%x, magic2 = 0x%x, test_item = 0x%llx \n", __func__,
+		 test_head->magic1, test_head->magic2, test_head->test_item);
+	TPD_INFO("%s, fw.data = %p \n", __func__, fw->data);
+
+	p_data32 = (uint32_t *)(fw->data + 16);
+
+	if ((test_head->magic1 != Limit_MagicNum1)
+			|| (test_head->magic2 != Limit_MagicNum2)) {
+		TPD_INFO("limit image is not generated by oplus\n");
+		if (s) {
+			seq_printf(s, "limit image is not generated by oplus\n");
+		}
+
+		if (p) {
+			snprintf(p->message, p->message_size - 1,
+				 "limit image is not generated by oplus\n");
+		}
+		return  -1;
+	}
+
+	TPD_INFO("current test item: %llx\n", test_head->test_item);
+	/*init focal_testdata*/
+	p_focal_testdata->tx_num = ts->hw_res.tx_num;
+	p_focal_testdata->rx_num = ts->hw_res.rx_num;
+	p_focal_testdata->irq_gpio = ts->hw_res.irq_gpio;
+	p_focal_testdata->tp_fw = ts->panel_data.tp_fw;
+	/*black screen save result*/
+	p_focal_testdata->bs_fp = ts->com_test_data.bs_result_data;
+	p_focal_testdata->bs_length = ts->com_test_data.bs_result_max_len;
+	p_focal_testdata->fw = fw;
+	p_focal_testdata->test_item = test_head->test_item;
+	p_focal_testdata->bs_pos = &ts->com_test_data.bs_result_cur_len;
+	return 0;
+}
 
 int focal_auto_test(struct seq_file *s,  struct touchpanel_data *ts)
 {
@@ -1563,6 +1747,46 @@ END:
 	return error_count;
 }
 EXPORT_SYMBOL(focal_auto_test);
+
+#define LEN_BLACK_SCREEN_TEST_ALLOC 128
+int focal_black_screen_test(struct black_gesture_test *p,
+			     struct touchpanel_data *ts)
+{
+	char buf[LEN_BLACK_SCREEN_TEST_ALLOC] = {0};
+	struct auto_testdata focal_testdata = {
+		.tx_num = 0,
+		.rx_num = 0,
+		.bs_fp = NULL,
+		.bs_pos = NULL,
+		.irq_gpio = -1,
+		.tp_fw = 0,
+		.fw = NULL,
+		.test_item = 0,
+	};
+	int ret = 0;
+	/*size_t pos = 0;*/
+	int error_count = 0;
+	/*struct auto_testdata *p_focal_testdata = &focal_testdata;*/
+	ret = focal_read_black_limit_fw(NULL, p, ts, &focal_testdata);
+
+	if (ret) {
+		error_count++;
+		goto END;
+	}
+	error_count += focal_black_test_item(NULL, p, ts, &focal_testdata);
+
+END:
+	/*seq_printf(s, "imageid = 0x%llx, deviceid = 0x%llx\n", nvt_testdata.tp_fw, nvt_testdata.dev_tp_fw);*/
+	/*seq_printf(s, "%d error(s). %s\n", error_count, error_count ? "" : "All test passed.");*/
+	snprintf(p->message, MESSAGE_SIZE, "%d error(s). %s%s\n", error_count,
+		 error_count ? "" : "All test passed.", buf);
+	TPD_INFO("%d errors. %s", error_count, buf);
+	TPD_INFO(" TP black auto test %d error(s). %s\n", error_count,
+		 error_count ? "" : "All test passed.");
+	TPD_INFO("%s - \n", __func__);
+	return error_count;
+}
+EXPORT_SYMBOL(focal_black_screen_test);
 
 MODULE_DESCRIPTION("Touchscreen Focal Common Interface");
 MODULE_LICENSE("GPL");

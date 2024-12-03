@@ -125,12 +125,13 @@ struct cpuset_notify_struct {
 static struct cpuset_notify_struct cpuset_notify_struct;
 
 /*the definition to grab load state*/
-#define  FUNCTION_BITS        8
+#define  FUNCTION_BITS                            8
 
-#define  ACTIVE_GRAB_BIT      0
-#define  PEROID_GRAB_BIT      1
-#define  PERSEC_REPORT_SWITCH 2
-#define  NOTIFY_CPUSET_BIT    3
+#define  ACTIVE_GRAB_BIT                          0
+#define  PEROID_GRAB_BIT                          1
+#define  PERSEC_REPORT_SWITCH                     2
+#define  NOTIFY_CPUSET_BIT                        3
+#define  SHORT_PEROID_GRAB_BIT                    4
 
 #define  MAX_SWITH_NUM        8
 
@@ -158,10 +159,12 @@ unsigned long high_load_switch;
 #endif
 int g_over_load;
 static struct delayed_work high_load_work;
+static struct delayed_work short_high_load_work;
 static struct delayed_work cpus_proc_static_work;
 /*
 define struct to calculate D-state
 */
+#define SHORT_HIGH_LOAD_DURATION  100000
 #define CAL_DSTATE_DURATION     10000000 /* us*/
 #define THRSHOD_DSTATE_DURATION 10000000000
 
@@ -178,13 +181,6 @@ static unsigned long cpumask_big = 0x000000c0;
 
 /*define threshod of bg_dtsate_percent*/
 static int bg_dtsate_percent = 30;
-
-static struct cpufreq_policy *policy;
-static unsigned int *freqs_weight;
-static u64 *freqs_time;
-static u64 *freqs_time_last;
-static int freqs_len;
-static unsigned int fg_freqs_threshold = 75;
 
 static struct action_ctl action_ctl_bits = { 0 };
 static struct action_ctl_struct action_ctl_struct = { 0 };
@@ -571,9 +567,6 @@ static int get_threhold_bytype(u32 type)
 static void high_load_tickfn(struct work_struct *work);
 static void cpus_proc_static_tickfn(struct work_struct *work);
 static void cal_dstate_workfn(struct work_struct *work);
-#ifdef CONFIG_OPLUS_FREQ_STATS_COUNTING_IDLE
-static void high_freqs_load_tick(void);
-#endif
 
 
 static void high_load_count_reset(void)
@@ -779,10 +772,11 @@ static void osi_notify_cpuset(bool is_inital)
 		if (is_inital && !strcmp(child_css->cgroup->kn->name, "background")) {
 			cpumask_xor(&hfg_mask, cpu_possible_mask, grp_mask);
 			cpumask_hfg = cpumask_bits(&hfg_mask)[0];
+			cpumask_bg = cpumask_bits(grp_mask)[0];
 		}
 	}
-	osi_debug("update cpumask_lbg:%lx, cpumask_hbg:%lx, cpumask_hfg:%lx",
-			cpumask_lbg, cpumask_hbg, cpumask_hfg);
+	osi_debug("update cpumask_lbg:%lx, cpumask_hbg:%lx, cpumask_hfg:%lx, cpumask_bg:%lx",
+			cpumask_lbg, cpumask_hbg, cpumask_hfg, cpumask_bg);
 }
 
 static void notify_cpuset_fn(struct work_struct *work)
@@ -790,6 +784,27 @@ static void notify_cpuset_fn(struct work_struct *work)
 	struct cpuset_notify_struct *cur_struct = container_of(work, struct cpuset_notify_struct, cpuset_notify_work);
 	if (cur_struct)
 		osi_notify_cpuset(cur_struct->inital);
+}
+
+
+static void short_high_load_workfn(struct work_struct *work)
+{
+	int  load_percent;
+	u64 total_time = 0;
+	u64 busy_time = 0;
+	u64 total_delta_time;
+	static u64 last_total_time, last_busy_time;
+
+	get_cpu_load(&total_time, &busy_time, 0xffffffff);
+	total_delta_time = total_time - last_total_time;
+	load_percent = (busy_time - last_busy_time) * HIGH_LOAD_PERCENT / total_delta_time;
+	if (load_percent > load_level[0][1]) {
+		send_to_user(SHORT_PERSEC_HIGH_LOAD, 1, &load_percent);
+	}
+	last_total_time = total_time;
+        last_busy_time = busy_time;
+	get_cpu_time();
+	schedule_delayed_work(&short_high_load_work, usecs_to_jiffies(SHORT_HIGH_LOAD_DURATION));
 }
 
 static void high_load_tickfn(struct work_struct *work)
@@ -825,10 +840,6 @@ static void high_load_tickfn(struct work_struct *work)
 	if ((high_load_switch & (1 << LOAD_SWITCH_HFG)) != 0)
 		high_load_tick_mask(cpumask_hfg, CPUSET_HFG);
 	if (check_intervals >= CPU_LOAD_TIMER_RATE) {
-#ifdef CONFIG_OPLUS_FREQ_STATS_COUNTING_IDLE
-		if ((high_load_switch & (1 << LOAD_SWITCH_BIGCORE)) != 0)
-			high_freqs_load_tick();
-#endif
 		if (action_ctl_bits.bits_type) {
 			highload_report();
 		}
@@ -1101,57 +1112,6 @@ bool high_load_tick_mask(unsigned long bits, u32 type)
 	return false;
 }
 
-#ifdef CONFIG_OPLUS_FREQ_STATS_COUNTING_IDLE
-int oplus_time_in_freq_get(int cpu, u64 *freqs, int freqs_len)
-{
-	/* TODO */
-	return 0;
-}
-
-static void high_freqs_load_tick(void)
-{
-	u64 delta_time;
-	u64 delta_freqs_time;
-	ktime_t now;
-	static ktime_t last;
-#ifdef CONFIG_OPLUS_FREQ_STATS_COUNTING_IDLE
-	int i;
-	int ret_err;
-#endif
-	if ((!policy) || (!freqs_weight))
-		return;
-
-	now = ktime_get();
-	delta_time = ktime_us_delta(now, last);
-	last = now;
-
-#ifdef CONFIG_OPLUS_FREQ_STATS_COUNTING_IDLE
-	ret_err = oplus_time_in_freq_get(CPU_NUMS - 1,
-		freqs_time, freqs_len);
-	if (ret_err)
-		return;
-
-	delta_freqs_time = 0;
-	for (i = 0; i < freqs_len; i++) {
-		if (freqs_weight[i] < fg_freqs_threshold)
-			continue;
-		delta_freqs_time += (freqs_time[i] - freqs_time_last[i]) *
-			freqs_weight[i];
-		freqs_time_last[i] = freqs_time[i];
-	}
-
-	if (delta_freqs_time > (delta_time * fg_freqs_threshold)) {
-		pr_info("cpuload: high freqs load");
-		set_action_ctl(CLUSTER_BIG, true);
-		last_status[CLUSTER_BIG] = HIGH_LOAD;
-	} else if (last_status[CLUSTER_BIG] != LOW_LOAD) {
-		set_action_ctl(CLUSTER_BIG, false);
-		last_status[CLUSTER_BIG] = LOW_LOAD;
-	}
-#endif
-}
-#endif
-
 static void get_current_task_mask(u32 type)
 {
 	u32 cpu = 0;
@@ -1342,42 +1302,6 @@ static void grab_hotthread_workfn(struct work_struct *work)
 			usecs_to_jiffies(ACTIVE_GRABTHREAD_DURATION));
 }
 
-static void init_freqs_data(const struct cpufreq_policy *policy)
-{
-	struct cpufreq_frequency_table *pos = NULL;
-	unsigned int len = 0;
-	unsigned int last;
-	int i;
-	int mem_size;
-
-	cpufreq_for_each_valid_entry(pos, policy->freq_table)
-		len++;
-
-	if (len == 0)
-		return;
-	freqs_len = len;
-
-	last = policy->freq_table[len - 1].frequency / PERCENT_HUNDRED;
-	if (last == 0)
-		return;
-
-	/*
-	 * request memory for three arrays:
-	 * freqs_weight, freqs_time, freqs_time_last
-	 */
-	mem_size = len * (sizeof(unsigned int) + sizeof(u64) + sizeof(u64));
-	freqs_weight = kzalloc(mem_size, GFP_KERNEL);
-	if (!freqs_weight)
-		return;
-	freqs_time = (u64 *)(freqs_weight + len);
-	freqs_time_last = freqs_time + len;
-
-	i = 0;
-	cpufreq_for_each_valid_entry(pos, policy->freq_table)
-		freqs_weight[i++] = (pos->frequency / last) + 1;
-	freqs_weight[len - 1] = PERCENT_HUNDRED;
-}
-
 static ssize_t proc_clm_enable_read(struct file *file,
 		char __user *buf, size_t count, loff_t *ppos)
 {
@@ -1425,39 +1349,6 @@ static ssize_t proc_clm_enable_write(struct file *file,
 	}
 
 	high_load_switch = enable;
-
-	return count;
-}
-
-static ssize_t proc_fg_freqs_threshold_read(struct file *file,
-		char __user *buf, size_t count, loff_t *ppos)
-{
-	char buffer[PROC_NUMBUF];
-	size_t len = 0;
-
-	len = snprintf(buffer, sizeof(buffer), "%d\n", fg_freqs_threshold);
-	return simple_read_from_buffer(buf, count, ppos, buffer, len);
-}
-
-static ssize_t proc_fg_freqs_threshold_write(struct file *file,
-			const char __user *buf, size_t count, loff_t *ppos)
-{
-	char buffer[PROC_NUMBUF];
-	int err, threshold;
-
-	memset(buffer, 0, sizeof(buffer));
-
-	if (count > sizeof(buffer) - 1)
-		count = sizeof(buffer) - 1;
-
-	if (copy_from_user(buffer, buf, count))
-		return -EFAULT;
-
-	err = kstrtouint(strstrip(buffer), 0, &threshold);
-	if (err)
-		return err;
-
-	fg_freqs_threshold = threshold;
 
 	return count;
 }
@@ -1677,6 +1568,11 @@ static ssize_t proc_clm_mux_switch_write(struct file *file,
 		schedule_delayed_work(&grab_hotthread_work, usecs_to_jiffies(ACTIVE_GRABTHREAD_DURATION));
 	else
 		cancel_delayed_work_sync(&grab_hotthread_work);
+	if (control_array[SHORT_PEROID_GRAB_BIT] & 1)
+		schedule_delayed_work(&short_high_load_work, usecs_to_jiffies(SHORT_HIGH_LOAD_DURATION));
+	else
+		cancel_delayed_work_sync(&short_high_load_work);
+
 	if (control_array[NOTIFY_CPUSET_BIT] & 1) {
 		cpuset_notify_struct.inital = false;
 		queue_work(system_wq, &cpuset_notify_struct.cpuset_notify_work);
@@ -1689,12 +1585,6 @@ done:
 static const struct proc_ops proc_clm_enable_operations = {
 	.proc_read = proc_clm_enable_read,
 	.proc_write = proc_clm_enable_write,
-	.proc_lseek	=	default_llseek,
-};
-
-static const struct proc_ops proc_fg_freqs_threshold_operations = {
-	.proc_read = proc_fg_freqs_threshold_read,
-	.proc_write = proc_fg_freqs_threshold_write,
 	.proc_lseek	=	default_llseek,
 };
 
@@ -1747,13 +1637,6 @@ struct proc_dir_entry *jank_calcload_proc_init(
 		goto err_clm_enable;
 	}
 
-	entry = proc_create("fg_freqs_threshold", S_IRUGO | S_IWUGO,
-				pde, &proc_fg_freqs_threshold_operations);
-	if (!entry) {
-		osi_debug("create fg_freqs_threshold fail\n");
-		goto err_fg_freqs_threshold;
-	}
-
 	entry = proc_create("clm_highload_all", S_IRUGO | S_IWUGO,
 				pde, &proc_clm_highload_all_operations);
 	if (!entry) {
@@ -1772,7 +1655,7 @@ struct proc_dir_entry *jank_calcload_proc_init(
 				pde, &proc_clm_report_threshold_operations);
 	if (!entry) {
 		osi_debug("create clm_report_threshold fail\n");
-		goto err_lm_report_threshold;
+		goto err_clm_report_threshold;
 	}
 
 	entry = proc_create("clm_lowload_grp", S_IRUGO | S_IWUGO,
@@ -1796,22 +1679,20 @@ struct proc_dir_entry *jank_calcload_proc_init(
 
 	return entry;
 
-
 err_clm_lowload_grp:
-	remove_proc_entry("clm_highload_grp", pde);
-err_lm_report_threshold:
-	remove_proc_entry("clm_report_threshold", pde);
+	remove_proc_entry("clm_lowload_grp", pde);
 err_clm_highload_grp:
-	remove_proc_entry("clm_highload_all", pde);
+	remove_proc_entry("clm_highload_grp", pde);
+err_clm_report_threshold:
+	remove_proc_entry("clm_report_threshold", pde);
 err_clm_highload_all:
-	remove_proc_entry("fg_freqs_threshold", pde);
-err_fg_freqs_threshold:
+	remove_proc_entry("clm_highload_all", pde);
+err_clm_enable:
 	remove_proc_entry("clm_enable", pde);
 err_bg_dstat_percent:
 	remove_proc_entry("bg_dstat_percent", pde);
 err_clm_mux_switch:
 	remove_proc_entry("clm_mux_switch", pde);
-err_clm_enable:
 	return NULL;
 }
 
@@ -1821,7 +1702,6 @@ void jank_calcload_proc_deinit(struct proc_dir_entry *pde)
 	remove_proc_entry("clm_report_threshold", pde);
 	remove_proc_entry("clm_highload_grp", pde);
 	remove_proc_entry("clm_highload_all", pde);
-	remove_proc_entry("fg_freqs_threshold", pde);
 	remove_proc_entry("clm_enable", pde);
 	remove_proc_entry("bg_dstat_percent", pde);
 	remove_proc_entry("clm_mux_switch", pde);
@@ -1839,13 +1719,10 @@ void jank_calcload_init(void)
 		return;
 	}
 
-	policy = cpufreq_cpu_get(cpumask_weight(cpu_possible_mask) - 1);
-	if (policy)
-		init_freqs_data(policy);
-
 	INIT_DEFERRABLE_WORK(&high_load_work, high_load_tickfn);
 	INIT_DEFERRABLE_WORK(&cal_dstate_work, cal_dstate_workfn);
 	INIT_DEFERRABLE_WORK(&grab_hotthread_work, grab_hotthread_workfn);
+	INIT_DEFERRABLE_WORK(&short_high_load_work, short_high_load_workfn);
 	INIT_WORK(&cpuset_notify_struct.cpuset_notify_work, notify_cpuset_fn);
 
 	for (i = 0; i < HIGH_LOAD_MAX_TYPE; i++)
@@ -1862,13 +1739,7 @@ void jank_calcload_exit(void)
 	}
 	high_load_switch = 0;
 
-	kfree(freqs_weight);
-	freqs_weight = NULL;
-	freqs_time = NULL;
-	freqs_time_last = NULL;
-	freqs_len = 0;
 	pid_stat_clear();
-	cpufreq_cpu_put(policy);
 	destroy_cpu_netlink();
 }
 

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -444,11 +444,12 @@ QDF_STATUS ucfg_p2p_set_ps(struct wlan_objmgr_psoc *soc,
 	struct wlan_objmgr_vdev *vdev;
 	struct p2p_ps_config go_ps_config;
 
-	p2p_debug("soc:%pK, vdev_id:%d, opp_ps:%d, ct_window:%d, count:%d, duration:%d, duration:%d, ps_selection:%d",
-		soc, ps_config->vdev_id, ps_config->opp_ps,
-		ps_config->ct_window, ps_config->count,
-		ps_config->duration, ps_config->single_noa_duration,
-		ps_config->ps_selection);
+	p2p_debug("soc:%pK, vdev_id:%d, opp_ps:%d, ct_window:%d, count:%d, interval:%d, duration:%d, start:%d, single noa duration:%d, ps_selection:%d",
+		  soc, ps_config->vdev_id, ps_config->opp_ps,
+		  ps_config->ct_window, ps_config->count,
+		  ps_config->interval, ps_config->duration,
+		  ps_config->start, ps_config->single_noa_duration,
+		  ps_config->ps_selection);
 
 	if (!soc) {
 		p2p_err("psoc context passed is NULL");
@@ -640,4 +641,23 @@ QDF_STATUS ucfg_p2p_status_stop_bss(struct wlan_objmgr_vdev *vdev)
 	}
 
 	return p2p_status_stop_bss(vdev);
+}
+
+bool ucfg_p2p_get_indoor_ch_support(struct wlan_objmgr_psoc *psoc)
+{
+	struct p2p_soc_priv_obj *p2p_soc_obj;
+
+	if (!psoc) {
+		p2p_err("invalid psoc");
+		return false;
+	}
+
+	p2p_soc_obj = wlan_objmgr_psoc_get_comp_private_obj(psoc,
+							    WLAN_UMAC_COMP_P2P);
+	if (!p2p_soc_obj) {
+		p2p_err("p2p soc private object is NULL");
+		return false;
+	}
+
+	return p2p_soc_obj->param.indoor_channel_support;
 }

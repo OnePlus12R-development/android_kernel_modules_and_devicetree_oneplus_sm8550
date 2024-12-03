@@ -174,6 +174,7 @@ struct msm_vidc_inst {
 	struct msm_vidc_inst_capability   *capabilities;
 	struct completion                  completions[MAX_SIGNAL];
 	struct msm_vidc_fence_context      fence_context;
+	struct msm_vidc_slice_decode       slice_decode;
 	bool                               active;
 	u64                                last_qbuf_time_ns;
 	u64                                initial_time_us;
@@ -187,5 +188,7 @@ struct msm_vidc_inst {
 	bool                               ir_enabled;
 	u32                                adjust_priority;
 	bool                               iframe;
+	u32                                fences_per_output_counter;
+	u32                                prev_fence_id;
 };
 #endif // _MSM_VIDC_INST_H_

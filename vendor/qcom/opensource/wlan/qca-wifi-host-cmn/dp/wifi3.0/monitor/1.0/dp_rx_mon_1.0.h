@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -113,11 +113,13 @@ dp_rx_pdev_mon_buf_desc_pool_init(struct dp_pdev *pdev, uint32_t mac_id)
  *  a given mac
  * @pdev: DP pdev
  * @mac_id: mac id
+ * @force_flush: Force flush ring
  *
  * Return: None
  */
 uint32_t
-dp_mon_dest_srng_drop_for_mac(struct dp_pdev *pdev, uint32_t mac_id);
+dp_mon_dest_srng_drop_for_mac(struct dp_pdev *pdev, uint32_t mac_id,
+			      bool force_flush);
 #endif
 
 /**
@@ -749,7 +751,7 @@ dp_rx_mon_parse_desc_buffer(struct dp_soc *dp_soc,
 		*is_frag_p = true;
 		*frag_len_p = (RX_MONITOR_BUFFER_SIZE - rx_pkt_tlv_len -
 			       *l2_hdr_offset_p) &
-			      (RXDMA_DATA_DMA_BLOCK_SIZE - 1);
+			      ~(RXDMA_DATA_DMA_BLOCK_SIZE - 1);
 		*total_frag_len_p += *frag_len_p;
 	} else {
 		if (hal_rx_tlv_decap_format_get(dp_soc->hal_soc, rx_desc_tlv) ==

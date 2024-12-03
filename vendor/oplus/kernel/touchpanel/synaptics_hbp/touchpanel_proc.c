@@ -26,6 +26,14 @@
 #include "tcm/synaptics_touchcom_func_base.h"
 #include "syna_tcm2.h"
 
+#ifndef CONFIG_REMOVE_OPLUS_FUNCTION
+#ifdef CONFIG_TOUCHPANEL_MTK_PLATFORM
+#include<mt-plat/mtk_boot_common.h>
+#else
+#include <soc/oplus/system/boot_mode.h>
+#endif
+#endif
+
 /*debug_level - For touch panel driver debug_level
  * Output:
  * tp_hbp_debug:0, LEVEL_BASIC;
@@ -156,6 +164,19 @@ static ssize_t proc_fw_update_write(struct file *file,
 		return count;
 	}
 
+#ifndef CONFIG_REMOVE_OPLUS_FUNCTION
+#ifdef CONFIG_TOUCHPANEL_MTK_PLATFORM
+	if (tcm->boot_mode == KERNEL_POWER_OFF_CHARGING_BOOT)
+#else
+	if (tcm->boot_mode == MSM_BOOT_MODE__CHARGE)
+#endif
+#endif
+	 {
+		TP_INFO(tcm->tp_index,
+			"boot mode is MSM_BOOT_MODE__CHARGE,not need update tp firmware\n");
+		return count;
+	}
+
 	if (count > 4) {
 		TPD_INFO("%s:count > 4\n", __func__);
 		return count;
@@ -168,6 +189,11 @@ static ssize_t proc_fw_update_write(struct file *file,
 
 	if (kstrtoint(buf, 10, &val)) {
 		TP_INFO(tcm->tp_index, "%s: kstrtoint error\n", __func__);
+		return count;
+	}
+
+	if (IS_REMOVE == tcm->driver_current_state) {
+		LOGE("%s:driver is removed!!\n", __func__);
 		return count;
 	}
 
@@ -885,6 +911,79 @@ static int health_monitor_open(struct inode *inode, struct file *file)
 
 DECLARE_PROC_OPS(tp_health_monitor_proc_fops, health_monitor_open, seq_read, health_monitor_control, single_release);
 
+/*proc/touchpanel/debug_info/data_limit*/
+static ssize_t tp_limit_data_write_func(struct file *file,
+				    const char __user *buffer, size_t count, loff_t *ppos)
+{
+	struct syna_tcm *tcm = PDE_DATA(file_inode(file));
+	struct debug_info_proc_operations *debug_info_ops = NULL;
+	int value = 0;
+	char buf[4] = {0};
+
+	TPD_DETAIL("%s tp_limit_data write enter\n", __func__);
+
+	if (!tcm) {
+		TPD_INFO("%s: tcm is NULL pointer\n", __func__);
+		return count;
+	}
+
+	if (!tcm->tp_data_record_support) {
+		return count;
+	}
+
+	if (count > 2) {
+		return count;
+	}
+
+	tp_copy_from_user(buf, sizeof(buf), buffer, count, 2);
+
+	if (kstrtoint(buf, 10, &value)) {
+		TP_INFO(tcm->tp_index, "%s: kstrtoint error\n", __func__);
+		return count;
+	}
+
+	debug_info_ops = (struct debug_info_proc_operations *)(tcm->debug_info_ops);
+	if (!debug_info_ops) {
+		TPD_INFO("%s:debug_info_ops is NULL pointer\n", __func__);
+		return 0;
+	}
+
+	if (!debug_info_ops->tp_limit_data_write) {
+		TPD_INFO("%s:debug_info_ops->tp_limit_data_write is NULL pointer\n", __func__);
+		return 0;
+	}
+
+	TPD_DETAIL("%s tp_limit_data write :%d\n", __func__, value);
+
+	mutex_lock(&tcm->mutex);
+	if (debug_info_ops->tp_limit_data_write) {
+		debug_info_ops->tp_limit_data_write(tcm, value);
+	}
+	mutex_unlock(&tcm->mutex);
+
+	return count;
+}
+
+static int tp_limit_data_read_func(struct seq_file *s, void *v)
+{
+	struct syna_tcm *tcm = s->private;
+
+	if (!tcm) {
+		return 0;
+	}
+
+	seq_printf(s, "%d\n", tcm->differ_read_every_frame);
+
+	return 0;
+}
+
+static int limit_data_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, tp_limit_data_read_func, PDE_DATA(inode));
+}
+
+DECLARE_PROC_OPS(tp_limit_data_proc_fops, limit_data_open, seq_read, tp_limit_data_write_func, single_release);
+
 /*proc/touchpanel/debug_info/baseline*/
 static int tp_baseline_debug_read_func(struct seq_file *s, void *v)
 {
@@ -1144,7 +1243,7 @@ static int init_debug_info_proc(struct syna_tcm *tcm,
 
 	tp_proc_node proc_debug_node[] = {
 #ifndef CONFIG_REMOVE_OPLUS_FUNCTION
-		/* {"data_limit", 0666, NULL, &tp_limit_data_proc_fops, tcm, false, true}, show limit data interface*/
+		{"data_limit", 0666, NULL, &tp_limit_data_proc_fops, tcm, false, tcm->tp_data_record_support},/* show limit data interface*/
 		{"baseline", 0666, NULL, &tp_baseline_data_proc_fops, tcm, false, true},/* show baseline data interface*/
 
 		{"delta", 0666, NULL, &tp_delta_data_proc_fops, tcm, false, true},/* show delta interface*/

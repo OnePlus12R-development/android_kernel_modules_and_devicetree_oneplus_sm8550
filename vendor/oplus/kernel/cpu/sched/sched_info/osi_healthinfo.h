@@ -173,6 +173,7 @@ struct ion_wait_para {
 };
 
 extern void ohm_schedstats_record(int sched_type, struct task_struct *task, u64 delta_ms);
+void update_block_state(struct task_struct *p, int flags);
 extern int ohm_get_cur_cpuload(bool ctrl);
 extern void ohm_action_trig_with_msg(int type, char *msg);
 extern atomic_long_t ion_total_size;

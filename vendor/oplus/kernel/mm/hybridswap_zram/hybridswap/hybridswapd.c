@@ -149,6 +149,11 @@ static void wake_all_swapd(void);
 extern u32 get_cpu_load(u32 win_cnt, struct cpumask *mask);
 #endif
 
+static inline bool current_is_hybrid_swapd(void)
+{
+	return current->pid == swapd_pid;
+}
+
 inline u64 get_zram_wm_ratio_value(void)
 {
 	return atomic64_read(&zram_wm_ratio);
@@ -1839,7 +1844,7 @@ static int swapd_cpu_online(unsigned int cpu)
 
 static void vh_tune_scan_type(void *data, char *scan_balance)
 {
-	if (current_is_swapd()) {
+	if (current_is_hybrid_swapd()) {
 		*scan_balance = SCAN_ANON;
 		return;
 	}
@@ -1867,6 +1872,22 @@ static void vh_alloc_pages_slowpath(void *data, gfp_t gfp_flags,
 {
 	if (gfp_flags & __GFP_KSWAPD_RECLAIM)
 		wake_all_swapd();
+}
+
+static void vh_shrink_slab_bypass(void *data, gfp_t gfp_mask, int nid,
+			   struct mem_cgroup *memcg, int priority,
+			   bool *bypass)
+{
+	/*
+	 * 1. hybridswapd do not shirink slab.
+	 * 2. thread who is doing force shrink, bypass shrink slab
+	 */
+	if (current_is_hybrid_swapd() || (current->flags & PF_BYPASS_SHRINK_SLAB))
+		*bypass = true;
+#if IS_ENABLED(CONFIG_KSHRINK_SLABD)
+	else
+		should_shrink_async(data, gfp_mask, nid, memcg, priority, bypass);
+#endif
 }
 
 static int create_swapd_thread(struct zram *zram)
@@ -2233,4 +2254,5 @@ void hybridswapd_ops_init(struct hybridswapd_operations *ops)
 
 	ops->vh_alloc_pages_slowpath = vh_alloc_pages_slowpath;
 	ops->vh_tune_scan_type = vh_tune_scan_type;
+	ops->vh_shrink_slab_bypass = vh_shrink_slab_bypass;
 }

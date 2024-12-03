@@ -28,11 +28,11 @@ typedef enum {
 
 struct kernel_packet_info
 {
-    int type;	 /* 0:root,1:only string,other number represent other type */
-    char log_tag[32];	/* logTag */
-    char event_id[20];	  /*eventID */
-    size_t payload_length;	  /* Length of packet data */
-    unsigned char payload[0];	/* Optional packet data */
+	int type;	 /* 0:root,1:only string,other number represent other type */
+	char log_tag[32];	/* logTag */
+	char event_id[20];	  /*eventID */
+	size_t payload_length;	  /* Length of packet data */
+	unsigned char payload[];	/* Optional packet data */
 }__attribute__((packed));
 
 int fb_kevent_send_to_user(struct kernel_packet_info *userinfo);

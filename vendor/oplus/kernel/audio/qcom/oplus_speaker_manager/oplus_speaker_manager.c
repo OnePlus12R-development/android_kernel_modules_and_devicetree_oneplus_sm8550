@@ -36,6 +36,7 @@ const char *const ext_rcv_amp_function[] = { "Off", "On" };
 const char *const ext_amp_speaker_mode_function[] = { "Off", "Music", "Voice", "Fm", "Rcv" };
 const char *const ext_amp_voice_function[] = { "Off", "On" };
 const char *const ext_amp_mute_function[] = { "Off", "On" };
+const char *const ext_amp_check_feedback[] = { "Off", "On" };
 
 static struct soc_enum oplus_amp_info_enum[] = {
 	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(ext_amp_manufacturers), ext_amp_manufacturers),
@@ -48,6 +49,7 @@ static struct soc_enum oplus_amp_control_enum[] = {
 	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(ext_amp_vdd_need), ext_amp_vdd_need),
 	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(ext_amp_boost_vol_text), ext_amp_boost_vol_text),
 	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(ext_amp_mute_function), ext_amp_mute_function),
+	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(ext_amp_check_feedback), ext_amp_check_feedback),
 };
 
 static const struct snd_kcontrol_new oplus_pa_manager_snd_controls[] = {
@@ -61,6 +63,7 @@ static const struct snd_kcontrol_new oplus_pa_manager_snd_controls[] = {
 	SOC_ENUM_EXT("Ext_Amp_Vdd_Need", (oplus_amp_control_enum)[3], ext_amp_vdd_get, ext_amp_vdd_set),
 	SOC_ENUM_EXT("Ext_Amp_Boost_Volume", (oplus_amp_control_enum)[4], ext_amp_boost_volume_get, ext_amp_boost_volume_set),
 	SOC_ENUM_EXT("Speaker_Mute_Switch", (oplus_amp_control_enum)[5], ext_amp_force_mute_get, ext_amp_force_mute_set),
+	SOC_ENUM_EXT("Amp_check_feedback", (oplus_amp_control_enum)[6], ext_amp_check_feedback_get, ext_amp_check_feedback_set),
 };
 
 static const struct snd_soc_dapm_widget oplus_analog_pa_manager_dapm_widgets[] = {
@@ -463,6 +466,69 @@ int ext_amp_force_mute_set(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_va
 
 	return 0;
 }
+
+int ext_amp_check_feedback_get(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
+{
+	enum oplus_pa_type pa_index = L_SPK;
+	struct oplus_speaker_device *speaker_device = NULL;
+
+	if (contrl_status == NULL) {
+		ucontrol->value.integer.value[0] = 0;
+		pr_err("%s, %d, contrl_status == NULL!\n", __func__, __LINE__);
+	} else {
+		for (pa_index = L_SPK; pa_index < ALL_SPK; pa_index++) {
+			speaker_device = get_speaker_dev(pa_index);
+			if (speaker_device == NULL) {
+				pr_err("%s, %d, pa_index = %d, No more speaker_device\n", __func__, __LINE__, pa_index);
+				break;
+			} else if (speaker_device->speaker_check_feeback_get == NULL) {
+				pr_debug("%s, %d, pa_index = %d, speaker_device->speaker_check_feeback_get == NULL\n", __func__, __LINE__, pa_index);
+			} else {
+				speaker_device->speaker_check_feeback_get(speaker_device, &contrl_status->check_feeback_enable);
+				pr_info("%s, %d, pa check feedback control is working in %s mode, pa_index = %d\n",
+					 __func__, __LINE__, contrl_status->check_feeback_enable == 1 ? "On" : "Off", pa_index);
+			}
+		}
+
+		ucontrol->value.integer.value[0] = contrl_status->check_feeback_enable;
+	}
+
+	pr_debug("%s(), ucontrol->value.integer.value[0] = %d\n", __func__, ucontrol->value.integer.value[0]);
+
+	return 0;
+}
+
+int ext_amp_check_feedback_set(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
+{
+	enum oplus_pa_type pa_index = L_SPK;
+	struct oplus_speaker_device *speaker_device = NULL;
+
+	if (contrl_status == NULL) {
+		ucontrol->value.integer.value[0] = 0;
+		pr_err("%s, %d, contrl_status == NULL!\n", __func__, __LINE__);
+		return -ENODEV;
+	} else if (contrl_status->check_feeback_enable == ucontrol->value.integer.value[0]) {
+		pr_info("%s, %d, Speaker mute set is already %s\n", __func__, __LINE__, contrl_status->check_feeback_enable == 1 ? "On": "Off");
+	} else {
+		contrl_status->check_feeback_enable = ucontrol->value.integer.value[0];
+		for (pa_index = L_SPK; pa_index < ALL_SPK; pa_index++) {
+			speaker_device = get_speaker_dev(pa_index);
+			if (speaker_device == NULL) {
+				pr_err("%s, %d, pa_index = %d, No more speaker_device\n", __func__, __LINE__, pa_index);
+				break;
+			} else if (speaker_device->speaker_check_feeback_set == NULL) {
+				pr_debug("%s, %d, pa_index = %d, speaker_device->speaker_check_feeback_set == NULL\n", __func__, __LINE__, pa_index);
+			} else {
+				speaker_device->speaker_check_feeback_set(speaker_device, contrl_status->check_feeback_enable);
+				pr_info("%s, %d, pa check feedback control is working in %s mode, pa_index = %d\n",
+					 __func__, __LINE__, contrl_status->check_feeback_enable == 1 ? "On" : "Off", pa_index);
+			}
+		}
+	}
+
+	return 0;
+}
+
 /*------------------------------------------------------------------------------*/
 int oplus_spkr_pa_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *kcontrol, int event)
 {
@@ -470,6 +536,16 @@ int oplus_spkr_pa_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *kcon
 
 	switch (event) {
 	case SND_SOC_DAPM_POST_PMU :
+		if (contrl_status->chipset == ALL_SPK) {
+			if (contrl_status->amp_mode_setting == WORK_MODE_RECEIVER) {
+				oplus_speaker_amp_set(R_SPK, WORK_STATUS_ON);
+			} else {
+				oplus_speaker_amp_set(L_SPK, WORK_STATUS_ON);
+				oplus_speaker_amp_set(R_SPK, WORK_STATUS_ON);
+			}
+		} else {
+			oplus_speaker_amp_set(L_SPK, WORK_STATUS_ON);
+		}
 		break;
 	case SND_SOC_DAPM_PRE_PMD :
 		oplus_speaker_amp_set(L_SPK, WORK_STATUS_OFF);
@@ -536,6 +612,7 @@ static int __init oplus_pa_manager_init(void)
 		contrl_status->amp_boost_volume = 0;
 		contrl_status->amp_mode_setting = 0;
 		contrl_status->amp_force_mute_status = 0;
+		contrl_status->check_feeback_enable = 0;
 		pr_info("%s(),control status init \n", __func__);
 	}
 

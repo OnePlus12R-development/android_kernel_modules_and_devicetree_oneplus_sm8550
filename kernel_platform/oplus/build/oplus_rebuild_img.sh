@@ -26,7 +26,7 @@ function init_image_environment() {
     MKDTIMG="${ACKDIR}/prebuilts/kernel-build-tools/linux-x86/bin/mkdtimg"
     MKDTOIMG="${ACKDIR}/prebuilts/kernel-build-tools/linux-x86/bin/mkdtboimg.py"
     MKBOOTFS="${ACKDIR}/prebuilts/kernel-build-tools/linux-x86/bin/mkbootfs"
-    #IMAGE_SERVER="http://gpw13.myoas.com/artifactory/phone-snapshot-local/PSW/SM8650_14/Waffle/22825/Daily/PublicMarket/BringUp/domestic/userdebug/14.0.0.1_2023062806090158_userdebug/"
+    #IMAGE_SERVER="xxx"
     mkdir -p ${IMAGE_OUT}
 }
 function download_prebuild_image() {

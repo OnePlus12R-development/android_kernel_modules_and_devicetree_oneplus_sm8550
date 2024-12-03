@@ -28,12 +28,15 @@
 #include <linux/sched/cputime.h>
 #include <linux/tick.h>
 #include <asm/uaccess.h>
-
+#include <linux/version.h>
 
 #define MIN_WINDOW_TIME		1000000000L
 #define MAX_WINDOW_TIME		(10 * 60 * MIN_WINDOW_TIME)
 #define MAX_THREAD_INFO		4096
 #define TASK_INFO_MEM_SIZE	(MAX_THREAD_INFO * sizeof(struct task_info))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
+#define PDE_DATA pde_data
+#endif
 
 struct task_info {
 	u64 sum_exec;
@@ -114,11 +117,14 @@ static u64 cpustat_time(struct kernel_cpustat *now, struct kernel_cpustat *last)
 {
 	int i;
 	u64 total_time = 0;
-
+	int possible_cpus_num = num_possible_cpus();
 	for (i = CPUTIME_USER; i < NR_STATS; i++) {
 		total_time += now->cpustat[i] - last->cpustat[i];
 	}
-	return total_time / num_possible_cpus();
+	if (possible_cpus_num == 0) {
+		possible_cpus_num = 1;
+	}
+	return total_time / possible_cpus_num;
 }
 
 static void get_cpustat(struct kernel_cpustat *stat)
@@ -219,8 +225,8 @@ static int procs_cpu_usage_show(struct seq_file *m, void *v)
 		total_cputime = cpustat_time(&cpustat, &g_pcu.last_cpustat);
 
 		for (i = 0; i < n_rank; i++) {
-			seq_printf(m, "%d %d %s\n", g_pcu.rank_tasks[i].pid,
-				(g_pcu.rank_tasks[i].sum_exec * 100) / total_cputime,
+			seq_printf(m, "%d %lld %s\n", g_pcu.rank_tasks[i].pid,
+				(g_pcu.rank_tasks[i].sum_exec * 100ULL) / total_cputime,
 				g_pcu.rank_tasks[i].comm);
 		}
 	}

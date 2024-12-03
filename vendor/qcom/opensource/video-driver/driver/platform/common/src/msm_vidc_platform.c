@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <soc/qcom/of_common.h>
@@ -25,6 +25,9 @@
 #endif
 #if defined(CONFIG_MSM_VIDC_ANORAK)
 #include "msm_vidc_anorak.h"
+#endif
+#if defined(CONFIG_MSM_VIDC_CROW)
+#include "msm_vidc_crow.h"
 #endif
 #if defined(CONFIG_MSM_VIDC_IRIS2)
 #include "msm_vidc_iris2.h"
@@ -237,12 +240,25 @@ static int msm_vidc_deinit_platform_variant(struct msm_vidc_core *core, struct d
 		return rc;
 	}
 #endif
+#if defined(CONFIG_MSM_VIDC_CROW)
+	if (of_device_is_compatible(dev->of_node, "qcom,msm-vidc-crow")) {
+		rc = msm_vidc_deinit_platform_crow(core, dev);
+		if (rc)
+			d_vpr_e("%s: failed msm-vidc-crow with %d\n",
+				__func__, rc);
+		return rc;
+	}
+#endif
 
 	return rc;
 }
 
 static int msm_vidc_init_platform_variant(struct msm_vidc_core *core, struct device *dev)
 {
+#if defined(CONFIG_MSM_VIDC_KALAMA)
+	struct msm_platform_core_capability *platform_data;
+	int i, num_platform_caps;
+#endif
 	int rc = -EINVAL;
 
 	if (!core || !dev) {
@@ -267,12 +283,43 @@ static int msm_vidc_init_platform_variant(struct msm_vidc_core *core, struct dev
 			d_vpr_e("%s: failed with %d\n", __func__, rc);
 		return rc;
 	}
+	if (of_device_is_compatible(dev->of_node, "qcom,msm-vidc-kalama-iot")) {
+		rc = msm_vidc_init_platform_kalama(core, dev);
+		if (rc) {
+			d_vpr_e("%s: failed with %d\n", __func__, rc);
+			return rc;
+		}
+		if (!core || !core->platform) {
+			d_vpr_e("%s: Invalid params\n", __func__);
+			return -EINVAL;
+		}
+		platform_data = core->platform->data.core_data;
+		num_platform_caps = core->platform->data.core_data_size;
+		for (i = 0; i < num_platform_caps && i < CORE_CAP_MAX; i++) {
+			if (platform_data[i].type == MAX_SESSION_COUNT)
+				platform_data[i].value = 32;
+			else if (platform_data[i].type == MAX_NUM_720P_SESSIONS)
+				platform_data[i].value = 32;
+			else if (platform_data[i].type == MAX_NUM_1080P_SESSIONS)
+				platform_data[i].value = 32;
+		}
+	}
 #endif
 #if defined(CONFIG_MSM_VIDC_ANORAK)
 	if (of_device_is_compatible(dev->of_node, "qcom,msm-vidc-anorak")) {
 		rc = msm_vidc_init_platform_anorak(core, dev);
 		if (rc)
-			d_vpr_e("%s: failed with %d\n", __func__, rc);
+			d_vpr_e("%s: failed msm-vidc-anorak with %d\n",
+				__func__, rc);
+		return rc;
+	}
+#endif
+#if defined(CONFIG_MSM_VIDC_CROW)
+	if (of_device_is_compatible(dev->of_node, "qcom,msm-vidc-crow")) {
+		rc = msm_vidc_init_platform_crow(core, dev);
+		if (rc)
+			d_vpr_e("%s: failed msm-vidc-crow with %d\n",
+				__func__, rc);
 		return rc;
 	}
 #endif

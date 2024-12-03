@@ -57,7 +57,7 @@ static unsigned int kworkthread_wait_flag;
 static bool ux_page_pool_enabled = false;
 static bool fillthread_enabled = false;
 
-static struct per_cpu_pages *dma32_pcp_base = NULL;
+static struct per_cpu_pages_ext *dma32_pcp_base = NULL;
 
 static unsigned long ux_pool_alloc_fail = 0;
 /* true by default, false when oplus_bsp_uxmem_opt.enable=N in cmdline */
@@ -508,7 +508,7 @@ static int ux_page_pool_init(void)
 	for_each_zone(zone) {
 		if (!strcmp(zone->name, "DMA32") && populated_zone(zone)) {
 			pr_info("zone DMA32 detect\n");
-			dma32_pcp_base = zone->per_cpu_pageset;
+			dma32_pcp_base = (struct per_cpu_pages_ext __percpu *)zone->per_cpu_pageset;
 		}
 	}
 
@@ -539,9 +539,11 @@ inline int task_is_fg(struct task_struct *tsk)
 
 static inline bool current_is_key_task(void)
 {
+	unsigned long im_flag = oplus_get_im_flag(current);
+
 	return test_task_ux(current) || rt_task(current)
-		|| (oplus_get_im_flag(current) == IM_FLAG_SURFACEFLINGER)
-		|| (oplus_get_im_flag(current) == IM_FLAG_SYSTEMSERVER_PID)
+		|| test_bit(IM_FLAG_SURFACEFLINGER, &im_flag)
+		|| test_bit(IM_FLAG_SYSTEMSERVER_PID, &im_flag)
 		|| task_is_fg(current);
 }
 
@@ -596,7 +598,6 @@ static void kvmalloc_check_use_vmalloc(void *data, size_t size,
 {
 	if (test_task_ux(current) && (size > UXMEM_POOL_MAX_PAGES * PAGE_SIZE)) {
 		*kmalloc_flags &= ~__GFP_DIRECT_RECLAIM;
-		*kmalloc_flags |= __GFP_KSWAPD_RECLAIM;
 		*use_vmalloc = false;
 	} else if (!test_task_ux(current) && (size >= KMALLOC_MAX_PAGES * PAGE_SIZE)) {
 		*use_vmalloc = true;
@@ -627,7 +628,7 @@ static void unreserve_highatomic_bypass(void *data, bool force,
 static bool in_dma32_zone(struct per_cpu_pages *pcp)
 {
 	if (dma32_pcp_base)
-		return pcp == this_cpu_ptr(dma32_pcp_base);
+		return pcp == &(this_cpu_ptr(dma32_pcp_base)->pcp);
 	return false;
 }
 
@@ -714,9 +715,14 @@ static int __init uxmem_opt_init(void)
 {
 	int ret = 0;
 
-	if (!enable || IS_ENABLED(CONFIG_PAGE_POISONING)) {
+	if (!enable) {
 		pr_err("oplus_bsp_uxmem_opt is disabled in cmdline\n");
-		return -EINVAL;
+		return 0;
+	}
+
+	if (IS_ENABLED(CONFIG_PAGE_POISONING)) {
+		pr_err("oplus_bsp_uxmem_opt conflict with CONFIG_PAGE_POISONING\n");
+		return 0;
 	}
 
 	ret = ux_page_pool_init();

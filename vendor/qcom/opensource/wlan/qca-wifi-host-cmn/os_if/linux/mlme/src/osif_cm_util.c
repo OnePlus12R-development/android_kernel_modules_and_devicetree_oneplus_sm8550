@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2015, 2020-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -259,19 +259,10 @@ osif_cm_disconnect_complete_cb(struct wlan_objmgr_vdev *vdev,
 
 #ifdef CONN_MGR_ADV_FEATURE
 void osif_cm_unlink_bss(struct wlan_objmgr_vdev *vdev,
-			struct vdev_osif_priv *osif_priv,
-			struct qdf_mac_addr *bssid,
-			uint8_t *ssid, uint8_t ssid_len)
+			struct qdf_mac_addr *bssid)
 {
-	struct wiphy *wiphy = osif_priv->wdev->wiphy;
 	struct scan_filter *filter;
-	QDF_STATUS status;
 
-	status = __wlan_cfg80211_unlink_bss_list(wiphy, wlan_vdev_get_pdev(vdev),
-					bssid->bytes, ssid_len ? ssid : NULL,
-					ssid_len);
-	if (QDF_IS_STATUS_ERROR(status))
-		return;
 	filter = qdf_mem_malloc(sizeof(*filter));
 	if (!filter)
 		return;
@@ -351,6 +342,99 @@ osif_cm_disable_netif_queue(struct wlan_objmgr_vdev *vdev)
 }
 #endif
 
+#if defined(CONN_MGR_ADV_FEATURE) && defined(WLAN_FEATURE_11BE_MLO)
+/**
+ * osif_link_reconfig_notify_cb() - Link reconfig notify callback
+ * @vdev: vdev pointer
+ *
+ * Return: QDF_STATUS
+ */
+static QDF_STATUS
+osif_link_reconfig_notify_cb(struct wlan_objmgr_vdev *vdev)
+{
+	struct vdev_osif_priv *osif_priv = wlan_vdev_get_ospriv(vdev);
+	struct wireless_dev *wdev;
+	uint8_t link_id;
+	uint16_t link_mask;
+	struct pdev_osif_priv *pdev_osif_priv;
+	struct wlan_objmgr_pdev *pdev;
+	uint32_t data_len;
+	struct sk_buff *vendor_event;
+	struct qdf_mac_addr ap_mld_mac;
+	QDF_STATUS status;
+
+	if (!osif_priv) {
+		osif_err("Invalid vdev osif priv");
+		return QDF_STATUS_E_INVAL;
+	}
+
+	wdev = osif_priv->wdev;
+	if (!wdev) {
+		osif_err("wdev is null");
+		return QDF_STATUS_E_INVAL;
+	}
+	pdev = wlan_vdev_get_pdev(vdev);
+	if (!pdev) {
+		osif_debug("null pdev");
+		return QDF_STATUS_E_INVAL;
+	}
+	pdev_osif_priv = wlan_pdev_get_ospriv(pdev);
+	if (!pdev_osif_priv || !pdev_osif_priv->wiphy) {
+		osif_debug("null wiphy");
+		return QDF_STATUS_E_INVAL;
+	}
+
+	link_id = wlan_vdev_get_link_id(vdev);
+	link_mask = 1 << link_id;
+	osif_debug("link reconfig on vdev %d with link id %d mask 0x%x",
+		   wlan_vdev_get_id(vdev), link_id, link_mask);
+
+	status = wlan_vdev_get_bss_peer_mld_mac(vdev, &ap_mld_mac);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		osif_debug("get peer mld failed, vdev %d",
+			   wlan_vdev_get_id(vdev));
+		return status;
+	}
+	osif_debug("ap mld addr: "QDF_MAC_ADDR_FMT,
+		   QDF_MAC_ADDR_REF(ap_mld_mac.bytes));
+
+	data_len = nla_total_size(QDF_MAC_ADDR_SIZE) +
+		   nla_total_size(sizeof(uint16_t)) +
+		   NLMSG_HDRLEN;
+
+	vendor_event =
+	wlan_cfg80211_vendor_event_alloc(pdev_osif_priv->wiphy,
+					 wdev, data_len,
+					 QCA_NL80211_VENDOR_SUBCMD_LINK_RECONFIG_INDEX,
+					 GFP_KERNEL);
+	if (!vendor_event) {
+		osif_debug("wlan_cfg80211_vendor_event_alloc failed");
+		return QDF_STATUS_E_NOMEM;
+	}
+
+	if (nla_put(vendor_event,
+		    QCA_WLAN_VENDOR_ATTR_LINK_RECONFIG_AP_MLD_ADDR,
+		    QDF_MAC_ADDR_SIZE, &ap_mld_mac.bytes[0]) ||
+	    nla_put_u16(vendor_event,
+			QCA_WLAN_VENDOR_ATTR_LINK_RECONFIG_REMOVED_LINKS,
+			link_mask)) {
+		osif_debug("QCA_WLAN_VENDOR_ATTR put fail");
+		wlan_cfg80211_vendor_free_skb(vendor_event);
+		return QDF_STATUS_E_INVAL;
+	}
+
+	wlan_cfg80211_vendor_event(vendor_event, GFP_KERNEL);
+
+	return QDF_STATUS_SUCCESS;
+}
+#else
+static inline QDF_STATUS
+osif_link_reconfig_notify_cb(struct wlan_objmgr_vdev *vdev)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
+
 /**
  * osif_cm_disconnect_start_cb() - Disconnect start callback
  * @vdev: vdev pointer
@@ -418,6 +502,50 @@ static QDF_STATUS
 osif_cm_roam_cmpl_cb(struct wlan_objmgr_vdev *vdev)
 {
 	return osif_cm_napi_serialize(false);
+}
+
+/**
+ * osif_cm_get_scan_ie_params() - Function to get scan ie params
+ * @vdev: vdev pointer
+ * @scan_ie: Pointer to scan_ie
+ * @dot11mode_filter: Pointer to dot11mode_filter
+ *
+ * Get scan IE params from adapter corresponds to given vdev
+ *
+ * Return: QDF_STATUS
+ */
+static QDF_STATUS
+osif_cm_get_scan_ie_params(struct wlan_objmgr_vdev *vdev,
+			   struct element_info *scan_ie,
+			   enum dot11_mode_filter *dot11mode_filter)
+{
+	osif_cm_get_scan_ie_params_cb cb = NULL;
+
+	if (osif_cm_legacy_ops)
+		cb = osif_cm_legacy_ops->get_scan_ie_params_cb;
+	if (cb)
+		return cb(vdev, scan_ie, dot11mode_filter);
+
+	return QDF_STATUS_E_FAILURE;
+}
+
+/**
+ * osif_cm_get_scan_ie_info_cb() - Roam get scan ie params callback
+ * @vdev: vdev pointer
+ * @scan_ie: pointer to scan ie
+ * @dot11mode_filter: pointer to dot11 mode filter
+ *
+ * This callback gets scan ie params from os_if
+ *
+ * Return: QDF_STATUS
+ */
+
+static QDF_STATUS
+osif_cm_get_scan_ie_info_cb(struct wlan_objmgr_vdev *vdev,
+			    struct element_info *scan_ie,
+			    enum dot11_mode_filter *dot11mode_filter)
+{
+	return osif_cm_get_scan_ie_params(vdev, scan_ie, dot11mode_filter);
 }
 #endif
 
@@ -488,11 +616,13 @@ static struct mlme_cm_ops cm_ops = {
 	.mlme_cm_roam_sync_cb = osif_cm_roam_sync_cb,
 	.mlme_cm_pmksa_candidate_notify_cb = osif_pmksa_candidate_notify_cb,
 	.mlme_cm_send_keys_cb = osif_cm_send_keys_cb,
+	.mlme_cm_link_reconfig_notify_cb = osif_link_reconfig_notify_cb,
 #endif
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
 	.mlme_cm_roam_start_cb = osif_cm_roam_start_cb,
 	.mlme_cm_roam_abort_cb = osif_cm_roam_abort_cb,
 	.mlme_cm_roam_cmpl_cb = osif_cm_roam_cmpl_cb,
+	.mlme_cm_roam_get_scan_ie_cb = osif_cm_get_scan_ie_info_cb,
 #endif
 #ifdef WLAN_FEATURE_PREAUTH_ENABLE
 	.mlme_cm_ft_preauth_cmpl_cb = osif_cm_ft_preauth_cmpl_cb,

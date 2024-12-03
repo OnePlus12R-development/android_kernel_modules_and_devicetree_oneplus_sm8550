@@ -8,9 +8,7 @@
 #include <linux/sched.h>
 #include <linux/mutex.h>
 #include <linux/rwsem.h>
-#ifdef CONFIG_OPLUS_SYSTEM_KERNEL_QCOM
 #include <linux/percpu-rwsem.h>
-#endif
 #include <linux/ww_mutex.h>
 #include <linux/sched/signal.h>
 #include <linux/sched/rt.h>
@@ -44,15 +42,12 @@ bool locking_protect_disable = false;
 
 unsigned int locking_wakeup_preepmt_enable;
 
-extern u64 get_running_time(struct task_struct *tsk);
-
 static DEFINE_PER_CPU(int, prev_locking_state);
 static DEFINE_PER_CPU(int, prev_locking_depth);
-static int expected_duration = NSEC_PER_USEC * 2000;
-
 #define LK_STATE_UNLOCK  (0)
 #define LK_STATE_LOCK    (1)
 #define LK_STATE_INVALID (2)
+#define LK_TICK_HIT_MAX   2
 #ifdef CONFIG_BLOCKIO_UX_OPT
 #define HOOKS_SET_UX_SIGN (1)
 #endif
@@ -94,6 +89,19 @@ void locking_state_systrace_c(unsigned int cpu, struct task_struct *p)
 	}
 }
 
+void locking_tick_hit(struct task_struct *prev, struct task_struct *next)
+{
+	struct oplus_task_struct *ots;
+
+	if (likely(prev != next)) {
+		ots = get_oplus_task_struct(prev);
+		if (!IS_ERR_OR_NULL(ots)) {
+			if (ots->lk_tick_hit >= LK_TICK_HIT_MAX)
+				ots->lk_tick_hit = 0;
+		}
+	}
+}
+
 bool task_skip_protect(struct task_struct *p)
 {
 	return test_task_ux(p);
@@ -109,22 +117,9 @@ bool task_inlock(struct oplus_task_struct *ots)
 	return ots->locking_start_time > 0;
 }
 
-static inline bool locking_protect_outtime(struct oplus_task_struct *ots, struct cfs_rq *rq)
+static inline bool locking_protect_outtime(struct oplus_task_struct *ots)
 {
-	struct task_struct *p;
-	int cpu;
-
-	p = ots_to_ts(ots);
-	cpu = cpu_of(rq->rq);
-
-	if(unlikely(global_debug_enabled & DEBUG_SYSTRACE)) {
-		char buf[256];
-		snprintf(buf, sizeof(buf), "C|9999|Cpu%d_cur_exec_runtime|%lld\n",
-				cpu, p->se.sum_exec_runtime - p->se.prev_sum_exec_runtime);
-		tracing_mark_write(buf);
-	}
-
-	return (time_after(jiffies, ots->locking_start_time) && ((p->se.sum_exec_runtime - p->se.prev_sum_exec_runtime) > expected_duration));
+	return time_after(jiffies, ots->locking_start_time);
 }
 
 static inline void clear_locking_info(struct oplus_task_struct *ots)
@@ -136,7 +131,6 @@ static inline void clear_locking_info(struct oplus_task_struct *ots)
 void enqueue_locking_thread(struct rq *rq, struct task_struct *p)
 {
 	struct oplus_task_struct *ots = NULL;
-	struct oplus_task_struct *tmp = NULL;
 	struct oplus_rq *orq = NULL;
 	struct list_head *pos, *n;
 	unsigned long irqflag;
@@ -164,14 +158,10 @@ void enqueue_locking_thread(struct rq *rq, struct task_struct *p)
 				exist = true;
 				break;
 			}
-			tmp = container_of(pos, struct oplus_task_struct, locking_entry);
-			if (tmp->locking_start_time < ots->locking_start_time) {
-				break;
-			}
 		}
 		if (!exist) {
 			get_task_struct(p);
-			list_add(&ots->locking_entry, pos);
+			list_add_tail(&ots->locking_entry, &orq->locking_thread_list);
 			orq->rq_locking_task++;
 			trace_enqueue_locking_thread(p, ots->locking_depth, orq->rq_locking_task);
 		}
@@ -219,7 +209,7 @@ done:
 #define for_each_sched_entity(se) \
 		for (; se; se = NULL)
 #endif
-extern void set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se);
+
 static inline bool orq_has_locking_tasks(struct oplus_rq *orq)
 {
 	bool ret = false;
@@ -353,7 +343,9 @@ static void update_locking_time(unsigned long time, bool in_cs)
 		return;
 
 set:
-	ots->locking_start_time = time;
+	if (ots->lk_tick_hit < LK_TICK_HIT_MAX) {
+		ots->locking_start_time = time;
+	}
 }
 
 static void android_vh_mutex_wait_start_handler(void *unused, struct mutex *lock)
@@ -384,7 +376,7 @@ static void record_lock_starttime_handler(void *unused,
 	update_locking_time(settime, true);
 }
 
-#if defined(CONFIG_PCPU_RWSEM_LOCKING_PROTECT) && defined(CONFIG_OPLUS_SYSTEM_KERNEL_QCOM)
+#ifdef CONFIG_PCPU_RWSEM_LOCKING_PROTECT
 static void percpu_rwsem_wq_add_handler(void *unused,
 			struct percpu_rw_semaphore *sem, bool reader)
 {
@@ -392,6 +384,7 @@ static void percpu_rwsem_wq_add_handler(void *unused,
 		update_locking_time(jiffies, false);
 }
 #endif
+
 
 void check_preempt_tick_handler_locking(struct task_struct *p,
 			unsigned long *ideal_runtime, bool *skip_preempt,
@@ -409,7 +402,8 @@ void check_preempt_tick_handler_locking(struct task_struct *p,
 		return;
 
 	if (task_inlock(ots)) {
-		if (locking_protect_outtime(ots, cfs_rq))
+		ots->lk_tick_hit++;
+		if (locking_protect_outtime(ots) && (ots->lk_tick_hit >= LK_TICK_HIT_MAX))
 			clear_locking_info(ots);
 	}
 }
@@ -451,14 +445,12 @@ static int register_dstate_opt_vendor_hooks(void)
 		pr_err("record_pcpu_rwsem_starttime failed! ret=%d\n", ret);
 		goto out3;
 	}
-#ifdef CONFIG_OPLUS_SYSTEM_KERNEL_QCOM
 	ret = register_trace_android_vh_percpu_rwsem_wq_add(
 					percpu_rwsem_wq_add_handler, NULL);
 	if (ret != 0) {
 		pr_err("percpu_rwsem_wq_add failed! ret=%d\n", ret);
 		goto out4;
 	}
-#endif
 #endif
 
 	ret = register_trace_android_vh_alter_rwsem_list_add(
@@ -482,11 +474,9 @@ static int register_dstate_opt_vendor_hooks(void)
 
 out5:
 #ifdef CONFIG_PCPU_RWSEM_LOCKING_PROTECT
-#ifdef CONFIG_OPLUS_SYSTEM_KERNEL_QCOM
 	unregister_trace_android_vh_percpu_rwsem_wq_add(
 					percpu_rwsem_wq_add_handler, NULL);
 out4:
-#endif
 	unregister_trace_android_vh_record_pcpu_rwsem_starttime(
 				record_lock_starttime_handler, NULL);
 out3:
@@ -511,10 +501,8 @@ static void unregister_dstate_opt_vendor_hooks(void)
 	unregister_trace_android_vh_alter_rwsem_list_add(
 			android_vh_alter_rwsem_list_add_handler, NULL);
 #ifdef CONFIG_PCPU_RWSEM_LOCKING_PROTECT
-#ifdef CONFIG_OPLUS_SYSTEM_KERNEL_QCOM
 	unregister_trace_android_vh_percpu_rwsem_wq_add(
 					percpu_rwsem_wq_add_handler, NULL);
-#endif
 	unregister_trace_android_vh_record_pcpu_rwsem_starttime(
 				record_lock_starttime_handler, NULL);
 #endif

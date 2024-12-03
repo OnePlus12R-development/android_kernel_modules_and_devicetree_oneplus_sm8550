@@ -19,6 +19,7 @@
 #include <linux/delay.h>
 #include <linux/regmap.h>
 #include <linux/list.h>
+#include <linux/pinctrl/consumer.h>
 #ifndef CONFIG_DISABLE_OPLUS_FUNCTION
 #include <soc/oplus/system/boot_mode.h>
 #include <soc/oplus/device_info.h>
@@ -92,6 +93,11 @@ static int oplus_switch_to_ap(struct oplus_dpdm_switch_ic *chip)
 	} else {
 		retry = AUDIO_SWITCH_RETRY_MAX;
 		do {
+			status = oplus_get_audio_switch_status();
+			if (TYPEC_AUDIO_SWITCH_STATE_STANDBY & status) {
+				chg_info("switch to standby , not switch to ap\n");
+				break;
+			}
 			oplus_set_audio_switch_status(0);
 			status = oplus_get_audio_switch_status();
 			if ((status & TYPEC_AUDIO_SWITCH_STATE_MASK) | TYPEC_AUDIO_SWITCH_STATE_DPDM) {
@@ -243,25 +249,11 @@ static int oplus_dpdm_switch_set_switch_mode(struct oplus_chg_ic_dev *ic_dev,
 {
 	struct oplus_dpdm_switch_ic *chip;
 	int rc;
-#ifdef CONFIG_OPLUS_CHG_IC_DEBUG
-	struct oplus_chg_ic_overwrite_data *data;
-	const void *buf;
-#endif
 
 	if (ic_dev == NULL) {
 		chg_err("ic_dev is NULL");
 		return -ENODEV;
 	}
-
-#ifdef CONFIG_OPLUS_CHG_IC_DEBUG
-	data = oplus_chg_ic_get_overwrite_data(ic_dev, OPLUS_IC_FUNC_CP_ENABLE);
-	if (unlikely(data != NULL)) {
-		buf = (const void *)data->buf;
-		if (!oplus_chg_ic_debug_data_check(buf, data->size))
-			return -EINVAL;
-		mode = oplus_chg_ic_get_item_data(buf, 0);
-	}
-#endif
 
 	chip = oplus_chg_ic_get_drvdata(ic_dev);
 
@@ -291,26 +283,11 @@ static int oplus_dpdm_switch_get_switch_mode(struct oplus_chg_ic_dev *ic_dev,
 	enum oplus_dpdm_switch_mode *mode)
 {
 	struct oplus_dpdm_switch_ic *chip;
-#ifdef CONFIG_OPLUS_CHG_IC_DEBUG
-	struct oplus_chg_ic_overwrite_data *data;
-	const void *buf;
-#endif
 
 	if (ic_dev == NULL) {
 		chg_err("ic_dev is NULL");
 		return -ENODEV;
 	}
-
-#ifdef CONFIG_OPLUS_CHG_IC_DEBUG
-	data = oplus_chg_ic_get_overwrite_data(ic_dev, OPLUS_IC_FUNC_CP_ENABLE);
-	if (unlikely(data != NULL)) {
-		buf = (const void *)data->buf;
-		if (!oplus_chg_ic_debug_data_check(buf, data->size))
-			return -EINVAL;
-		*mode = oplus_chg_ic_get_item_data(buf, 0);
-		return 0;
-	}
-#endif
 
 	chip = oplus_chg_ic_get_drvdata(ic_dev);
 	*mode = chip->mode;
@@ -361,101 +338,6 @@ static void *oplus_dpdm_switch_get_func(struct oplus_chg_ic_dev *ic_dev, enum op
 
 	return func;
 }
-
-#ifdef CONFIG_OPLUS_CHG_IC_DEBUG
-static int oplus_dpdm_switch_set_func_data(struct oplus_chg_ic_dev *ic_dev,
-				      enum oplus_chg_ic_func func_id,
-				      const void *buf, size_t buf_len)
-{
-	int rc = 0;
-
-	if (!ic_dev->online && (func_id != OPLUS_IC_FUNC_INIT) &&
-	    (func_id != OPLUS_IC_FUNC_EXIT))
-		return -EINVAL;
-
-	switch (func_id) {
-	case OPLUS_IC_FUNC_INIT:
-		if (!oplus_chg_ic_debug_data_check(buf, buf_len))
-			return -EINVAL;
-		rc = oplus_dpdm_switch_init(ic_dev);
-		break;
-	case OPLUS_IC_FUNC_EXIT:
-		if (!oplus_chg_ic_debug_data_check(buf, buf_len))
-			return -EINVAL;
-		rc = oplus_dpdm_switch_exit(ic_dev);
-		break;
-	case OPLUS_IC_FUNC_REG_DUMP:
-		if (!oplus_chg_ic_debug_data_check(buf, buf_len))
-			return -EINVAL;
-		rc = oplus_dpdm_switch_reg_dump(ic_dev);
-		break;
-	case OPLUS_IC_FUNC_SET_DPDM_SWITCH_MODE:
-		if (!oplus_chg_ic_debug_data_check(buf, buf_len))
-			return -EINVAL;
-		rc = oplus_dpdm_switch_set_switch_mode(ic_dev, oplus_chg_ic_get_item_data(buf, 0));
-		break;
-	default:
-		chg_err("this func(=%d) is not supported to set\n", func_id);
-		return -ENOTSUPP;
-		break;
-	}
-
-	return rc;
-}
-
-static ssize_t oplus_dpdm_switch_get_func_data(struct oplus_chg_ic_dev *ic_dev,
-					  enum oplus_chg_ic_func func_id,
-					  void *buf)
-{
-	int *item_data;
-	ssize_t rc = 0;
-	int len;
-	char *tmp_buf;
-
-	if (!ic_dev->online && (func_id != OPLUS_IC_FUNC_INIT) &&
-	    (func_id != OPLUS_IC_FUNC_EXIT))
-		return -EINVAL;
-
-	switch (func_id) {
-	case OPLUS_IC_FUNC_SMT_TEST:
-		tmp_buf = (char *)get_zeroed_page(GFP_KERNEL);
-		if (!tmp_buf) {
-			rc = -ENOMEM;
-			break;
-		}
-		rc = oplus_dpdm_switch_smt_test(ic_dev, tmp_buf, PAGE_SIZE);
-		if (rc < 0) {
-			free_page((unsigned long)tmp_buf);
-			break;
-		}
-		len = oplus_chg_ic_debug_str_data_init(buf, rc);
-		memcpy(oplus_chg_ic_get_item_data_addr(buf, 0), tmp_buf, rc);
-		free_page((unsigned long)tmp_buf);
-		rc = len;
-		break;
-	case OPLUS_IC_FUNC_GET_DPDM_SWITCH_MODE:
-		oplus_chg_ic_debug_data_init(buf, 1);
-		item_data = oplus_chg_ic_get_item_data_addr(buf, 0);
-		rc = oplus_dpdm_switch_get_switch_mode(ic_dev, (enum oplus_dpdm_switch_mode *)item_data);
-		if (rc < 0)
-			break;
-		*item_data = cpu_to_le32(*item_data);
-		rc = oplus_chg_ic_debug_data_size(1);
-		break;
-	default:
-		chg_err("this func(=%d) is not supported to get\n", func_id);
-		return -ENOTSUPP;
-		break;
-	}
-
-	return rc;
-}
-
-enum oplus_chg_ic_func oplus_dpdm_switch_overwrite_funcs[] = {
-	OPLUS_IC_FUNC_SET_DPDM_SWITCH_MODE,
-};
-
-#endif /* CONFIG_OPLUS_CHG_IC_DEBUG */
 
 struct oplus_chg_ic_virq oplus_dpdm_switch_virq_table[] = {
 	{ .virq_id = OPLUS_IC_VIRQ_ERR },
@@ -556,7 +438,10 @@ static int oplus_dpdm_switch_hw_init(struct oplus_dpdm_switch_ic *chip)
 			goto free_dpdm_switch1_gpio;
 		}
 	}
-
+	if (!gpio_is_valid(chip->dpdm_switch1_gpio) && !gpio_is_valid(chip->dpdm_switch2_gpio)) {
+		chg_info("dpdm_switch1 or dpdm_switch2 is null, maybe not use pinctrl\n");
+		return 0;
+	}
 	chip->gpio_dpdm_switch_ap =
 		pinctrl_lookup_state(chip->pinctrl, "dpdm_switch_ap");
 	if (IS_ERR_OR_NULL(chip->gpio_dpdm_switch_ap)) {
@@ -635,14 +520,6 @@ static int oplus_virtual_dpdm_switch_probe(struct platform_device *pdev)
 		goto reg_ic_err;
 	}
 	oplus_dpdm_switch_init(chip->ic_dev);
-#ifdef CONFIG_OPLUS_CHG_IC_DEBUG
-	chip->ic_dev->debug.get_func_data = oplus_dpdm_switch_get_func_data;
-	chip->ic_dev->debug.set_func_data = oplus_dpdm_switch_set_func_data;
-	oplus_chg_ic_func_table_sort(oplus_dpdm_switch_overwrite_funcs,
-		ARRAY_SIZE(oplus_dpdm_switch_overwrite_funcs));
-	chip->ic_dev->debug.overwrite_funcs = oplus_dpdm_switch_overwrite_funcs;
-	chip->ic_dev->debug.func_num = ARRAY_SIZE(oplus_dpdm_switch_overwrite_funcs);
-#endif
 
 	chg_info("probe success\n");
 	return 0;

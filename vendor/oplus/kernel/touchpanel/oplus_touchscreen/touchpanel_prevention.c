@@ -3541,7 +3541,7 @@ large_ver_corner_width:%4d, large_hor_corner_width:%4d, large_corner_distance:%4
 
     if (grip_info->is_curved_screen) {
         seq_printf(s, "large_detect_time_ms:%4d\n", grip_info->large_detect_time_ms);
-        seq_printf(s, "down_delta_time_ms:%4d\n", grip_info->down_delta_time_ms);
+        seq_printf(s, "down_delta_time_ms:%4lld\n", grip_info->down_delta_time_ms);
         seq_printf(s, "curved_large_judge_para_for_long_side:\n");
         seq_printf(s, "edge_finger_thd:%4d, hold_finger_thd:%4d, normal_finger_thd_1:%4d, normal_finger_thd_2:%4d, normal_finger_thd_3:%4d\n\
     large_palm_thd_1:%4d, large_palm_thd_2:%4d, palm_thd_1:%4d, palm_thd_2:%4d, small_palm_thd_1:%4d, small_palm_thd_2:%4d\n",

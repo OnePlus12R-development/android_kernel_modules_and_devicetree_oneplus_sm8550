@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2010-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #ifndef __KGSL_PWRCTRL_H
 #define __KGSL_PWRCTRL_H
@@ -44,11 +44,6 @@ struct kgsl_clk_stats {
 struct kgsl_pwr_constraint {
 	unsigned int type;
 	unsigned int sub_type;
-	union {
-		struct {
-			unsigned int level;
-		} pwrlevel;
-	} hint;
 	unsigned long expires;
 	uint32_t owner_id;
 	u32 owner_timestamp;
@@ -87,7 +82,6 @@ struct kgsl_pwrlevel {
  * @default_pwrlevel - device wake up power level
  * @max_pwrlevel - maximum allowable powerlevel per the user
  * @min_pwrlevel - minimum allowable powerlevel per the user
- * @min_render_pwrlevel - minimum allowable powerlevel for rendering
  * @num_pwrlevels - number of available power levels
  * @throttle_mask - LM throttle mask
  * @interval_timeout - timeout to be idle before a power event
@@ -128,10 +122,8 @@ struct kgsl_pwrctrl {
 	unsigned int thermal_pwrlevel;
 	unsigned int thermal_pwrlevel_floor;
 	unsigned int default_pwrlevel;
-	unsigned int wakeup_maxpwrlevel;
 	unsigned int max_pwrlevel;
 	unsigned int min_pwrlevel;
-	unsigned int min_render_pwrlevel;
 	unsigned int num_pwrlevels;
 	unsigned int throttle_mask;
 	u32 interval_timeout;
@@ -142,7 +134,6 @@ struct kgsl_pwrctrl {
 	unsigned int bus_percent_ab;
 	unsigned int bus_width;
 	unsigned long bus_ab_mbytes;
-	u32 ddr_stall_percent;
 	/** @ddr_table: List of the DDR bandwidths in KBps for the target */
 	u32 *ddr_table;
 	/** @ddr_table_count: Number of objects in @ddr_table */

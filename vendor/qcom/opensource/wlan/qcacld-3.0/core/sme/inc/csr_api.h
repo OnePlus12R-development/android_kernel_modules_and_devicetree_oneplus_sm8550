@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -72,6 +72,8 @@ enum csr_akm_type {
 	eCSR_AUTH_TYPE_OSEN,
 	eCSR_AUTH_TYPE_FT_SAE,
 	eCSR_AUTH_TYPE_FT_SUITEB_EAP_SHA384,
+	eCSR_AUTH_TYPE_SAE_EXT_KEY,
+	eCSR_AUTH_TYPE_FT_SAE_EXT_KEY,
 	eCSR_NUM_OF_SUPPORT_AUTH_TYPE,
 	eCSR_AUTH_TYPE_FAILED = 0xff,
 	eCSR_AUTH_TYPE_UNKNOWN = eCSR_AUTH_TYPE_FAILED,
@@ -183,8 +185,6 @@ typedef enum {
 	eCSR_INI_CHANNEL_BONDING_STATE_MAX = 11
 } eIniChanBondState;
 
-#define CSR_RSN_MAX_PMK_LEN         48
-
 typedef struct tagCsrChannelInfo {
 	uint8_t numOfChannels;
 	uint32_t *freq_list;
@@ -244,7 +244,6 @@ typedef struct sCsrChnPower_ {
 
 typedef struct tagCsr11dinfo {
 	sCsrChannel Channels;
-	uint8_t countryCode[REG_ALPHA2_LEN + 1];
 	/* max power channel list */
 	sCsrChnPower ChnPower[CFG_VALID_CHANNEL_LIST_LEN];
 } tCsr11dinfo;

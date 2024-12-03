@@ -99,11 +99,13 @@ void iris_dtg_eco_i7(bool enable, bool chain)
 	IRIS_LOGI("%s: %d", __func__, enable);
 
 	payload = iris_get_ipopt_payload_data(IRIS_IP_PWIL, 0x90, 2);
-	if (enable)
-		payload[0] |= 0x800;
-	else
-		payload[0] &= ~0x800;
-	iris_init_update_ipopt_t(IRIS_IP_PWIL, 0x90, 0x90, 1);
+	if (payload) {
+		if (enable)
+			payload[0] |= 0x800;
+		else
+			payload[0] &= ~0x800;
+		iris_init_update_ipopt_t(IRIS_IP_PWIL, 0x90, 0x90, 1);
+	}
 	if (chain) {
 		iris_dma_trig(DMA_CH12, 0);
 		iris_update_pq_opt(PATH_DSI, true);
@@ -3403,30 +3405,36 @@ void iris_dsi_rx_mode_switch_i7(u8 rx_mode)
 {
 	struct iris_cfg *pcfg = iris_get_cfg();
 	struct iris_update_regval regval;
-	u32 ovs_dly_rfb;
+	u32 ovs_dly_rfb = 0;
 	u32 *payload = NULL;
 
 	IRIS_LOGI("%s: %d", __func__, rx_mode);
 
 	payload = iris_get_ipopt_payload_data(IRIS_IP_PWIL, 0xf0, 3);
+	if (payload) {
 	if (rx_mode == DSI_OP_CMD_MODE)
 		payload[0] |= 0x20001;
 	else
 		payload[0] &= ~0x20001;
+	}
 	iris_init_update_ipopt_t(IRIS_IP_PWIL, 0xf0, 0xf0, 1);
 
 	payload = iris_get_ipopt_payload_data(IRIS_IP_PWIL, 0x70, 3);
+	if (payload) {
 	if (rx_mode == DSI_OP_CMD_MODE)
 		payload[0] &= ~0x4000;
 	else
 		payload[0] |= 0x4000;
+	}
 	iris_init_update_ipopt_t(IRIS_IP_PWIL, 0x70, 0x70, 1);
 
 	payload = iris_get_ipopt_payload_data(IRIS_IP_PWIL, 0x90, 2);
+	if (payload) {
 	if (rx_mode == DSI_OP_CMD_MODE)
 		payload[0] &= ~0x800;
 	else
 		payload[0] |= 0x800;
+	}
 	iris_init_update_ipopt_t(IRIS_IP_PWIL, 0x90, 0x90, 1);
 	iris_init_update_ipopt_t(IRIS_IP_DMA, 0xe6, 0xe6, 1);
 
@@ -3441,9 +3449,11 @@ void iris_dsi_rx_mode_switch_i7(u8 rx_mode)
 		iris_init_update_ipopt_t(IRIS_IP_DTG, 0xf3, 0xf3, 0x01);
 	else {
 		payload = iris_get_ipopt_payload_data(IRIS_IP_DTG, 0xf5, 2);
-		ovs_dly_rfb = payload[0];
+		if (payload)
+			ovs_dly_rfb = payload[0];
 		payload = iris_get_ipopt_payload_data(IRIS_IP_DTG, 0xf8, 2);
-		payload[3] = ovs_dly_rfb;
+		if (payload)
+			payload[3] = ovs_dly_rfb;
 		iris_init_update_ipopt_t(IRIS_IP_DTG, 0xf8, 0xf8, 0x01);
 	}
 

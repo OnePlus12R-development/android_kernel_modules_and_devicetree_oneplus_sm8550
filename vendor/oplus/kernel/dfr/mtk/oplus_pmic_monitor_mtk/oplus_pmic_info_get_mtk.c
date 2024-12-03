@@ -150,6 +150,11 @@ static int init_pmic_history_fdt(void)
 			pr_err("%s don't find wdtrstb\n", __func__);
 			return ret;
 		}
+		ret = of_property_read_u32(np,"sts_spmi_seq_off",&reg->sts_spmi_seq_off);
+                if (ret && (ret != -EINVAL)) {
+                        pr_err("%s don't find sts_spmi_seq_off\n", __func__);
+                        return ret;
+                }
 	}
 	format=&PMICHistory;
 	return 0;

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -130,7 +130,6 @@
 #define ROAM_REASON_MASK 0x0F
 
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
-#define ROAM_SCAN_PSK_SIZE    48
 #define ROAM_R0KH_ID_MAX_LEN  48
 /* connected but not authenticated */
 #define ROAM_AUTH_STATUS_CONNECTED      0x1
@@ -216,13 +215,17 @@ enum roam_trigger_sub_reason {
  * @ROAM_STATS_SCAN_TYPE_FULL: Full scan
  * @ROAM_STATS_SCAN_TYPE_NO_SCAN: No roam scan was triggered. This is generally
  * used in BTM events to indicate BTM frame exchange logs.
- * @ROAM_STATS_SCAN_TYPE_HIGHER_BAND: Higher band roam scan
+ * @ROAM_STATS_SCAN_TYPE_HIGHER_BAND_5GHZ_6GHZ: Higher band roam scan from 2 GHz
+ * to 5 GHz or 6 GHz
+ * @ROAM_STATS_SCAN_TYPE_HIGHER_BAND_6GHZ: Higher band roam scan from 5 GHz to
+ * 6 GHz
  */
 enum roam_stats_scan_type {
 	ROAM_STATS_SCAN_TYPE_PARTIAL = 0,
 	ROAM_STATS_SCAN_TYPE_FULL = 1,
 	ROAM_STATS_SCAN_TYPE_NO_SCAN = 2,
-	ROAM_STATS_SCAN_TYPE_HIGHER_BAND = 3,
+	ROAM_STATS_SCAN_TYPE_HIGHER_BAND_5GHZ_6GHZ = 3,
+	ROAM_STATS_SCAN_TYPE_HIGHER_BAND_6GHZ = 4,
 };
 
 /**
@@ -308,6 +311,7 @@ struct rso_cfg_params {
 	uint32_t full_roam_scan_period;
 	bool enable_scoring_for_roam;
 	uint8_t roam_rssi_diff;
+	uint8_t roam_rssi_diff_6ghz;
 	uint8_t bg_rssi_threshold;
 	uint16_t roam_scan_home_away_time;
 	uint8_t roam_scan_n_probes;
@@ -326,9 +330,9 @@ struct wlan_chan_list {
 	qdf_freq_t freq_list[CFG_VALID_CHANNEL_LIST_LEN];
 };
 
-/*
- * roam_fail_params: different types of params to set or get roam fail states
- * for the vdev
+/**
+ * enum roam_fail_params: different types of params to set or get
+ * roam fail states for the vdev
  * @ROAM_TRIGGER_REASON: Roam trigger reason(enum WMI_ROAM_TRIGGER_REASON_ID)
  * @ROAM_INVOKE_FAIL_REASON: One of WMI_ROAM_FAIL_REASON_ID for roam failure
  * in case of forced roam
@@ -382,6 +386,10 @@ enum roam_fail_params {
  * timedout
  * @ROAM_FAIL_REASON_SAE_PREAUTH_FAIL: SAE preauthentication failure
  * @ROAM_FAIL_REASON_UNABLE_TO_START_ROAM_HO: Start handoff failed
+ * @ROAM_FAIL_REASON_NO_AP_FOUND_AND_FINAL_BMISS_SENT: No AP found after
+ * final BMISS
+ * @ROAM_FAIL_REASON_NO_CAND_AP_FOUND_AND_FINAL_BMISS_SENT: No Candidate AP
+ * found after final BMISS.
  * @ROAM_FAIL_REASON_UNKNOWN: Default reason
  */
 enum wlan_roam_failure_reason_code {
@@ -419,6 +427,8 @@ enum wlan_roam_failure_reason_code {
 	ROAM_FAIL_REASON_SAE_PREAUTH_TIMEOUT,
 	ROAM_FAIL_REASON_SAE_PREAUTH_FAIL,
 	ROAM_FAIL_REASON_UNABLE_TO_START_ROAM_HO,
+	ROAM_FAIL_REASON_NO_AP_FOUND_AND_FINAL_BMISS_SENT,
+	ROAM_FAIL_REASON_NO_CAND_AP_FOUND_AND_FINAL_BMISS_SENT,
 	ROAM_FAIL_REASON_UNKNOWN = 255,
 };
 
@@ -450,7 +460,8 @@ struct roam_synch_frame_ind {
 	uint8_t vdev_id;
 };
 
-/* struct owe_transition_mode_info - structure containing owe transition mode
+/**
+ * struct owe_transition_mode_info - structure containing owe transition mode
  * element info
  * @is_owe_transition_conn: Current connection is in owe transition mode or not
  * @ssid: ssid
@@ -458,6 +469,18 @@ struct roam_synch_frame_ind {
 struct owe_transition_mode_info {
 	bool is_owe_transition_conn;
 	struct wlan_ssid  ssid;
+};
+
+/**
+ * struct sae_roam_auth_map - map the peer address for the sae raom
+ * @is_mlo_ap: to check ap (to which roam) is mlo capable.
+ * @peer_mldaddr: peer MLD address
+ * @peer_linkaddr: peer link address
+ */
+struct sae_roam_auth_map {
+	bool is_mlo_ap;
+	struct qdf_mac_addr peer_mldaddr;
+	struct qdf_mac_addr peer_linkaddr;
 };
 
 /**
@@ -512,6 +535,10 @@ struct owe_transition_mode_info {
  * @lost_link_rssi: lost link RSSI
  * @roam_sync_frame_ind: roam sync frame ind
  * @roam_band_bitmask: This allows the driver to roam within this band
+ * @sae_roam_auth: structure containing roam peer mld and link address.
+ * @roam_invoke_source: roam invoke source
+ * @roam_invoke_bssid: mac address used for roam invoke
+ * @is_forced_roaming: bool value indicating if its forced roaming
  */
 struct rso_config {
 #ifdef WLAN_FEATURE_HOST_ROAM
@@ -541,7 +568,7 @@ struct rso_config {
 #endif
 #endif
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
-	uint8_t psk_pmk[ROAM_SCAN_PSK_SIZE];
+	uint8_t psk_pmk[MAX_PMK_LEN];
 	uint8_t pmk_len;
 #endif
 	struct owe_transition_mode_info owe_info;
@@ -558,6 +585,12 @@ struct rso_config {
 	int32_t lost_link_rssi;
 	struct roam_synch_frame_ind roam_sync_frame_ind;
 	uint32_t roam_band_bitmask;
+#if defined(WLAN_FEATURE_11BE_MLO) && defined(WLAN_FEATURE_ROAM_OFFLOAD)
+	struct sae_roam_auth_map sae_roam_auth;
+#endif
+	enum wlan_cm_source roam_invoke_source;
+	struct qdf_mac_addr roam_invoke_bssid;
+	bool is_forced_roaming;
 };
 
 /**
@@ -662,6 +695,7 @@ struct rso_config_params {
  * @MBO_OCE_ENABLED_AP: MBO/OCE enabled network
  * @LOST_LINK_RSSI: lost link RSSI
  * @ROAM_BAND: Allowed band for roaming in FW
+ * @ROAM_RSSI_DIFF_6GHZ: roam rssi diff for 6 GHz AP
  */
 enum roam_cfg_param {
 	RSSI_CHANGE_THRESHOLD,
@@ -692,6 +726,7 @@ enum roam_cfg_param {
 	LOST_LINK_RSSI,
 	ROAM_BAND,
 	HI_RSSI_SCAN_RSSI_DELTA,
+	ROAM_RSSI_DIFF_6GHZ,
 };
 
 /**
@@ -1454,7 +1489,7 @@ struct wlan_rso_11i_params {
 	bool fw_okc;
 	bool fw_pmksa_cache;
 	bool is_sae_same_pmk;
-	uint8_t psk_pmk[WMI_ROAM_SCAN_PSK_SIZE];
+	uint8_t psk_pmk[MAX_PMK_LEN];
 	uint8_t pmk_len;
 };
 
@@ -1472,7 +1507,7 @@ struct wlan_rso_11r_params {
 	bool is_11r_assoc;
 	bool is_adaptive_11r;
 	bool enable_ft_im_roaming;
-	uint8_t psk_pmk[WMI_ROAM_SCAN_PSK_SIZE];
+	uint8_t psk_pmk[MAX_PMK_LEN];
 	uint8_t pmk_len;
 	uint32_t r0kh_id_length;
 	uint8_t r0kh_id[WMI_ROAM_R0KH_ID_MAX_LEN];
@@ -1738,7 +1773,7 @@ enum roam_rt_stats_params {
 	ROAM_RT_STATS_SUSPEND_MODE_ENABLE,
 };
 
-/*
+/**
  * struct wlan_roam_mlo_config - Roam MLO config parameters
  * @vdev_id: VDEV id
  * @partner_link_addr: Assigned link address which can be used as self
@@ -1778,6 +1813,13 @@ struct wlan_roam_mlo_config {
  * @idle_params: idle params
  * @wlan_roam_rt_stats_config: roam events stats config
  * @roam_mlo_params: roam mlo config params
+ * @wlan_roam_ho_delay_config: roam HO delay value
+ * @wlan_exclude_rm_partial_scan_freq: Include/exclude the channels in roam full
+ * scan that are already scanned as part of partial scan.
+ * @wlan_roam_full_scan_6ghz_on_disc: Include the 6 GHz channels in roam full
+ * scan only on prior discovery of any 6 GHz support in the environment.
+ * @wlan_roam_rssi_diff_6ghz: This value is used as to how better the RSSI of
+ * the new/roamable 6GHz AP should be for roaming.
  */
 struct wlan_roam_start_config {
 	struct wlan_roam_offload_scan_rssi_params rssi_params;
@@ -1799,6 +1841,10 @@ struct wlan_roam_start_config {
 	struct wlan_roam_idle_params idle_params;
 	uint8_t wlan_roam_rt_stats_config;
 	struct wlan_roam_mlo_config roam_mlo_params;
+	uint16_t wlan_roam_ho_delay_config;
+	uint8_t wlan_exclude_rm_partial_scan_freq;
+	uint8_t wlan_roam_full_scan_6ghz_on_disc;
+	uint8_t wlan_roam_rssi_diff_6ghz;
 	/* other wmi cmd structures */
 };
 
@@ -1849,6 +1895,13 @@ struct wlan_roam_stop_config {
  * @idle_params: idle params
  * @roam_triggers: roam triggers parameters
  * @wlan_roam_rt_stats_config: roam events stats config
+ * @wlan_roam_ho_delay_config: roam HO delay value
+ * @wlan_exclude_rm_partial_scan_freq: Include/exclude the channels in roam full
+ * scan that are already scanned as part of partial scan.
+ * @wlan_roam_full_scan_6ghz_on_disc: Include the 6 GHz channels in roam full
+ * scan only on prior discovery of any 6 GHz support in the environment.
+ * @wlan_roam_rssi_diff_6ghz: This value is used as to how better the RSSI of
+ * the new/roamable 6GHz AP should be for roaming.
  */
 struct wlan_roam_update_config {
 	struct wlan_roam_beacon_miss_cnt beacon_miss_cnt;
@@ -1864,6 +1917,10 @@ struct wlan_roam_update_config {
 	struct wlan_roam_idle_params idle_params;
 	struct wlan_roam_triggers roam_triggers;
 	uint8_t wlan_roam_rt_stats_config;
+	uint16_t wlan_roam_ho_delay_config;
+	uint8_t wlan_exclude_rm_partial_scan_freq;
+	uint8_t wlan_roam_full_scan_6ghz_on_disc;
+	uint8_t wlan_roam_rssi_diff_6ghz;
 };
 
 #if defined(WLAN_FEATURE_HOST_ROAM) || defined(WLAN_FEATURE_ROAM_OFFLOAD)
@@ -2166,7 +2223,7 @@ struct roam_denylist_timeout {
 	enum dlm_reject_ap_source source;
 };
 
-/*
+/**
  * struct roam_denylist_event - Denylist event entries destination structure
  * @vdev_id: vdev id
  * @num_entries: total entries sent over the event
@@ -2178,7 +2235,7 @@ struct roam_denylist_event {
 	struct roam_denylist_timeout roam_denylist[];
 };
 
-/*
+/**
  * enum cm_vdev_disconnect_reason - Roam disconnect reason
  * @CM_DISCONNECT_REASON_CSA_SA_QUERY_TIMEOUT: Disconnect due to SA query
  *  timeout after moving to new channel due to CSA in OCV enabled case.
@@ -2190,7 +2247,7 @@ enum cm_vdev_disconnect_reason {
 	CM_DISCONNECT_REASON_MOVE_TO_CELLULAR,
 };
 
-/*
+/**
  * struct vdev_disconnect_event_data - Roam disconnect event data
  * @vdev_id: vdev id
  * @psoc: psoc object
@@ -2296,19 +2353,21 @@ struct roam_stats_event {
 	struct roam_event_rt_info roam_event_param;
 };
 
-/*
+/**
  * struct auth_offload_event - offload data carried by roam event
  * @vdev_id: vdev id
  * @ap_bssid: SAE authentication offload AP MAC Address
  * @ta: SAE authentication offload Tx MAC Address
+ * @akm: SAE AKM type
  */
 struct auth_offload_event {
 	uint8_t vdev_id;
 	struct qdf_mac_addr ap_bssid;
 	struct qdf_mac_addr ta;
+	uint32_t akm;
 };
 
-/*
+/**
  * struct roam_pmkid_req_event - Pmkid event with entries destination structure
  * @vdev_id: VDEV id
  * @psoc: psoc object
@@ -2334,6 +2393,11 @@ struct roam_pmkid_req_event {
  * @send_roam_abort: send roam abort
  * @send_roam_disable_config: send roam disable config
  * @send_roam_rt_stats_config: Send roam events vendor command param value to FW
+ * @send_roam_ho_delay_config: Send roam Hand-off delay value to FW
+ * @send_exclude_rm_partial_scan_freq: Include/exclude the channels in roam full
+ * scan that are already scanned as part of partial scan.
+ * @send_roam_full_scan_6ghz_on_disc: Include the 6 GHz channels in roam full
+ * scan only on prior discovery of any 6 GHz support in the environment.
  * @send_roam_linkspeed_state: Send roam link speed good/poor state to FW
  * @send_roam_vendor_handoff_config: send vendor handoff config command to FW
  */
@@ -2366,6 +2430,17 @@ struct wlan_cm_roam_tx_ops {
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
 	QDF_STATUS (*send_roam_rt_stats_config)(struct wlan_objmgr_vdev *vdev,
 						uint8_t vdev_id, uint8_t value);
+	QDF_STATUS (*send_roam_ho_delay_config)(struct wlan_objmgr_vdev *vdev,
+						uint8_t vdev_id,
+						uint16_t value);
+	QDF_STATUS (*send_exclude_rm_partial_scan_freq)(
+						struct wlan_objmgr_vdev *vdev,
+						uint8_t value);
+	QDF_STATUS (*send_roam_full_scan_6ghz_on_disc)(
+						struct wlan_objmgr_vdev *vdev,
+						uint8_t value);
+	QDF_STATUS (*send_roam_mcc_disallow)(struct wlan_objmgr_vdev *vdev,
+					     uint8_t vdev_id, uint8_t value);
 #ifdef FEATURE_RX_LINKSPEED_ROAM_TRIGGER
 	QDF_STATUS (*send_roam_linkspeed_state)(struct wlan_objmgr_vdev *vdev,
 						uint8_t vdev_id, bool value);
@@ -2412,19 +2487,29 @@ struct wlan_cm_vendor_handoff_param {
 #endif
 
 /**
+ * struct sae_offload_params - SAE roam auth offload related params
+ * @ssid: SSID of the roam candidate
+ * @bssid: BSSID of the roam candidate
+ */
+struct sae_offload_params {
+	struct wlan_ssid ssid;
+	struct qdf_mac_addr bssid;
+};
+
+/**
  * struct wlan_cm_roam  - Connection manager roam configs, state and roam
  * data related structure
  * @pcl_vdev_cmd_active:  Flag to check if vdev level pcl command needs to be
  * sent or PDEV level PCL command needs to be sent
  * @vendor_handoff_param: vendor handoff params
- * @sae_offload_ssid: SSID of the roam auth offload bssid
+ * @sae_offload: SAE roam offload related params
  */
 struct wlan_cm_roam {
 	bool pcl_vdev_cmd_active;
 #ifdef WLAN_VENDOR_HANDOFF_CONTROL
 	struct wlan_cm_vendor_handoff_param vendor_handoff_param;
 #endif
-	struct wlan_ssid sae_offload_ssid;
+	struct sae_offload_params sae_offload;
 };
 
 /**
@@ -2511,7 +2596,7 @@ struct cm_hw_mode_trans_ind {
 /* If link is disabled, during roam sync */
 #define CM_ROAM_LINK_FLAG_DISABLE    0x1
 
-/*
+/**
  * struct ml_setup_link_param - MLO setup link param
  * @vdev_id: vdev id of the link
  * @link_id: link id of the link
@@ -2527,7 +2612,7 @@ struct ml_setup_link_param {
 	struct qdf_mac_addr link_addr;
 };
 
-/*
+/**
  * struct ml_key_material_param - MLO key material param
  * @link_id: key is for which link, when link_id is 0xf,
  * means the key is used for all links, like PTK
@@ -2545,18 +2630,17 @@ struct ml_key_material_param {
 };
 
 struct roam_offload_synch_ind {
-	uint16_t beaconProbeRespOffset;
-	uint16_t beaconProbeRespLength;
-	uint16_t reassocRespOffset;
-	uint16_t reassocRespLength;
+	uint16_t beacon_probe_resp_offset;
+	uint16_t beacon_probe_resp_length;
+	uint16_t reassoc_resp_offset;
+	uint16_t reassoc_resp_length;
 	uint16_t reassoc_req_offset;
 	uint16_t reassoc_req_length;
-	uint8_t isBeacon;
+	uint8_t is_beacon;
 	uint8_t roamed_vdev_id;
 	struct qdf_mac_addr bssid;
 	struct wlan_ssid ssid;
-	struct qdf_mac_addr self_mac;
-	int8_t txMgmtPower;
+	int8_t tx_mgmt_power;
 	uint32_t auth_status;
 	uint8_t rssi;
 	uint8_t roam_reason;
@@ -2602,16 +2686,18 @@ struct roam_offload_synch_ind {
 #endif
 };
 
-/*
+/**
  * struct roam_scan_candidate_frame Roam candidate scan entry
- * vdev_id : vdev id
- * frame_len : Length of the beacon/probe rsp frame
- * frame : Pointer to the frame
+ * @vdev_id : vdev id
+ * @frame_length : Length of the beacon/probe rsp frame
+ * @frame : Pointer to the frame
+ * @rssi: RSSI of the received frame, 0 if not available
  */
 struct roam_scan_candidate_frame {
 	uint8_t vdev_id;
 	uint32_t frame_length;
 	uint8_t *frame;
+	int32_t rssi;
 };
 
 /**

@@ -35,6 +35,7 @@
 #define FTS_REG_STABLE_DISTANCE_AFTER_N         0xB9
 #define FTS_REG_STABLE_DISTANCE                 0xBA
 #define FTS_REG_FOD_EN                          0xCF
+#define FTS_RES_FOD_HEALTH_STATUS               0xE0
 #define FTS_REG_FOD_INFO                        0xE1
 #define FTS_REG_FOD_INFO_LEN                    9
 #define FTS_REG_AOD_INFO                        0xD3
@@ -340,6 +341,18 @@ struct fts_fod_info {
 	u8 fp_down_report;
 };
 
+enum FOD_HEALTH_INFO {
+	FOD_ENABLE      	= 0x01,
+	FOD_FARAWAY     	= 0x03,
+	FOD_NOT_IN_AREA     = 0x04,
+	FOD_IN_AREA    	 	= 0x10,
+	FOD_IN_AREA_V2   	= 0x11,
+	FOD_FIRST_EFFETIVE_PRESS   	= 0x20,
+	FOD_SMALL_TOUCH   			= 0x21,
+	FOD_DETECT_EFFETIVE_AREA 	= 0x22,
+	FOD_DETECT_ID_REPORRE    	= 0x30,
+};
+
 typedef enum {
 	TYPE_NO_FOD_TRIGGER = 0,
 	TYPE_SMALL_FOD_TRIGGER,
@@ -445,6 +458,7 @@ struct chip_data_ft3681 {
 	u32 spi_speed;
 	int extreme_game_report_rate;
 	bool extreme_game_flag;
+	bool water_mode_flag;
 };
 
 

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_MEM_MGR_H_
@@ -37,23 +37,28 @@ struct cam_presil_dmabuf_params {
 /**
  * struct cam_mem_buf_queue
  *
- * @dma_buf:        pointer to the allocated dma_buf in the table
- * @q_lock:         mutex lock for buffer
- * @hdls:           list of mapped handles
- * @num_hdl:        number of handles
- * @fd:             file descriptor of buffer
- * @i_ino:          inode number of this dmabuf. Uniquely identifies a buffer
- * @buf_handle:     unique handle for buffer
- * @align:          alignment for allocation
- * @len:            size of buffer
- * @flags:          attributes of buffer
- * @vaddr:          IOVA of buffer
- * @kmdvaddr:       Kernel virtual address
- * @active:         state of the buffer
- * @is_imported:    Flag indicating if buffer is imported from an FD in user space
- * @is_internal:    Flag indicating kernel allocated buffer
- * @timestamp:      Timestamp at which this entry in tbl was made
- * @presil_params:  Parameters specific to presil environment
+ * @dma_buf:           pointer to the allocated dma_buf in the table
+ * @q_lock:            mutex lock for buffer
+ * @fd:                file descriptor of buffer
+ * @i_ino:             inode number of this dmabuf. Uniquely identifies a buffer
+ * @buf_handle:        unique handle for buffer
+ * @align:             alignment for allocation
+ * @len:               size of buffer
+ * @flags:             attributes of buffer
+ * @num_hdls:          number of valid handles
+ * @vaddr_info:        Array of IOVA addresses mapped for different devices
+ *                     using the same indexing as SMMU
+ * @kmdvaddr:          Kernel virtual address
+ * @active:            state of the buffer
+ * @release_deferred:  Buffer is deferred for release.
+ * @is_imported:       Flag indicating if buffer is imported from an FD in user space
+ * @is_internal:       Flag indicating kernel allocated buffer
+ * @timestamp:         Timestamp at which this entry in tbl was made
+ * @krefcount:         Reference counter to track whether the buffer is
+ *                     mapped and in use
+ * @smmu_mapping_client: Client buffer (User or kernel)
+ * @buf_name:            Name associated with buffer.
+ * @presil_params:       Parameters specific to presil environment
  */
 struct cam_mem_buf_queue {
 	struct dma_buf *dma_buf;
@@ -69,9 +74,13 @@ struct cam_mem_buf_queue {
 	dma_addr_t vaddr;
 	uintptr_t kmdvaddr;
 	bool active;
+	bool release_deferred;
 	bool is_imported;
 	bool is_internal;
 	struct timespec64 timestamp;
+	struct kref krefcount;
+	enum cam_smmu_mapping_client smmu_mapping_client;
+	char buf_name[CAM_DMA_BUF_NAME_LEN];
 
 #ifdef CONFIG_CAM_PRESIL
 	struct cam_presil_dmabuf_params presil_params;

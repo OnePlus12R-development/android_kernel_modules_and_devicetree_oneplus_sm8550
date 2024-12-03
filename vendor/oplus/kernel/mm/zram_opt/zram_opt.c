@@ -12,6 +12,7 @@
 #include <linux/module.h>
 #include <linux/types.h>
 #include <trace/hooks/vmscan.h>
+#include <trace/hooks/mm.h>
 #include <trace/events/vmscan.h>
 #include <linux/swap.h>
 #include <linux/proc_fs.h>
@@ -44,6 +45,9 @@ static int g_kswapd_pid = -1;
 #define KSWAPD_COMM "kswapd0"
 
 static unsigned long g_allocstall_ux = 0;
+
+static int g_kcompactd_pid = -1;
+#define KCOMPACTD_COMM "kcompactd0"
 
 #ifdef CONFIG_DYNAMIC_TUNING_SWAPPINESS
 int tune_dynamic_swappines(void)
@@ -140,6 +144,11 @@ static void count_ux_allocstall(void *data, int order, gfp_t gfp_flags)
 		g_allocstall_ux += 1;
 }
 
+static void do_swap_page_spf(void *data, bool *allow_swap_spf)
+{
+	*allow_swap_spf = true;
+}
+
 static int register_zram_opt_vendor_hooks(void)
 {
 	int ret = 0;
@@ -182,6 +191,11 @@ static int register_zram_opt_vendor_hooks(void)
 		goto out;
 	}
 
+	ret = register_trace_android_vh_do_swap_page_spf(do_swap_page_spf, NULL);
+	if (ret != 0) {
+		pr_err("register_trace_android_vh_do_swap_page_spf failed! ret=%d\n", ret);
+		goto out;
+	}
 
 out:
 	return ret;
@@ -189,6 +203,7 @@ out:
 
 static void unregister_zram_opt_vendor_hooks(void)
 {
+	unregister_trace_android_vh_do_swap_page_spf(do_swap_page_spf, NULL);
 	unregister_trace_mm_vmscan_direct_reclaim_begin(count_ux_allocstall, NULL);
 	unregister_trace_android_vh_tune_swappiness(zo_set_swappiness, NULL);
 	/* unregister_trace_android_vh_tune_inactive_ratio(zo_set_inactive_ratio, NULL); */
@@ -431,6 +446,7 @@ static int __init zram_opt_init(void)
 {
 	int ret = 0;
 	struct task_struct *p = NULL;
+	struct task_struct *p1 = NULL;
 
 	ret = create_swappiness_para_proc();
 	if (ret)
@@ -454,6 +470,18 @@ static int __init zram_opt_init(void)
 	}
 	rcu_read_unlock();
 
+	rcu_read_lock();
+	for_each_process(p1) {
+		if (p1->flags & PF_KTHREAD) {
+			if (!strncmp(p1->comm, KCOMPACTD_COMM,
+				     sizeof(KCOMPACTD_COMM) - 1)) {
+				g_kcompactd_pid = p1->pid;
+				break;
+			}
+		}
+	}
+	rcu_read_unlock();
+
 #ifdef CONFIG_DYNAMIC_TUNING_SWAPPINESS
 	/* must called after create_swappiness_para_proc */
 	ret = create_dynamic_swappiness_proc();
@@ -464,7 +492,7 @@ static int __init zram_opt_init(void)
 	}
 #endif
 
-	pr_info("zram_opt_init succeed kswapd %d!\n", g_kswapd_pid);
+	pr_info("zram_opt_init succeed kswapd %d,kcompactd %d !\n", g_kswapd_pid, g_kcompactd_pid);
 	return 0;
 }
 
@@ -487,6 +515,7 @@ module_exit(zram_opt_exit);
 module_param_named(vm_swappiness, g_swappiness, int, S_IRUGO | S_IWUSR);
 module_param_named(direct_vm_swappiness, g_direct_swappiness, int, S_IRUGO | S_IWUSR);
 module_param_named(kswapd_pid, g_kswapd_pid, int, S_IRUGO | S_IWUSR);
+module_param_named(kcompactd_pid, g_kcompactd_pid, int, S_IRUGO | S_IWUSR);
 module_param_named(hybridswapd_swappiness, g_hybridswapd_swappiness, int, S_IRUGO | S_IWUSR);
 module_param_named(allocstall_ux, g_allocstall_ux, ulong, S_IRUGO | S_IWUSR);
 #ifdef CONFIG_DYNAMIC_TUNING_SWAPPINESS

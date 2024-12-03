@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -219,6 +219,32 @@ void dp_soc_wds_attach(struct dp_soc *soc)
 
 void dp_soc_wds_detach(struct dp_soc *soc)
 {
+}
+#endif
+
+#ifdef QCA_SUPPORT_WDS_EXTENDED
+bool dp_peer_check_wds_ext_peer(struct dp_peer *peer)
+{
+	struct dp_vdev *vdev = peer->vdev;
+	struct dp_txrx_peer *txrx_peer;
+
+	if (!vdev->wds_ext_enabled)
+		return false;
+
+	txrx_peer = dp_get_txrx_peer(peer);
+	if (!txrx_peer)
+		return false;
+
+	if (qdf_atomic_test_bit(WDS_EXT_PEER_INIT_BIT,
+				&txrx_peer->wds_ext.init))
+		return true;
+
+	return false;
+}
+#else
+bool dp_peer_check_wds_ext_peer(struct dp_peer *peer)
+{
+	return false;
 }
 #endif
 
@@ -784,8 +810,11 @@ void dp_peer_find_id_to_obj_add(struct dp_soc *soc,
 		/* Peer map event came for peer_id which
 		 * is already mapped, this is not expected
 		 */
+		dp_err("peer %pK(" QDF_MAC_ADDR_FMT ")map failed, id %d mapped to peer %pK",
+		       peer, QDF_MAC_ADDR_REF(peer->mac_addr.raw), peer_id,
+		       soc->peer_id_to_obj_map[peer_id]);
 		dp_peer_unref_delete(peer, DP_MOD_ID_CONFIG);
-		QDF_ASSERT(0);
+		qdf_assert_always(0);
 	}
 	qdf_spin_unlock_bh(&soc->peer_map_lock);
 }
@@ -2807,6 +2836,8 @@ void dp_peer_rx_reo_shared_qaddr_delete(struct dp_soc *soc,
 {
 	uint8_t tid;
 
+	if (peer->peer_id > soc->max_peer_id)
+		return;
 	if (IS_MLO_DP_LINK_PEER(peer))
 		return;
 	if (hal_reo_shared_qaddr_is_enable(soc->hal_soc)) {
@@ -2916,6 +2947,11 @@ dp_rx_mlo_peer_map_handler(struct dp_soc *soc, uint16_t peer_id,
 	QDF_STATUS err = QDF_STATUS_SUCCESS;
 	struct dp_soc *primary_soc;
 
+	dp_cfg_event_record_peer_map_unmap_evt(soc, DP_CFG_EVENT_MLO_PEER_MAP,
+					       NULL, peer_mac_addr,
+					       1, peer_id, ml_peer_id, 0,
+					       vdev_id);
+
 	dp_info("mlo_peer_map_event (soc:%pK): peer_id %d ml_peer_id %d, peer_mac "QDF_MAC_ADDR_FMT,
 		soc, peer_id, ml_peer_id,
 		QDF_MAC_ADDR_REF(peer_mac_addr));
@@ -2932,7 +2968,6 @@ dp_rx_mlo_peer_map_handler(struct dp_soc *soc, uint16_t peer_id,
 
 	peer = dp_peer_find_add_id(soc, peer_mac_addr, ml_peer_id,
 				   hw_peer_id, vdev_id, CDP_MLD_PEER_TYPE);
-
 	if (peer) {
 		if (wlan_op_mode_sta == peer->vdev->opmode &&
 		    qdf_mem_cmp(peer->mac_addr.raw,
@@ -3052,6 +3087,9 @@ dp_rx_peer_map_handler(struct dp_soc *soc, uint16_t peer_id,
 	enum cdp_txrx_ast_entry_type type = CDP_TXRX_AST_TYPE_STATIC;
 	QDF_STATUS err = QDF_STATUS_SUCCESS;
 
+	dp_cfg_event_record_peer_map_unmap_evt(soc, DP_CFG_EVENT_PEER_MAP,
+					       NULL, peer_mac_addr, 1, peer_id,
+					       0, 0, vdev_id);
 	dp_info("peer_map_event (soc:%pK): peer_id %d, hw_peer_id %d, peer_mac "QDF_MAC_ADDR_FMT", vdev_id %d",
 		soc, peer_id, hw_peer_id,
 		QDF_MAC_ADDR_REF(peer_mac_addr), vdev_id);
@@ -3089,6 +3127,9 @@ dp_rx_peer_map_handler(struct dp_soc *soc, uint16_t peer_id,
 					   CDP_LINK_PEER_TYPE);
 
 		if (peer) {
+			/* Updating ast_hash and ast_idx in peer level */
+			peer->ast_hash = ast_hash;
+			peer->ast_idx = hw_peer_id;
 			vdev = peer->vdev;
 			/* Only check for STA Vdev and peer is not for TDLS */
 			if (wlan_op_mode_sta == vdev->opmode &&
@@ -3228,6 +3269,9 @@ dp_rx_peer_unmap_handler(struct dp_soc *soc, uint16_t peer_id,
 
 	dp_peer_clean_wds_entries(soc, peer, free_wds_count);
 
+	dp_cfg_event_record_peer_map_unmap_evt(soc, DP_CFG_EVENT_PEER_UNMAP,
+					       peer, mac_addr, 0, peer_id,
+					       0, 0, vdev_id);
 	dp_info("peer_unmap_event (soc:%pK) peer_id %d peer %pK",
 		soc, peer_id, peer);
 
@@ -3277,6 +3321,9 @@ void dp_rx_mlo_peer_unmap_handler(struct dp_soc *soc, uint16_t peer_id)
 	uint8_t vdev_id = DP_VDEV_ALL;
 	uint8_t is_wds = 0;
 
+	dp_cfg_event_record_peer_map_unmap_evt(soc, DP_CFG_EVENT_MLO_PEER_UNMAP,
+					       NULL, mac_addr, 0, peer_id,
+					       0, 0, vdev_id);
 	dp_info("MLO peer_unmap_event (soc:%pK) peer_id %d",
 		soc, peer_id);
 
@@ -5643,7 +5690,7 @@ uint8_t *dp_peer_get_peer_mac_addr(void *peer_handle)
 }
 
 int dp_get_peer_state(struct cdp_soc_t *soc_hdl, uint8_t vdev_id,
-		      uint8_t *peer_mac)
+		      uint8_t *peer_mac, bool slowpath)
 {
 	enum ol_txrx_peer_state peer_state;
 	struct dp_soc *soc = cdp_soc_t_to_dp_soc(soc_hdl);
@@ -5663,6 +5710,14 @@ int dp_get_peer_state(struct cdp_soc_t *soc_hdl, uint8_t vdev_id,
 
 	tgt_peer = dp_get_tgt_peer_from_peer(peer);
 	peer_state = tgt_peer->state;
+
+	if (slowpath)
+		dp_peer_info("peer %pK tgt_peer: %pK peer MAC "
+			    QDF_MAC_ADDR_FMT " tgt peer MAC "
+			    QDF_MAC_ADDR_FMT " tgt peer state %d",
+			    peer, tgt_peer, QDF_MAC_ADDR_REF(peer->mac_addr.raw),
+			    QDF_MAC_ADDR_REF(tgt_peer->mac_addr.raw),
+			    tgt_peer->state);
 
 	dp_peer_unref_delete(peer, DP_MOD_ID_CDP);
 
@@ -5792,22 +5847,6 @@ bool dp_find_peer_exist_on_other_vdev(struct cdp_soc_t *soc_hdl,
 	return false;
 }
 
-bool dp_find_peer_exist(struct cdp_soc_t *soc_hdl, uint8_t pdev_id,
-			uint8_t *peer_addr)
-{
-	struct dp_soc *soc = cdp_soc_t_to_dp_soc(soc_hdl);
-	struct dp_peer *peer = NULL;
-
-	peer = dp_peer_find_hash_find(soc, peer_addr, 0, DP_VDEV_ALL,
-				      DP_MOD_ID_CDP);
-	if (peer) {
-		dp_peer_unref_delete(peer, DP_MOD_ID_CDP);
-		return true;
-	}
-
-	return false;
-}
-
 void dp_set_peer_as_tdls_peer(struct cdp_soc_t *soc_hdl, uint8_t vdev_id,
 			      uint8_t *peer_mac, bool val)
 {
@@ -5829,6 +5868,22 @@ void dp_set_peer_as_tdls_peer(struct cdp_soc_t *soc_hdl, uint8_t vdev_id,
 	dp_peer_unref_delete(peer, DP_MOD_ID_CDP);
 }
 #endif
+
+bool dp_find_peer_exist(struct cdp_soc_t *soc_hdl, uint8_t pdev_id,
+			uint8_t *peer_addr)
+{
+	struct dp_soc *soc = cdp_soc_t_to_dp_soc(soc_hdl);
+	struct dp_peer *peer = NULL;
+
+	peer = dp_peer_find_hash_find(soc, peer_addr, 0, DP_VDEV_ALL,
+				      DP_MOD_ID_CDP);
+	if (peer) {
+		dp_peer_unref_delete(peer, DP_MOD_ID_CDP);
+		return true;
+	}
+
+	return false;
+}
 
 #ifdef IPA_OFFLOAD
 int dp_peer_get_rxtid_stats_ipa(struct dp_peer *peer,
@@ -5852,7 +5907,7 @@ int dp_peer_get_rxtid_stats_ipa(struct dp_peer *peer,
 			continue;
 
 		rx_tid = &peer->rx_tid[i];
-		if (rx_tid->hw_qdesc_vaddr_unaligned) {
+		if (rx_tid && rx_tid->hw_qdesc_vaddr_unaligned) {
 			params.std.need_status = 1;
 			params.std.addr_lo =
 				rx_tid->hw_qdesc_paddr & 0xffffffff;
@@ -5916,7 +5971,7 @@ int dp_peer_rxtid_stats(struct dp_peer *peer,
 			continue;
 
 		rx_tid = &peer->rx_tid[i];
-		if (rx_tid->hw_qdesc_vaddr_unaligned) {
+		if (rx_tid && rx_tid->hw_qdesc_vaddr_unaligned) {
 			params.std.need_status = 1;
 			params.std.addr_lo =
 				rx_tid->hw_qdesc_paddr & 0xffffffff;
@@ -6202,3 +6257,98 @@ bool dp_peer_find_by_id_valid(struct dp_soc *soc, uint16_t peer_id)
 }
 
 qdf_export_symbol(dp_peer_find_by_id_valid);
+
+#ifdef QCA_MULTIPASS_SUPPORT
+void dp_peer_multipass_list_remove(struct dp_peer *peer)
+{
+	struct dp_vdev *vdev = peer->vdev;
+	struct dp_txrx_peer *tpeer = NULL;
+	bool found = 0;
+
+	qdf_spin_lock_bh(&vdev->mpass_peer_mutex);
+	TAILQ_FOREACH(tpeer, &vdev->mpass_peer_list, mpass_peer_list_elem) {
+		if (tpeer == peer->txrx_peer) {
+			found = 1;
+			TAILQ_REMOVE(&vdev->mpass_peer_list, peer->txrx_peer,
+				     mpass_peer_list_elem);
+			break;
+		}
+	}
+
+	qdf_spin_unlock_bh(&vdev->mpass_peer_mutex);
+
+	if (found)
+		dp_peer_unref_delete(peer, DP_MOD_ID_TX_MULTIPASS);
+}
+
+/**
+ * dp_peer_multipass_list_add() - add to new multipass list
+ * @soc: soc handle
+ * @peer_mac: mac address
+ * @vdev_id: vdev id for peer
+ * @vlan_id: vlan_id
+ *
+ * return: void
+ */
+static void dp_peer_multipass_list_add(struct dp_soc *soc, uint8_t *peer_mac,
+				       uint8_t vdev_id, uint16_t vlan_id)
+{
+	struct dp_peer *peer =
+			dp_peer_get_tgt_peer_hash_find(soc, peer_mac, 0,
+						       vdev_id,
+						       DP_MOD_ID_TX_MULTIPASS);
+
+	if (qdf_unlikely(!peer)) {
+		qdf_err("NULL peer");
+		return;
+	}
+
+	if (qdf_unlikely(!peer->txrx_peer))
+		goto fail;
+
+	/* If peer already exists in vdev multipass list, do not add it.
+	 * This may happen if key install comes twice or re-key
+	 * happens for a peer.
+	 */
+	if (peer->txrx_peer->vlan_id) {
+		dp_debug("peer already added to vdev multipass list"
+			 "MAC: "QDF_MAC_ADDR_FMT" vlan: %d ",
+			 QDF_MAC_ADDR_REF(peer->mac_addr.raw),
+			 peer->txrx_peer->vlan_id);
+		goto fail;
+	}
+
+	/*
+	 * Ref_cnt is incremented inside dp_peer_find_hash_find().
+	 * Decrement it when element is deleted from the list.
+	 */
+	peer->txrx_peer->vlan_id = vlan_id;
+	qdf_spin_lock_bh(&peer->txrx_peer->vdev->mpass_peer_mutex);
+	TAILQ_INSERT_HEAD(&peer->txrx_peer->vdev->mpass_peer_list,
+			  peer->txrx_peer,
+			  mpass_peer_list_elem);
+	qdf_spin_unlock_bh(&peer->txrx_peer->vdev->mpass_peer_mutex);
+	return;
+
+fail:
+	dp_peer_unref_delete(peer, DP_MOD_ID_TX_MULTIPASS);
+}
+
+void dp_peer_set_vlan_id(struct cdp_soc_t *cdp_soc,
+			 uint8_t vdev_id, uint8_t *peer_mac,
+			 uint16_t vlan_id)
+{
+	struct dp_soc *soc = (struct dp_soc *)cdp_soc;
+	struct dp_vdev *vdev =
+		dp_vdev_get_ref_by_id((struct dp_soc *)soc, vdev_id,
+				      DP_MOD_ID_TX_MULTIPASS);
+
+	dp_info("vdev_id %d, vdev %pK, multipass_en %d, peer_mac " QDF_MAC_ADDR_FMT " vlan %d",
+		vdev_id, vdev, vdev ? vdev->multipass_en : 0,
+		QDF_MAC_ADDR_REF(peer_mac), vlan_id);
+	if (vdev && vdev->multipass_en) {
+		dp_peer_multipass_list_add(soc, peer_mac, vdev_id, vlan_id);
+		dp_vdev_unref_delete(soc, vdev, DP_MOD_ID_TX_MULTIPASS);
+	}
+}
+#endif /* QCA_MULTIPASS_SUPPORT */

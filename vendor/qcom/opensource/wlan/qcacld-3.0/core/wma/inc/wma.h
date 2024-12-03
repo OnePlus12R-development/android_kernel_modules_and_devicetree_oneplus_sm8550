@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -48,6 +48,7 @@
 #include "wmi_unified_param.h"
 #include "wmi.h"
 #include "wlan_cm_roam_public_struct.h"
+#include "target_if.h"
 
 /* Platform specific configuration for max. no. of fragments */
 #define QCA_OL_11AC_TX_MAX_FRAGS            2
@@ -999,7 +1000,8 @@ typedef struct {
 
 	QDF_STATUS (*csr_roam_auth_event_handle_cb)(struct mac_context *mac,
 						    uint8_t vdev_id,
-						    struct qdf_mac_addr bssid);
+						    struct qdf_mac_addr bssid,
+						    uint32_t akm);
 	QDF_STATUS (*pe_roam_synch_cb)(struct mac_context *mac,
 		uint8_t vdev_id,
 		struct roam_offload_synch_ind *roam_synch_data,
@@ -1677,13 +1679,15 @@ QDF_STATUS wma_create_peer(tp_wma_handle wma,
  * @vdev_id: vdev id
  * @peer_addr: peer mac address
  * @wma_peer_type: peer type of enum wmi_peer_type
+ * @peer_mld: peer mld address
  *
  * Return: Pointer to objmgr_peer
  */
 struct wlan_objmgr_peer *wma_create_objmgr_peer(tp_wma_handle wma,
 						uint8_t vdev_id,
 						uint8_t *peer_addr,
-						uint32_t wma_peer_type);
+						uint32_t wma_peer_type,
+						uint8_t *peer_mld);
 
 /**
  * wma_remove_objmgr_peer() - Remove Object manager peer
@@ -2537,6 +2541,25 @@ QDF_STATUS wma_post_chan_switch_setup(uint8_t vdev_id);
  */
 QDF_STATUS wma_vdev_pre_start(uint8_t vdev_id, bool restart);
 
+#ifdef WLAN_FEATURE_11BE_MLO
+/**
+ * wma_delete_peer_mlo() - Remove the MLO peer and detach link peer
+ * @psoc: PSOC objmgr pointer
+ * @macaddr: MAC address of objmgr peer
+ *
+ * The API will remove the ML peer with objmgr peer fetched from
+ * psoc peer list using the @macaddr.
+ *
+ * Return: void
+ */
+void wma_delete_peer_mlo(struct wlan_objmgr_psoc *psoc, uint8_t *macaddr);
+#else
+static inline
+void wma_delete_peer_mlo(struct wlan_objmgr_psoc *psoc, uint8_t *macaddr)
+{
+}
+#endif
+
 /**
  * wma_remove_bss_peer_on_failure() - remove the bss peers in case of
  * failure
@@ -2599,6 +2622,15 @@ QDF_STATUS wma_post_vdev_start_setup(uint8_t vdev_id);
 QDF_STATUS wma_pre_vdev_start_setup(uint8_t vdev_id,
 				    struct bss_params *add_bss);
 
+/**
+ * wma_is_multipass_sap() - wma api to verify whether multipass sap
+ * support is present in FW
+ *
+ * @tgt_hdl: target if handler.
+ *
+ * Return: Success if multipass sap is supported.
+ */
+inline bool wma_is_multipass_sap(struct target_psoc_info *tgt_hdl);
 #ifdef FEATURE_ANI_LEVEL_REQUEST
 /**
  * wma_send_ani_level_request() - Send get ani level cmd to WMI

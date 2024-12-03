@@ -239,9 +239,59 @@ static int oplus_mt6375_guage_get_batt_num(struct oplus_chg_ic_dev *ic_dev, int 
 	return 0;
 }
 
+static int oplus_mt6375_guage_get_gauge_type(struct oplus_chg_ic_dev *ic_dev, int *gauge_type)
+{
+	struct chip_mt6375_gauge *chip;
+
+	if (ic_dev == NULL || gauge_type == NULL) {
+		chg_err("oplus_chg_ic_dev or gauge_type is NULL");
+		return -ENODEV;
+	}
+	chip = oplus_chg_ic_get_drvdata(ic_dev);
+	*gauge_type = GAUGE_TYPE_PLATFORM;
+
+	return 0;
+}
+
 static int oplus_mt6375_guage_get_batt_exist(struct oplus_chg_ic_dev *ic_dev, bool *exist)
 {
 	*exist = true;
+
+	return 0;
+}
+
+static int oplus_mt6375_gauge_set_power_sel(struct oplus_chg_ic_dev *ic_dev, int type,
+					   int adapter_id, bool pd_svooc)
+{
+	static int last_curve_index = -1;
+	int target_index_curve = -1;
+	struct chip_mt6375_gauge *chip;
+
+	chip = oplus_chg_ic_get_drvdata(ic_dev);
+
+	if (!chip->mtk_gauge_power_sel_support)
+		return -1;
+
+	if (type == CHARGER_SUBTYPE_DEFAULT)
+		target_index_curve = CHARGER_NORMAL_CHG_CURVE;
+	else if (type == CHARGER_SUBTYPE_FASTCHG_SVOOC)
+		target_index_curve = CHARGER_FASTCHG_SVOOC_CURVE;
+	else if (type == CHARGER_SUBTYPE_FASTCHG_VOOC ||
+		  type == CHARGER_SUBTYPE_PD ||
+		  type == CHARGER_SUBTYPE_QC)
+		target_index_curve = CHARGER_FASTCHG_VOOC_AND_QCPD_CURVE;
+	else if (type == CHARGER_SUBTYPE_UFCS ||
+		  type == CHARGER_SUBTYPE_PPS)
+		target_index_curve = CHARGER_FASTCHG_PPS_AND_UFCS_CURVE;
+	else
+		target_index_curve = CHARGER_FASTCHG_SVOOC_CURVE;
+
+	if (target_index_curve != last_curve_index) {
+		chg_err("target_index_curve=%d, last_curve_index=%d, type[%d], adapter_id[%d]\n",
+			target_index_curve, last_curve_index, type, adapter_id);
+		g_gauge_chip->gauge_ops->set_gauge_power_sel(target_index_curve);
+		last_curve_index = target_index_curve;
+	}
 
 	return 0;
 }
@@ -336,6 +386,10 @@ static void *oplus_chg_get_func(struct oplus_chg_ic_dev *ic_dev,
 		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_GAUGE_GET_BATT_NUM,
 					       oplus_mt6375_guage_get_batt_num);
 		break;
+	case OPLUS_IC_FUNC_GAUGE_GET_GAUGE_TYPE:
+		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_GAUGE_GET_GAUGE_TYPE,
+					       oplus_mt6375_guage_get_gauge_type);
+		break;
 	case OPLUS_IC_FUNC_GAUGE_GET_AFI_UPDATE_DONE:
 		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_GAUGE_GET_AFI_UPDATE_DONE,
 					       oplus_mt6375_guage_get_afi_update_done);
@@ -343,6 +397,10 @@ static void *oplus_chg_get_func(struct oplus_chg_ic_dev *ic_dev,
 	case OPLUS_IC_FUNC_GAUGE_GET_BATT_EXIST:
 		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_GAUGE_GET_BATT_EXIST,
 					       oplus_mt6375_guage_get_batt_exist);
+		break;
+	case OPLUS_IC_FUNC_GAUGE_SET_BATTERY_CURVE:
+		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_GAUGE_SET_BATTERY_CURVE,
+					       oplus_mt6375_gauge_set_power_sel);
 		break;
 	default:
 		chg_err("this func(=%d) is not supported\n", func_id);
@@ -368,12 +426,15 @@ static void oplus_mt6375_guage_parse_dt(struct chip_mt6375_gauge *chip)
 	atomic_set(&chip->suspended, 0);
 	rc = of_property_read_u32(chip->dev->of_node, "oplus,batt_num",
 				  &chip->batt_num);
-
-	chg_info("batt_num = %d\n", chip->batt_num);
 	if (rc < 0) {
 		chg_err("can't get oplus,batt_num, rc = %d\n", rc);
 		chip->batt_num = 1;
 	}
+	chip->mtk_gauge_power_sel_support =
+		of_property_read_bool(chip->dev->of_node, "oplus,mtk_gauge_power_sel_support");
+
+	chg_info("batt_num = %d, mtk_gauge_power_sel_support = %d\n",
+		 chip->batt_num, chip->mtk_gauge_power_sel_support);
 }
 
 static int mt6375_guage_driver_probe(struct platform_device *pdev)

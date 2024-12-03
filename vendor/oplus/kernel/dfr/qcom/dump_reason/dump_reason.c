@@ -64,7 +64,7 @@ void dump_save_stack_trace(void)
 			strncat(dp_info->dump_reason, entries1[i], strlen(entries1[i]));
 		}
 		kfree(entries1[i]);
-	}
+		}
 }
 
 char *parse_function_builtin_return_address(unsigned long function_address)
@@ -117,7 +117,7 @@ void save_dump_reason_to_smem(char *info, char *function_name)
 
 		pr_debug("\r%s: dump_reason : %s strl=%d function caused panic :%s strl1=%d \n", __func__,
 				dp_info->dump_reason, strlinfo, function_name, strlfun);
-		dump_save_stack_trace();
+        dump_save_stack_trace();
 		save_dump_reason_to_device_info(dp_info->dump_reason);
 		flag++;
 	}
@@ -165,6 +165,7 @@ static int panic_save_dump_reason(struct notifier_block *this, unsigned long eve
 
 static struct notifier_block panic_block = {
 	.notifier_call = panic_save_dump_reason,
+	.priority = INT_MAX - 1,
 };
 
 static int __init dump_reason_init(void)

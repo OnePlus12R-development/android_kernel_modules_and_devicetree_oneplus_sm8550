@@ -108,10 +108,13 @@ bool is_top(struct task_struct *p)
 #ifdef CONFIG_OPLUS_FEATURE_INPUT_BOOST
 bool is_webview(struct task_struct *p)
 {
+	unsigned long im_flag = IM_FLAG_NONE;
+
 	if (!is_top(p))
 		return false;
 
-	if (oplus_get_im_flag(p) == IM_FLAG_WEBVIEW)
+	im_flag = oplus_get_im_flag(p);
+	if (test_bit(IM_FLAG_WEBVIEW, &im_flag))
 		return true;
 
 	return false;
@@ -330,6 +333,10 @@ bool is_mid_cluster(int cpu)
 }
 EXPORT_SYMBOL(update_ux_sched_cputopo);
 
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_PIPELINE)
+extern bool oplus_pipeline_task_skip_ux_change(struct oplus_task_struct *ots, int *ux_state);
+#endif
+
 /* UX synchronization rules
  * 1. when task set ux first time, or alter ux state,
  *    ACQUIRE (rq->lock)         prevent task migrate between rq
@@ -380,7 +387,7 @@ void oplus_set_ux_state_lock(struct task_struct *t, int ux_state, bool need_lock
 	}
 
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_PIPELINE)
-	if (pipeline_task_skip_ux_change(ots, &ux_state))
+	if (oplus_pipeline_task_skip_ux_change(ots, &ux_state))
 		goto out;
 #endif
 
@@ -439,6 +446,7 @@ void oplus_set_ux_state_lock(struct task_struct *t, int ux_state, bool need_lock
 	if (need_lock_rq)
 		task_rq_unlock(rq, t, &flags);
 }
+EXPORT_SYMBOL_GPL(oplus_set_ux_state_lock);
 
 noinline int tracing_mark_write(const char *buf)
 {
@@ -455,7 +463,7 @@ void ux_state_systrace_c(unsigned int cpu, struct task_struct *p)
 	if (IS_ERR_OR_NULL(get_oplus_task_struct(p)))
 		ux_state = SCHED_UX_STATE_DEBUG_MAGIC;
 	else
-		ux_state = (oplus_get_ux_state(p) & (SCHED_ASSIST_UX_MASK | SA_TYPE_INHERIT));
+		ux_state = (oplus_get_ux_state(p) & (SCHED_ASSIST_UX_MASK | SA_TYPE_INHERIT | SCHED_ASSIST_UX_PRIORITY_MASK));
 
 	if (per_cpu(prev_ux_state, cpu) != ux_state) {
 		char buf[256];
@@ -523,7 +531,7 @@ void ux_priority_systrace_c(unsigned int cpu, struct task_struct *t)
 
 void sa_scene_systrace_c(void)
 {
-	static int prev_ux_scene = 0;
+	static int prev_ux_scene;
 	int assist_scene = global_sched_assist_scene;
 	if (prev_ux_scene != assist_scene) {
 		char buf[64];
@@ -681,6 +689,23 @@ bool test_task_identify_ux(struct task_struct *task, int id_type_ux)
 	return false;
 }
 
+void set_im_flag_with_bit(int im_flag, struct task_struct *task)
+{
+	struct oplus_task_struct *ots = NULL;
+
+	if (im_flag < 0)
+		return;
+
+	ots = get_oplus_task_struct(task);
+	if (IS_ERR_OR_NULL(ots))
+		return;
+	if (im_flag <= IM_FLAG_CLEAR) {
+		set_bit(im_flag, &ots->im_flag);
+	} else {
+		clear_bit((im_flag - IM_FLAG_CLEAR), &ots->im_flag);
+	}
+}
+
 inline bool test_list_pick_ux(struct task_struct *task)
 {
 	return false;
@@ -824,10 +849,6 @@ static void enqueue_ux_thread(struct rq *rq, struct task_struct *p)
 	ots = get_oplus_task_struct(p);
 	if (IS_ERR_OR_NULL(ots))
 		return;
-
-#if IS_ENABLED(CONFIG_OPLUS_FEATURE_PIPELINE)
-	pipeline_task_enqueue(ots);
-#endif
 
 	if (!test_task_is_fair(p) || !oplus_rbnode_empty(&ots->ux_entry))
 		return;
@@ -1074,7 +1095,8 @@ bool im_mali(char *comm)
 {
 	return !strcmp(comm, "mali-event-hand") ||
 		!strcmp(comm, "mali-mem-purge") || !strcmp(comm, "mali-cpu-comman") ||
-		!strcmp(comm, "mali-compiler");
+		!strcmp(comm, "mali-compiler") ||
+		!strcmp(comm, "mali-cmar-backe");
 }
 
 bool cgroup_check_set_sched_assist_boost(char *comm, struct task_struct *p)
@@ -1085,12 +1107,14 @@ bool cgroup_check_set_sched_assist_boost(char *comm, struct task_struct *p)
 void cgroup_set_sched_assist_boost_task(struct task_struct *p, char *comm)
 {
 	int ux_state;
+	unsigned long im_flag;
 
 	if (cgroup_check_set_sched_assist_boost(comm, p)) {
 		ux_state = oplus_get_ux_state(p);
 		/* maybe the ux state is set by fwk hook, not oomadj */
 		if (is_top(p) || test_task_ux(p->group_leader)) {
-			if (oplus_get_im_flag(p->group_leader) == IM_FLAG_LAUNCHER)
+			im_flag = oplus_get_im_flag(p->group_leader);
+			if (test_bit(IM_FLAG_LAUNCHER, &im_flag))
 				oplus_set_ux_state_lock(p, (ux_state | SA_TYPE_LIGHT), true);
 			else
 				oplus_set_ux_state_lock(p, (ux_state | SA_TYPE_HEAVY), true);
@@ -1157,6 +1181,12 @@ void sched_assist_target_comm(struct task_struct *task, const char *buf)
 		}
 	}
 #endif
+#ifdef CONFIG_OPLUS_CAMERA_UX
+	if (!strncmp(comm, "C2OMXNode", 15) || !strncmp(comm, "MP4WtrAudTrkThr", 15) || !strncmp(comm, "MP4WtrVidTrkThr", 15)) {
+			ux_state = oplus_get_ux_state(task);
+			oplus_set_ux_state_lock(task, (ux_state | SA_TYPE_ANIMATOR), true);
+	}
+#endif
 }
 
 void adjust_rt_lowest_mask(struct task_struct *p, struct cpumask *local_cpu_mask, int ret, bool force_adjust)
@@ -1172,6 +1202,7 @@ void adjust_rt_lowest_mask(struct task_struct *p, struct cpumask *local_cpu_mask
 	struct oplus_rq *orq;
 	struct oplus_task_struct *ots = NULL;
 	unsigned long irqflag;
+	unsigned long im_flag;
 
 	if (!ret || !local_cpu_mask || cpumask_empty(local_cpu_mask))
 		return;
@@ -1180,7 +1211,6 @@ void adjust_rt_lowest_mask(struct task_struct *p, struct cpumask *local_cpu_mask
 
 	drop_cpu = cpumask_first(local_cpu_mask);
 	while (drop_cpu < nr_cpu_ids) {
-		int rt_task_im_flag;
 		int ux_task_state;
 
 		/* unlocked access */
@@ -1222,9 +1252,10 @@ void adjust_rt_lowest_mask(struct task_struct *p, struct cpumask *local_cpu_mask
 		ux_task_state = oplus_get_ux_state(task);
 		spin_unlock_irqrestore(orq->ux_list_lock, irqflag);
 
-		rt_task_im_flag = oplus_get_im_flag(p);
+		im_flag = oplus_get_im_flag(p);
+
 		/* avoid sf premmpt heavy ux tasks,such as ui, render... */
-		if ((rt_task_im_flag == IM_FLAG_SURFACEFLINGER || rt_task_im_flag == IM_FLAG_RENDERENGINE) &&
+		if ((test_bit(IM_FLAG_SURFACEFLINGER, &im_flag) || test_bit(IM_FLAG_RENDERENGINE, &im_flag)) &&
 			((ux_task_state & SA_TYPE_HEAVY) || (ux_task_state & SA_TYPE_LISTPICK))) {
 			cpumask_clear_cpu(drop_cpu, local_cpu_mask);
 			if (unlikely(global_debug_enabled & DEBUG_FTRACE))
@@ -1323,7 +1354,7 @@ bool sa_skip_rt_sync(struct rq *rq, struct task_struct *p, bool *sync)
 
 	spin_lock_irqsave(orq->ux_list_lock, irqflag);
 	ots = ux_list_first_entry(&orq->ux_list);
-	if (IS_ERR_OR_NULL(ots) || (ots->im_flag == IM_FLAG_CAMERA_HAL)) {
+	if (IS_ERR_OR_NULL(ots) || test_bit(IM_FLAG_CAMERA_HAL, &ots->im_flag)) {
 		spin_unlock_irqrestore(orq->ux_list_lock, irqflag);
 		return false;
 	}
@@ -1382,7 +1413,7 @@ ssize_t oplus_show_cpus(const struct cpumask *mask, char *buf)
 #ifdef CONFIG_OPLUS_FEATURE_SCHED_SPREAD
 void sa_spread_systrace_c(void)
 {
-	static int prev_ux_spread = 0;
+	static int prev_ux_spread;
 	int ux_spread = should_force_spread_tasks();
 
 	if (prev_ux_spread != ux_spread) {
@@ -1441,6 +1472,15 @@ EXPORT_SYMBOL(android_rvh_enqueue_task_handler);
 void android_rvh_dequeue_task_handler(void *unused, struct rq *rq, struct task_struct *p, int flags)
 {
 	queue_ux_thread(rq, p, 0);
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_CPU_JANKINFO)
+	if (!rt_task(p))
+		return;
+	if ((flags & DEQUEUE_SLEEP)) {
+		struct oplus_task_struct *ots = get_oplus_task_struct(p);
+		if (ots && p->__state & TASK_UNINTERRUPTIBLE)
+			ots->block_start_time = sched_clock();
+	}
+#endif
 }
 EXPORT_SYMBOL(android_rvh_dequeue_task_handler);
 
@@ -1460,16 +1500,12 @@ void android_rvh_schedule_handler(void *unused, struct task_struct *prev, struct
 		fbg_android_rvh_schedule_callback(prev, next, rq);
 #endif
 
-#if IS_ENABLED(CONFIG_OPLUS_FEATURE_PIPELINE)
-	if (likely(prev != next))
-		pipeline_task_switch_out(prev);
-#endif
-
 	if (unlikely(global_debug_enabled & DEBUG_SYSTRACE) && likely(prev != next)) {
 		ux_state_systrace_c(cpu_of(rq), next);
 	}
 
 #ifdef CONFIG_LOCKING_PROTECT
+	locking_tick_hit(prev, next);
 	if (unlikely(global_debug_enabled & DEBUG_SYSTRACE) && likely(prev != next))
 		locking_state_systrace_c(cpu_of(rq), next);
 #endif
@@ -1588,7 +1624,7 @@ void android_vh_cgroup_set_task_handler(void *unused, int ret, struct task_struc
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_BAN_APP_SET_AFFINITY)
 void android_vh_sched_setaffinity_early_handler(void *unused, struct task_struct *task, const struct cpumask *new_mask, int *skip)
 {
-	int im_flag = IM_FLAG_NONE;
+	unsigned long im_flag = IM_FLAG_NONE;
 	int curr_uid = current_uid().val;
 
 	if ((curr_uid < FIRST_APPLICATION_UID) || (curr_uid > LAST_APPLICATION_UID))
@@ -1606,7 +1642,7 @@ void android_vh_sched_setaffinity_early_handler(void *unused, struct task_struct
 		rcu_read_unlock();
 	}
 
-	if (im_flag == IM_FLAG_FORBID_SET_CPU_AFFINITY)
+	if (test_bit(IM_FLAG_FORBID_SET_CPU_AFFINITY, &im_flag))
 		*skip = 1;
 }
 #endif

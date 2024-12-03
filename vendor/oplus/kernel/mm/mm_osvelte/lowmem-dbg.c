@@ -25,10 +25,11 @@
 #include <linux/proc_fs.h>
 #include <linux/vmstat.h>
 #include <linux/vmalloc.h>
-
-#include "../../../mm/slab.h"
+#include <linux/errno.h>
+#include <trace/hooks/vmscan.h>
 
 #include <linux/android_debug_symbols.h>
+#include "../../../mm/slab.h"
 
 #include "common.h"
 #include "memstat.h"
@@ -37,12 +38,13 @@
 
 static void lowmem_dbg_dump(struct work_struct *work);
 
-static DEFINE_MUTEX(dump_mutex);
 static DECLARE_WORK(lowmem_dbg_work, lowmem_dbg_dump);
 
 struct files_acct {
-	bool verbose;
 	size_t sz;
+	size_t watermark;
+	bool show;
+	int (*iter_fd)(const void *p, struct file *file, unsigned fd);
 };
 
 struct lowmem_dbg_cfg {
@@ -51,9 +53,9 @@ struct lowmem_dbg_cfg {
 	u64 watermark_low;
 	u64 watermark_anon;
 	u64 watermark_slab;
-	u64 watermark_shmem;
 	u64 watermark_dmabuf;
 	u64 watermark_gpu;
+	u64 watermark_other;
 };
 static struct lowmem_dbg_cfg g_cfg;
 
@@ -116,52 +118,85 @@ static int dump_procs(bool verbose)
 	return 0;
 }
 
-static int match_dmabuf_file(const void *p, struct file *file, unsigned fd)
+static int iter_ashmem(const void *p, struct file *file, unsigned fd)
 {
-	struct dma_buf *dmabuf;
-	struct files_acct *acct = (struct files_acct *)p;
+	struct files_acct *acct = (struct files_acct*)p;
+	struct ashmem_area *asma;
 
-	if (!file)
+	if (!file || !file->private_data || !is_ashmem_file(file))
 		return 0;
 
-	if (!is_dma_buf_file(file))
+	asma = file->private_data;
+	if (!asma->size || !asma->file)
+		return 0;
+
+	if (acct->show) {
+		osvelte_info("inode: %8ld sz: %8zu name: %s",
+			     file_inode(asma->file)->i_ino, asma->size / SZ_1K,
+			     asma->name[ASHMEM_NAME_PREFIX_LEN] != '\0' ?
+			     asma->name + ASHMEM_NAME_PREFIX_LEN : ASHMEM_NAME_DEF);
+		return 0;
+	}
+
+	acct->sz += asma->size;
+	return 0;
+}
+
+static int iter_dmabuf(const void *p, struct file *file, unsigned fd)
+{
+	struct files_acct *acct = (struct files_acct*)p;
+	struct dma_buf *dmabuf;
+
+	if (!file || !file->private_data || !is_dma_buf_file(file))
 		return 0;
 
 	dmabuf = file->private_data;
 	if (!dmabuf->size)
 		return 0;
 
-	if (acct->verbose)
-		osvelte_info("inode: %ld sz: %zu\n",
-			     file_inode(dmabuf->file)->i_ino, dmabuf->size / SZ_1K);
-
 	acct->sz += dmabuf->size;
+	if (acct->show) {
+		spin_lock(&dmabuf->name_lock);
+		osvelte_info("inode: %8ld sz: %8zu name: %s",
+			     file_inode(dmabuf->file)->i_ino, dmabuf->size / SZ_1K,
+			     dmabuf->name ?: "");
+		spin_unlock(&dmabuf->name_lock);
+		return 0;
+	}
 	return 0;
 }
 
-int dump_procs_dmabuf_info(bool verbose)
+int dump_procs_fd_info(struct files_acct *acct, const char *title, bool verbose)
 {
 	struct task_struct *tsk = NULL;
 
-	osvelte_info("======= %s\n", __func__);
+	osvelte_info("======= %s\n", title);
 	osvelte_info("%-16s %-5s size\n", "comm", "pid");
 
 	rcu_read_lock();
 	for_each_process(tsk) {
-		struct files_acct acct = {
-			.verbose = verbose,
-			.sz = 0,
-		};
-
 		if (tsk->flags & PF_KTHREAD)
 			continue;
 
+		acct->sz = 0;
+		acct->show = verbose;
+
 		task_lock(tsk);
-		iterate_fd(tsk->files, 0, match_dmabuf_file, (void *)&acct);
+		iterate_fd(tsk->files, 0, acct->iter_fd, (void *)acct);
 		task_unlock(tsk);
 
-		if (acct.sz)
-			osvelte_info("%-16s %5d %zu\n", tsk->comm, tsk->pid, acct.sz / SZ_1K);
+		if (!verbose && PAGES(acct->sz) > acct->watermark) {
+			acct->sz = 0;
+			acct->show = true;
+			/* iter fd twice & show buf info */
+			task_lock(tsk);
+			iterate_fd(tsk->files, 0, acct->iter_fd, (void *)acct);
+			task_unlock(tsk);
+		}
+
+		if (acct->sz)
+			osvelte_info("%-16s %5d %zu\n", tsk->comm, tsk->pid,
+				     acct->sz / SZ_1K);
 	}
 	rcu_read_unlock();
 	return 0;
@@ -393,18 +428,25 @@ static void dump_each_zone(void)
 
 static void __lowmem_dbg_dump(struct lowmem_dbg_cfg *cfg)
 {
-	unsigned long tot, free, available;
+	unsigned long tot, free, available, cma_free;
 	unsigned long slab_reclaimable, slab_unreclaimable;
 	unsigned long anon, active_anon, inactive_anon;
 	unsigned long file, active_file, inactive_file, shmem;
 	unsigned long vmalloc, pgtbl, kernel_stack, kernel_misc_reclaimable;
 	unsigned long dmabuf, dmabuf_pool, gpu, unaccounted;
-	int i;
-	struct sysinfo si;
+        struct sysinfo si;
+	struct files_acct files_acct;
+#ifdef CONFIG_CONT_PTE_HUGEPAGE
+	unsigned long chp_pool_cma = 0, chp_pool_buddy = 0, anon_huge;
+	struct huge_page_pool *chp_pool;
+	bool chp_supported;
 
-	mutex_lock(&dump_mutex);
+	chp_supported = chp_enabled_ext();
+#endif /* CONFIG_CONT_PTE_HUGEPAGE */
+
 	tot = sys_totalram();
 	free = sys_freeram();
+	cma_free = sys_free_cma();
 	available = si_mem_available();
 
 	slab_reclaimable = sys_slab_reclaimable();
@@ -429,6 +471,16 @@ static void __lowmem_dbg_dump(struct lowmem_dbg_cfg *cfg)
 	dmabuf = read_mtrack_mem_usage(MTRACK_DMABUF, MTRACK_DMABUF_SYSTEM_HEAP);
 	dmabuf_pool = read_mtrack_mem_usage(MTRACK_DMABUF, MTRACK_DMABUF_POOL);
 	gpu = read_mtrack_mem_usage(MTRACK_GPU, MTRACK_GPU_TOTAL);
+
+#ifdef CONFIG_CONT_PTE_HUGEPAGE
+	if (chp_supported) {
+		chp_pool = chp_pool_ext();
+		chp_pool_cma = chp_pool->count[HPAGE_POOL_CMA] * HPAGE_CONT_PTE_NR;
+		chp_pool_buddy = chp_pool->count[HPAGE_POOL_BUDDY] * HPAGE_CONT_PTE_NR;
+	}
+	anon_huge = sys_anon_huge();
+#endif
+
 	unaccounted = tot - free - slab_reclaimable - slab_unreclaimable -
 		vmalloc - anon - file - pgtbl - kernel_stack - dmabuf -
 		gpu - kernel_misc_reclaimable;
@@ -439,13 +491,11 @@ static void __lowmem_dbg_dump(struct lowmem_dbg_cfg *cfg)
 
 	osvelte_info("total: %lu free: %lu available: %lu\n",
 		     K(tot), K(free), K(available));
+	osvelte_info("cma_free: %lu (free - cma_free + file): %lu\n",
+		     K(cma_free), K(free - cma_free + active_file + inactive_file));
 	osvelte_info("swap_total: %lu swap_free: %lu\n",
 		     K(si.totalswap), K(si.freeswap));
-	/* osvelte_info("hybridswap same_pages: %lu compr_data_size: %lu pages_stored: %lu\n", */
-	/* 	     K(get_hybridswap_meminfo("same_pages")), */
-	/* 	     get_hybridswap_meminfo("compr_data_size") / SZ_1K, */
-	/* 	     K(get_hybridswap_meminfo("pages_stored"))); */
-	osvelte_info("slab_reclaimable: %lu slab_unreclaimable: %lu",
+	osvelte_info("slab_reclaimable: %lu slab_unreclaimable: %lu\n",
 		     K(slab_reclaimable), K(slab_unreclaimable));
 	osvelte_info("anon: %lu active_anon: %lu inactive_anon: %lu\n",
 		     K(anon), K(active_anon), K(inactive_anon));
@@ -456,21 +506,33 @@ static void __lowmem_dbg_dump(struct lowmem_dbg_cfg *cfg)
 	osvelte_info("dmabuf: %lu dmabuf_pool: %lu gpu: %lu unaccounted: %lu\n",
 		     K(dmabuf), K(dmabuf_pool), K(gpu), K(unaccounted));
 
+#ifdef CONFIG_CONT_PTE_HUGEPAGE
+	osvelte_info("anon_huge: %lu chp_pool_cma: %lu chp_pool_buddy: %lu",
+		     K(anon_huge), K(chp_pool_cma), K(chp_pool_buddy));
+#endif /* CONFIG_CONT_PTE_HUGEPAGE */
+
 	if (likely(cfg)) {
 		dump_procs(anon + si.totalswap - si.freeswap > cfg->watermark_anon);
 		dump_slab_info(slab_unreclaimable > cfg->watermark_slab);
-		dump_procs_dmabuf_info(dmabuf > cfg->watermark_dmabuf);
 	} else {
 		dump_procs(true);
 		dump_slab_info(true);
-		dump_procs_dmabuf_info(false);
 	}
 
-	for (i = MTRACK_GPU; i < MTRACK_MAX; i++)
-		dump_mtrack_usage_stat(i, false);
+	files_acct.iter_fd = iter_dmabuf;
+	/* never dump private process dmabuf usage because automation. */
+	files_acct.watermark = tot;
+	/* for capabilites, add label */
+	dump_procs_fd_info(&files_acct, "dump_procs_dmabuf_info",
+			   dmabuf > cfg->watermark_dmabuf);
 
+	files_acct.iter_fd = iter_ashmem;
+	files_acct.watermark = cfg->watermark_other;
+	/* the total of ashmem usage can not calcalate, so set false here */
+	dump_procs_fd_info(&files_acct, "dump_procs_ashmem_info", false);
+
+	dump_mtrack_usage_stat(MTRACK_GPU, false);
 	osvelte_info("lowmem_dbg end >>>>>>>\n");
-	mutex_unlock(&dump_mutex);
 }
 
 static void lowmem_dbg_dump(struct work_struct *work)
@@ -478,26 +540,13 @@ static void lowmem_dbg_dump(struct work_struct *work)
 	__lowmem_dbg_dump(&g_cfg);
 }
 
-void oplus_memory_dump(struct work_struct *work)
+void alloc_pages_slowpath_vh(void *data, gfp_t gfp_mask, unsigned int order, unsigned long delta)
 {
-	__lowmem_dbg_dump(NULL);
-}
-EXPORT_SYMBOL_GPL(oplus_memory_dump);
-
-static unsigned long lowmem_dbg_count(struct shrinker *s,
-				      struct shrink_control *sc)
-{
-	return sys_active_file() + sys_inactive_file() +
-		sys_active_anon() + sys_inactive_anon();
-}
-
-static unsigned long lowmem_dbg_scan(struct shrinker *s, struct shrink_control *sc)
-{
-	static atomic_t atomic_lmk = ATOMIC_INIT(0);
 	struct lowmem_dbg_cfg *cfg = &g_cfg;
-	long available;
+	static atomic_t atomic_lmk = ATOMIC_INIT(0);
+	long free;
+	unsigned long file;
 	u64 now;
-	unsigned long gpu;
 
 	if (atomic_inc_return(&atomic_lmk) > 1)
 		goto done;
@@ -505,34 +554,40 @@ static unsigned long lowmem_dbg_scan(struct shrinker *s, struct shrink_control *
 	now = get_jiffies_64();
 	if (time_before64(now, (cfg->last_jiffies + cfg->interval)))
 		goto done;
-	cfg->last_jiffies = now;
 
-	available = si_mem_available();
-	gpu = read_mtrack_mem_usage(MTRACK_GPU, MTRACK_GPU_TOTAL);
-	if ((available > cfg->watermark_low) && (gpu < PAGES(SZ_4G)))
+	free = sys_freeram() - sys_free_cma();
+	/* do this really occur ? */
+	if (free < 0)
+		free = 0;
+
+	file = sys_inactive_file() + sys_active_file();
+	if (free + file > cfg->watermark_low)
 		goto done;
 
+	cfg->last_jiffies = now;
 	schedule_work(&lowmem_dbg_work);
 done:
 	atomic_dec(&atomic_lmk);
-	return SHRINK_STOP;
 }
 
-static struct shrinker lowmem_dbg_shrinker = {
-	.scan_objects = lowmem_dbg_scan,
-	.count_objects = lowmem_dbg_count,
-	.seeks = DEFAULT_SEEKS
-};
-
-int osvelte_lowmem_dbg_init(void)
+static int lowmem_dbg_show(struct seq_file *m, void *unused)
 {
-	int ret;
+	seq_puts(m, "write lowmem dbg info to kernel log\n");
+	__lowmem_dbg_dump(&g_cfg);
+	return 0;
+}
+DEFINE_PROC_SHOW_ATTRIBUTE(lowmem_dbg);
+
+int osvelte_lowmem_dbg_init(struct proc_dir_entry *root)
+{
 	struct lowmem_dbg_cfg *cfg = &g_cfg;
 	unsigned long total_ram = sys_totalram();
 
-	ret = register_shrinker(&lowmem_dbg_shrinker);
-	if (ret)
-		return -ENOMEM;
+	/* TODO slowpath vendor hook not included in android list, so use shrink_slab for now */
+	if (register_trace_android_vh_alloc_pages_slowpath(alloc_pages_slowpath_vh, NULL)) {
+		pr_err("register lowmem-dbg vendor hook failed\n");
+		return -EINVAL;
+	}
 
 	cfg->interval = 10 * HZ;
 
@@ -546,18 +601,20 @@ int osvelte_lowmem_dbg_init(void)
 		cfg->watermark_low = PAGES(SZ_256M);
 	cfg->watermark_anon = total_ram / 2;
 	cfg->watermark_slab = PAGES(SZ_1G);
-	cfg->watermark_shmem = PAGES(SZ_1G);
 	cfg->watermark_dmabuf = PAGES(SZ_2G + SZ_512M);
 	cfg->watermark_gpu = PAGES(SZ_2G + SZ_512M);
+	cfg->watermark_other = PAGES(SZ_1G);
 
-	osvelte_info("%s interval: %lu watermark low: %lu anon: %lu ashmem: %lu dmabuf: %lu\n",
-		     __func__, cfg->interval, cfg->watermark_low, cfg->watermark_anon,
-		     cfg->watermark_shmem, cfg->watermark_dmabuf);
+	proc_create("lowmem_dbg", 0444, root, &lowmem_dbg_proc_ops);
+
+	osvelte_info("%s interval: %llu watermark low: %llu anon: %llu dmabuf: %llu\n",
+		     __func__, cfg->interval, cfg->watermark_low,
+		     cfg->watermark_anon, cfg->watermark_dmabuf);
 	return 0;
 }
 
 int osvelte_lowmem_dbg_exit(void)
 {
-	unregister_shrinker(&lowmem_dbg_shrinker);
+	unregister_trace_android_vh_alloc_pages_slowpath(alloc_pages_slowpath_vh, NULL);
 	return 0;
 }

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -354,6 +354,7 @@ struct wlan_psoc_host_spectral_scaling_params {
  * @supports_aSpectral: Agile Spectral support for this chain mask.
  * @supports_aSpectral_160: Agile Spectral support in 160 MHz.
  * @supports_aDFS_160: Agile DFS support in 160 MHz for this chain mask.
+ * @supports_aDFS_320: Agile DFS support in 320 MHz for this chain mask.
  * @chain_mask_2G: 2G support for this chain mask.
  * @chain_mask_5G: 5G support for this chain mask.
  * @chain_mask_tx: Tx support for this chain mask.
@@ -373,7 +374,10 @@ struct wlan_psoc_host_chainmask_capabilities {
 		 supports_aSpectral:1,
 		 supports_aSpectral_160:1,
 		 supports_aDFS_160:1,
-		 reserved:19,
+#ifdef WLAN_FEATURE_11BE
+		 supports_aDFS_320:1,
+#endif
+		 reserved:17,
 		 chain_mask_2G:1,
 		 chain_mask_5G:1,
 		 chain_mask_tx:1,
@@ -443,6 +447,7 @@ struct wlan_psoc_host_service_ext_param {
  * @num_dbr_ring_caps: Number of direct buf rx ring capabilities
  * @chwidth_num_peer_caps: Peer limit for peer_chan_width_switch WMI cmd
  * @max_ndp_sessions: Max number of ndp session fw supports
+ * @max_nan_pairing_sessions: max number of PASN pairing session allowed on NAN
  * @preamble_puncture_bw_cap: Preamble Puncturing Tx support
  * @num_scan_radio_caps: Number of scan radio capabilities
  * @max_users_dl_ofdma: Max number of users per-PPDU for Downlink OFDMA
@@ -450,6 +455,8 @@ struct wlan_psoc_host_service_ext_param {
  * @max_users_dl_mumimo: Max number of users per-PPDU for Downlink MU-MIMO
  * @max_users_ul_mumimo: Max number of users per-PPDU for Uplink MU-MIMO
  * @twt_ack_support_cap: TWT ack capability support
+ * @sap_coex_fixed_chan_support: Indicates if fw supports coex SAP in
+ *                               fixed chan config
  * @target_cap_flags: Rx peer metadata version number used by target
  * @ul_mumimo_tx_2g: UL MUMIMO Tx support for 2GHz
  * @ul_mumimo_tx_5g: UL MUMIMO Tx support for 5GHz
@@ -458,6 +465,9 @@ struct wlan_psoc_host_service_ext_param {
  * @ul_mumimo_rx_5g: UL MUMIMO Rx support for 5GHz
  * @ul_mumimo_rx_6g: UL MUMIMO Rx support for 6GHz
  * @afc_dev_type: AFC deployment type
+ * @num_msdu_idx_qtype_map: Number of HTT_MSDUQ_INDEX to HTT_MSDU_QTYPE
+ *                          mapping
+ * @is_multipass_sap: Multipass sap flag
  */
 struct wlan_psoc_host_service_ext2_param {
 	uint8_t reg_db_version_major;
@@ -467,6 +477,7 @@ struct wlan_psoc_host_service_ext2_param {
 	uint32_t num_dbr_ring_caps;
 	uint32_t chwidth_num_peer_caps;
 	uint32_t max_ndp_sessions;
+	uint32_t max_nan_pairing_sessions;
 	uint32_t preamble_puncture_bw_cap;
 	uint8_t num_scan_radio_caps;
 	uint16_t max_users_dl_ofdma;
@@ -474,6 +485,7 @@ struct wlan_psoc_host_service_ext2_param {
 	uint16_t max_users_dl_mumimo;
 	uint16_t max_users_ul_mumimo;
 	uint32_t twt_ack_support_cap:1;
+	uint32_t sap_coex_fixed_chan_support:1;
 	uint32_t target_cap_flags;
 	uint8_t ul_mumimo_tx_2g:1,
 		ul_mumimo_tx_5g:1,
@@ -483,6 +495,10 @@ struct wlan_psoc_host_service_ext2_param {
 		ul_mumimo_rx_6g:1;
 #if defined(CONFIG_AFC_SUPPORT)
 	enum reg_afc_dev_deploy_type afc_dev_type;
+#endif
+	uint32_t num_msdu_idx_qtype_map;
+#ifdef QCA_MULTIPASS_SUPPORT
+	bool is_multipass_sap;
 #endif
 };
 

@@ -37,7 +37,7 @@ def define_oplus_local_modules():
 			"BUILD_BY_BAZEL",
 		],
         conditional_defines = {
-            "mtk":  ["CONFIG_OPLUS_MTK_DRM_GKI_NOTIFY"],
+            "mtk":  ["CONFIG_OPLUS_MTK_DRM_GKI_NOTIFY", "CONFIG_TOUCHPANEL_MTK_PLATFORM"],
             "qcom":  ["CONFIG_QCOM_PANEL_EVENT_NOTIFIER"],
         },
         header_deps = [

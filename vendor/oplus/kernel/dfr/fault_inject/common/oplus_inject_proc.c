@@ -247,7 +247,6 @@ static void remove_from_node(struct proc_tree_node *node)
 {
 	struct proc_tree_node *pnode, *safe;
 	list_for_each_entry_safe(pnode, safe, &node->sublist, entry) {
-		pr_info("kfree node %s ptr %llx", pnode->name, pnode);
 		list_del(&pnode->entry);
 		/* remove sublist */
 		remove_from_node(pnode);

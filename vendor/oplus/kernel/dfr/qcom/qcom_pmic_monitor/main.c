@@ -8,6 +8,8 @@
 #include <linux/module.h>
 #include "oplus_pmic_info.h"
 
+extern bool oplus_ocp_device;
+
 /**************** PMIC GEN2 Begin ****************/
 /**********************************************/
 static ssize_t pmic_history_magic_show(struct kobject *kobj,
@@ -962,8 +964,25 @@ static ssize_t ocp_status_gen3_show(struct kobject *kobj,
 	int len = 0;
 	struct PMICGen3HistoryKernelStruct *pmic_history_ptr = NULL;
 	struct PMICGen3RecordKernelStruct pmic_first_record;
+	struct PMICOcplogRecoedStruct *ocp_info_ptr = NULL;
+        u8 ocp_device_index = 0;
 	u8 pmic_device_index = 0;
 
+	if (oplus_ocp_device) {
+		ocp_info_ptr = (struct PMICOcplogRecoedStruct *)get_ocp_state();
+		if (NULL == ocp_info_ptr) {
+			len += snprintf(&page[len], 256-len, "PMIC|0|0x000000000000\n");
+			memcpy(buf, page, len);
+			return len;
+		}
+
+		for (ocp_device_index = 0; ocp_device_index < 3; ocp_device_index++) {
+		    len += snprintf(&page[len], 256-len, "PMIC|%u|ppid=0x%03X, mode=%u\n",
+				    ocp_device_index,
+				    ocp_info_ptr->ocp_record[ocp_device_index].ppid,
+				    ocp_info_ptr->ocp_record[ocp_device_index].mode_at_ocp);
+		}
+	} else {
 	pmic_history_ptr = (struct PMICGen3HistoryKernelStruct *)get_pmic_history();
 
 	if (NULL == pmic_history_ptr) {
@@ -982,6 +1001,7 @@ static ssize_t ocp_status_gen3_show(struct kobject *kobj,
 				pmic_first_record.pmic_ocp_record[pmic_device_index].ldo_ocp_status,
 				pmic_first_record.pmic_ocp_record[pmic_device_index].spms_ocp_status,
 				pmic_first_record.pmic_ocp_record[pmic_device_index].bob_ocp_status);
+	}
 	}
 
 	memcpy(buf, page, len);
@@ -1015,6 +1035,8 @@ static int __init pmic_info_init(void)
 
 	/* add driver read pmic machine state log from nvmem,for xblloader code-close*/
 	pmic_pon_log_driver_init();
+	pmic_ocp_dev_driver_init();
+	pmic_ocp_state_driver_init();
 
 	pmic_info_kobj = kobject_create_and_add("pmic_info", NULL);
 	if(!pmic_info_kobj)

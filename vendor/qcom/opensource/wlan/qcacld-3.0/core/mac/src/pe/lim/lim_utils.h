@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -116,6 +116,8 @@
 #define MAX_NUM_PWR_LEVELS 8
 #endif
 
+/* SR is disabled if NON_SRG is disallowed and SRG INFO is not present */
+#define SR_DISABLE NON_SRG_PD_SR_DISALLOWED & (~SRG_INFO_PRESENT & 0x0F)
 
 typedef union uPmfSaQueryTimerId {
 	struct {
@@ -199,8 +201,6 @@ uint8_t lim_get_max_tx_power(struct mac_context *mac,
  * @session: PE Session Entry
  * @is_pwr_constraint_absolute: If local power constraint is an absolute
  * value or an offset value.
- * @ap_pwr_type: Ap power type for 6G
- * @ctry_code_match: check for country IE and sta programmed ctry match
  *
  * This function is used to get the maximum possible tx power from the list
  * of tx powers mentioned in @attr.
@@ -209,9 +209,7 @@ uint8_t lim_get_max_tx_power(struct mac_context *mac,
  */
 void lim_calculate_tpc(struct mac_context *mac,
 		       struct pe_session *session,
-		       bool is_pwr_constraint_absolute,
-		       uint8_t ap_pwr_type,
-		       bool ctry_code_match);
+		       bool is_pwr_constraint_absolute);
 
 /* AID pool management functions */
 
@@ -291,7 +289,7 @@ void lim_set_mlo_caps(struct mac_context *mac, struct pe_session *session,
 		      uint8_t *ie_start, uint32_t num_bytes);
 
 QDF_STATUS lim_send_mlo_caps_ie(struct mac_context *mac_ctx,
-				struct pe_session *session,
+				struct wlan_objmgr_vdev *vdev,
 				enum QDF_OPMODE device_mode,
 				uint8_t vdev_id);
 
@@ -340,7 +338,7 @@ void lim_strip_mlo_ie(struct mac_context *mac_ctx,
 
 static inline
 QDF_STATUS lim_send_mlo_caps_ie(struct mac_context *mac_ctx,
-				struct pe_session *session,
+				struct wlan_objmgr_vdev *vdev,
 				enum QDF_OPMODE device_mode,
 				uint8_t vdev_id)
 {
@@ -469,6 +467,18 @@ void lim_decide_sta_protection_on_assoc(struct mac_context *mac,
 		struct pe_session *pe_session);
 
 /**
+ * lim_get_cb_mode_for_freq() - Get cb mode depending on the freq
+ * @mac: pointer to Global MAC structure
+ * @pe_session: pe session
+ * @chan_freq: Freq to get cb mode for
+ *
+ * Return: cb mode allowed for the freq
+ */
+uint8_t lim_get_cb_mode_for_freq(struct mac_context *mac,
+				 struct pe_session *session,
+				 qdf_freq_t chan_freq);
+
+/**
  * lim_update_sta_run_time_ht_switch_chnl_params() - Process change in HT
  * bandwidth
  * @mac: pointer to Global MAC structure
@@ -523,11 +533,11 @@ void lim_process_channel_switch(struct mac_context *mac, uint8_t vdev_id);
  *
  * This function changes the current operating channel frequency.
  *
- * return NONE
+ * return qdf_status
  */
-void lim_switch_primary_channel(struct mac_context *mac,
-				uint32_t new_channel_freq,
-				struct pe_session *pe_session);
+QDF_STATUS lim_switch_primary_channel(struct mac_context *mac,
+				      uint32_t new_channel_freq,
+				      struct pe_session *pe_session);
 
 /**
  * lim_switch_primary_secondary_channel() - switch primary and secondary
@@ -541,10 +551,10 @@ void lim_switch_primary_channel(struct mac_context *mac,
  *  then we must set this new channel in session context and
  *  assign notify LIM of such change.
  *
- * @return NONE
+ * @return qdf_status
  */
-void lim_switch_primary_secondary_channel(struct mac_context *mac,
-					  struct pe_session *pe_session);
+QDF_STATUS lim_switch_primary_secondary_channel(struct mac_context *mac,
+						struct pe_session *pe_session);
 
 void lim_update_sta_run_time_ht_capability(struct mac_context *mac,
 		tDot11fIEHTCaps *pHTCaps);
@@ -1277,6 +1287,17 @@ void lim_add_bss_he_cfg(struct bss_params *add_bss, struct pe_session *session);
 void lim_copy_bss_he_cap(struct pe_session *session);
 
 /**
+ * lim_update_he_caps_mcs() - Update he caps MCS
+ * @mac: MAC context
+ * @session: pointer to PE session
+ *
+ * Return: None
+ */
+void lim_update_he_caps_mcs(struct mac_context *mac,
+			    struct pe_session *session);
+
+
+/**
  * lim_update_he_6gop_assoc_resp() - Update HE 6GHz op info to BSS params
  * @add_bss: pointer to add bss params
  * @he_op: Pointer to HE operation info IE
@@ -1658,6 +1679,11 @@ void lim_copy_bss_he_cap(struct pe_session *session)
 {
 }
 
+static inline
+void lim_update_he_caps_mcs(struct mac_context *mac, struct pe_session *session)
+{
+}
+
 static inline void lim_copy_join_req_he_cap(struct pe_session *session)
 {
 }
@@ -1767,6 +1793,9 @@ lim_update_he_6ghz_band_caps(struct mac_context *mac,
 #ifdef WLAN_FEATURE_11BE
 static inline bool lim_is_session_eht_capable(struct pe_session *session)
 {
+	if (!session)
+		return false;
+
 	return session->eht_capable;
 }
 
@@ -2373,13 +2402,15 @@ QDF_STATUS lim_util_get_type_subtype(void *pkt, uint8_t *type,
 /**
  * lim_get_min_session_txrate() - Get the minimum rate supported in the session
  * @session: Pointer to PE session
+ * @pre_auth_freq: Pointer to pre_auth_freq
  *
  * This API will find the minimum rate supported by the given PE session and
  * return the enum rateid corresponding to the rate.
  *
  * Return: enum rateid
  */
-enum rateid lim_get_min_session_txrate(struct pe_session *session);
+enum rateid lim_get_min_session_txrate(struct pe_session *session,
+				       qdf_freq_t *pre_auth_freq);
 
 /**
  * lim_send_dfs_chan_sw_ie_update() - updates the channel switch IE in beacon
@@ -3080,8 +3111,8 @@ void lim_update_nss(struct mac_context *mac_ctx, tpDphHashNode sta_ds,
 bool lim_update_channel_width(struct mac_context *mac_ctx,
 			      tpDphHashNode sta_ptr,
 			      struct pe_session *session,
-			      uint8_t ch_width,
-			      uint8_t *new_ch_width);
+			      enum phy_ch_width ch_width,
+			      enum phy_ch_width *new_ch_width);
 
 /**
  * lim_get_vht_ch_width() - Function to get the VHT
@@ -3096,6 +3127,18 @@ bool lim_update_channel_width(struct mac_context *mac_ctx,
 uint8_t lim_get_vht_ch_width(tDot11fIEVHTCaps *vht_cap,
 			     tDot11fIEVHTOperation *vht_op,
 			     tDot11fIEHTInfo *ht_info);
+
+/*
+ * lim_set_tpc_power() - Function to compute and send TPC power level to the
+ * FW based on the opmode of the pe_session
+ *
+ * @mac_ctx:    Pointer to Global MAC structure
+ * @pe_session: Pointer to session
+ *
+ * Return: TPC status
+ */
+bool
+lim_set_tpc_power(struct mac_context *mac_ctx, struct pe_session *session);
 
 /**
  * lim_update_tx_power() - Function to update the TX power for
@@ -3190,4 +3233,30 @@ lim_is_power_change_required_for_sta(struct mac_context *mac_ctx,
  */
 void
 lim_update_tx_pwr_on_ctry_change_cb(uint8_t vdev_id);
+
+/*
+ * lim_is_chan_connected_for_mode() - Check if frequency is connected
+ *                                    for given opmode.
+ * @psoc: Pointer to psoc object
+ * @opmode: Vdev opmode
+ * @freq: Frequency
+ *
+ * Return: Return true if frequency is connected for given opmode.
+ */
+bool
+lim_is_chan_connected_for_mode(struct wlan_objmgr_psoc *psoc,
+			       enum QDF_OPMODE opmode,
+			       qdf_freq_t freq);
+
+/**
+ * lim_convert_vht_chwdith_to_phy_chwidth() - Convert VHT operation
+ * ch width into phy ch width
+ *
+ * @ch_width: VHT op channel width
+ * @is_40: is 40 MHz
+ *
+ * Return: phy chwidth
+ */
+enum phy_ch_width
+lim_convert_vht_chwdith_to_phy_chwidth(uint8_t ch_width, bool is_40);
 #endif /* __LIM_UTILS_H */

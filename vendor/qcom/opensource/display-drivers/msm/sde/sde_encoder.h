@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
@@ -151,6 +151,7 @@ enum sde_enc_rc_states {
  * @rsc_state_init:		boolean to indicate rsc config init
  * @disp_info:			local copy of msm_display_info struct
  * @misr_enable:		misr enable/disable status
+ * @vsync_cnt:			Vsync count for the physical encoder
  * @misr_reconfigure:		boolean entry indicates misr reconfigure status
  * @misr_frame_count:		misr frame count before start capturing the data
  * @idle_pc_enabled:		indicate if idle power collapse is enabled
@@ -228,6 +229,7 @@ struct sde_encoder_virt {
 	bool rsc_state_init;
 	struct msm_display_info disp_info;
 	atomic_t misr_enable;
+	atomic_t vsync_cnt;
 	bool misr_reconfigure;
 	u32 misr_frame_count;
 
@@ -686,6 +688,13 @@ ktime_t sde_encoder_calc_last_vsync_timestamp(struct drm_encoder *drm_enc);
  * @drm_enc:    Pointer to drm encoder structure
  */
 void sde_encoder_cancel_delayed_work(struct drm_encoder *encoder);
+
+/**
+ * sde_encoder_set_cwb_pending - set cwb_disable_pending flag
+ * @drm_enc: Pointer to drm encoder structure
+ * @enable:	set or reset cwb_disable_pending
+ */
+void sde_encoder_set_cwb_pending(struct drm_encoder *drm_enc, bool enable);
 
 /**
  * sde_encoder_get_kms - retrieve the kms from encoder

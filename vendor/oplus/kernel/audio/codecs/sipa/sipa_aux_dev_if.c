@@ -383,6 +383,9 @@ int soc_codec_conf_sia91xx(
 	struct snd_soc_codec_conf *codec_conf = NULL;
 
 	conf_num = soc_sia81xx_get_codec_conf_num(pdev);
+	if (conf_num == 0) {
+		return ret;
+	}
 
 	codec_conf = devm_kzalloc(card->dev,
 					conf_num * sizeof(struct snd_soc_codec_conf),

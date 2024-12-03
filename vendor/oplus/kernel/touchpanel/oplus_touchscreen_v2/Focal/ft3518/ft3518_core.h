@@ -23,10 +23,13 @@
 #define FTS_VAL_BL_ID                           0x54
 #define FTS_VAL_BL_ID2                          0x5C
 
-
 #define FTS_REG_POINTS                          0x01
 #define FTS_REG_POINTS_N                        0x10
 #define FTS_REG_POINTS_LB                       0x3E
+
+#define FTS_REG_GRIP                            0x3F
+#define FTS_REG_GRIP_N                          0x47
+#define FTS_REG_GRIP_LB                         0x66
 
 #define FTS_REG_SMOOTH_LEVEL                    0x85
 #define FTS_REG_GAME_MODE_EN                    0x86
@@ -35,6 +38,7 @@
 #define FTS_REG_CHARGER_MODE_EN                 0x8B
 #define FTS_REG_EDGE_LIMIT                      0x8C
 #define FTS_REG_SENSITIVE_LEVEL                 0x90
+#define FTS_REG_PALM_TO_SLEEP_STATUS            0x9B
 #define FTS_REG_HEADSET_MODE_EN                 0xC3
 #define FTS_REG_FOD_EN                          0xCF
 #define FTS_REG_FOD_INFO                        0xE1
@@ -62,13 +66,21 @@
 #define FTS_REG_SAMSUNG_SPECIFAL                0xFA
 #define FTS_REG_HEALTH_1                        0xFD
 #define FTS_REG_HEALTH_2                        0xFE
-
+#define FTS_REG_GLOVE_MODE_SWITCH               0xC0
+#define FTS_REG_GLOVE_MODE_STATE                0x01
+#define FTS_REG_TEMPERATURE                     0x97
 
 #define FTS_MAX_POINTS_SUPPORT                  10
 #define FTS_MAX_ID                              0x0A
 #define FTS_POINTS_ONE                          15  /*2 + 6*10 + 1*/
 #define FTS_POINTS_TWO                          47  /*8*10 - 1*/
-#define FTS_MAX_POINTS_LENGTH          ((FTS_POINTS_ONE) + (FTS_POINTS_TWO))
+#define FTS_POINTS_LENGTH              ((FTS_POINTS_ONE) + (FTS_POINTS_TWO))
+
+#define FTS_GRIP_ONE                            8   /* The first two grip_info: 4*2 */
+#define FTS_GRIP_TWO                            32  /* The last eight grip_info: 4*8 */
+#define FTS_GRIP_LENGTH                ((FTS_GRIP_ONE) + (FTS_GRIP_TWO))
+
+#define FTS_MAX_POINTS_LENGTH          ((FTS_POINTS_LENGTH) + (FTS_GRIP_LENGTH))
 
 #define FTS_GESTURE_DATA_LEN                    28
 
@@ -123,6 +135,18 @@
 
 #define FTS_120HZ_REPORT_RATE                   0x0C
 #define FTS_180HZ_REPORT_RATE                   0x12
+
+#define GET_LEN_BY_WIDTH_MAJOR(width_major, len)\
+({\
+	if (width_major > 10 && width_major < 14)\
+		*len = 5;\
+	if (width_major > 12 && width_major < 16)\
+		*len = 5;\
+	if (width_major > 16 && width_major < 20)\
+		*len = 7;\
+	if (width_major > 18 && width_major < 22)\
+		*len = 7;\
+})
 
 struct mc_sc_threshold {
 	int noise_coefficient;
@@ -210,7 +234,7 @@ struct chip_data_ft3518 {
 	int *panel_differ_raw;
 	int *rawdata_linearity;
 	int tp_index;
-
+	int tp_temperature;
 	char *test_limit_name;
 	char *fw_name;
 
@@ -226,11 +250,15 @@ struct chip_data_ft3518 {
 	struct fts_autotest_offset *fts_autotest_offset;
 	struct touchpanel_data *ts;
 	struct monitor_data *monitor_data;
+	struct resolution_info *chip_resolution_info;
 	int gesture_state;
+	int glove_mode_flag;
 	bool black_gesture_indep;
 	bool high_resolution_support;
 	bool high_resolution_support_x8;
 	bool read_buffer_support;
+	bool ft3518_grip_v2_support;
+	bool snr_read_support;
 };
 
 

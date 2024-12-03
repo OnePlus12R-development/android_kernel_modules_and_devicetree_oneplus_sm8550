@@ -57,6 +57,7 @@ static const struct proc_ops thread_ctrl_ops = {
 
 #define OPLUS_LOCKING_PROC_DIR		"oplus_locking"
 struct proc_dir_entry *d_oplus_locking;
+EXPORT_SYMBOL(d_oplus_locking);
 
 void lk_sysfs_init(void)
 {

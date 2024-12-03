@@ -14,11 +14,7 @@
 #include <linux/version.h>
 #include <linux/proc_fs.h>
 #include <linux/atomic.h>
-#if IS_ENABLED(CONFIG_OPLUS_SYSTEM_KERNEL_MTK) && (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
-#include <../drivers/soc/oplus/cpu/sched/sched_assist/sa_common.h>
-#else
 #include <../kernel/oplus_cpu/sched/sched_assist/sa_common.h>
-#endif
 #define FDLEAK_CHECK_LOG_TAG "[fdleak_check]"
 #define FD_MAX 32768
 #define DEFAULT_THRESHOLD (FD_MAX/2)

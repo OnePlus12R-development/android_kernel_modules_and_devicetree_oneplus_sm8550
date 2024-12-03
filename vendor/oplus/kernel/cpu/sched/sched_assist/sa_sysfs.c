@@ -10,6 +10,7 @@
 #include <linux/uaccess.h>
 #include <linux/seq_file.h>
 #include <linux/slab.h>
+#include <linux/ioctl.h>
 #include <kernel/sched/sched.h>
 
 #include "sa_common.h"
@@ -31,6 +32,10 @@
 
 #define MAX_SET (128)
 #define MAX_THREAD_INPUT (6)
+
+#define UX_MAGIC 0x27
+#define CMD_UX_READ  _IOR(UX_MAGIC, 0, int[2])
+#define CMD_UX_WRITE _IOW(UX_MAGIC, 1, int[3])
 
 int global_debug_enabled;
 EXPORT_SYMBOL(global_debug_enabled);
@@ -299,7 +304,7 @@ static ssize_t proc_ux_task_read(struct file *file, char __user *buf,
 		if (IS_ERR_OR_NULL(ots)) {
 			len = snprintf(buffer, sizeof(buffer), "Ots is null\n");
 		} else {
-			len = snprintf(buffer, sizeof(buffer), "comm=%s pid=%d tgid=%d ux_state=0x%08x ux_prio=%d ux_nice=%d inherit=%llx(bi:%d rw:%d mu:%d) im_flag=%d\n",
+			len = snprintf(buffer, sizeof(buffer), "comm=%s pid=%d tgid=%d ux_state=0x%08x ux_prio=%d ux_nice=%d inherit=%llx(bi:%d rw:%d mu:%d) im_flag=0x%08lx\n",
 				task->comm, task->pid, task->tgid, ots->ux_state, ots->ux_priority, ots->ux_nice, oplus_get_inherit_ux(task),
 				test_inherit_ux(task, INHERIT_UX_BINDER), test_inherit_ux(task, INHERIT_UX_RWSEM), test_inherit_ux(task, INHERIT_UX_MUTEX),
 				ots->im_flag);
@@ -310,6 +315,246 @@ static ssize_t proc_ux_task_read(struct file *file, char __user *buf,
 
 	return simple_read_from_buffer(buf, count, ppos, buffer, len);
 }
+
+static int read_task_ux(pid_t pid, pid_t tid, bool fromSysOrApp) {
+	long ret = -1;
+	struct task_struct *task;
+
+	rcu_read_lock();
+	task = find_task_by_vpid(tid);
+	if (task) {
+		if (task->tgid == pid) {
+			struct oplus_task_struct *ots;
+			ots = get_oplus_task_struct(task);
+			if (IS_ERR_OR_NULL(ots)) {
+				ret = -EFAULT;
+			} else {
+				bool verified;
+				uid_t curr_uid = current_uid().val;
+
+				if (fromSysOrApp) {
+					/* permit system to control ux setting for any task */
+					verified = (curr_uid == ROOT_UID || curr_uid == SYSTEM_UID);
+				} else {
+					/* permit system and app to access for same uid */
+					curr_uid = curr_uid % PER_USER_RANGE;
+					verified = (current->tgid == task->tgid) && ((curr_uid == SYSTEM_UID) ||
+						((curr_uid >= FIRST_APPLICATION_UID) && (curr_uid <= LAST_APPLICATION_UID)));
+				}
+
+				if (verified) {
+					ret = ots->ux_state;
+				} else {
+					ret = -EPERM;
+				}
+			}
+		} else {
+			ret = -EINVAL;
+		}
+	} else {
+		ret = -ESRCH;
+	}
+	rcu_read_unlock();
+	return ret;
+}
+
+static long write_task_ux(pid_t pid, pid_t tid, int ux_value, bool fromSysOrApp) {
+	long ret = -1;
+	struct task_struct *ux_task, *task;
+	int ux_orig;
+
+	/* set and reset operation are mutual */
+	if ((ux_value & SA_OPT_RESET) && (ux_value & SA_OPT_SET)) {
+		return -EINVAL;
+	}
+
+	ux_task = NULL;
+
+	rcu_read_lock();
+	task = find_task_by_vpid(tid);
+	if (task) {
+		if (task->tgid == pid) {
+			struct oplus_task_struct *ots;
+			ots = get_oplus_task_struct(task);
+			if (IS_ERR_OR_NULL(ots)) {
+				ret = -EFAULT;
+			}  else {
+				bool verified;
+				uid_t curr_uid = current_uid().val;
+
+				if (fromSysOrApp) {
+					/* permit system to control ux setting for any task */
+					verified = (curr_uid == ROOT_UID || curr_uid == SYSTEM_UID);
+				} else {
+					/* permit system and app to access for same uid */
+					curr_uid = curr_uid % PER_USER_RANGE;
+					verified = (current->tgid == task->tgid) && ((curr_uid == SYSTEM_UID) ||
+						((curr_uid >= FIRST_APPLICATION_UID) && (curr_uid <= LAST_APPLICATION_UID)));
+				}
+
+				if (verified) {
+					ux_orig = ots->ux_state;
+					ux_task = task;
+					get_task_struct(ux_task);
+				} else {
+					ret = -EPERM;
+				}
+			}
+		} else {
+			ret = -EINVAL;
+		}
+	} else {
+		ret = -ESRCH;
+	}
+	rcu_read_unlock();
+
+	if (ux_task) {
+		bool need_update = true;
+		int ux_state = -1;
+
+		/* clear inherit type if ux is intentional set */
+		if ((ux_value & (SA_OPT_SET|SA_OPT_RESET)) && oplus_get_inherit_ux(ux_task)) {
+			clear_all_inherit_type(ux_task);
+		}
+
+		if ((ux_value & (SA_OPT_RESET|SA_OPT_SET_PRIORITY)) == (SA_OPT_RESET|SA_OPT_SET_PRIORITY)) {
+			/* reset ux and priority operation will overwrite current ux state */
+			ux_state = ux_value & (SCHED_ASSIST_UX_PRIORITY_MASK|SCHED_ASSIST_UX_MASK);
+		} else if (ux_value & SA_OPT_RESET) {
+			/* reset ux operation only keep current ux priority */
+			ux_orig &= SCHED_ASSIST_UX_PRIORITY_MASK;
+			ux_state = (ux_value & SCHED_ASSIST_UX_MASK) | ux_orig;
+		} else if ((ux_value & (SA_OPT_SET|SA_OPT_SET_PRIORITY))== (SA_OPT_SET|SA_OPT_SET_PRIORITY)) {
+			if ((ux_value & SCHED_ASSIST_UX_MASK) == SA_OPT_CLEAR) {
+				/* clear all ux type but animator type */
+				ux_state = ux_value & SCHED_ASSIST_UX_PRIORITY_MASK;
+				ux_orig &= SA_TYPE_ANIMATOR;
+				ux_state |= ux_orig;
+			} else {
+				/* union two ux type bit */
+				ux_state = ux_value & (SCHED_ASSIST_UX_PRIORITY_MASK|SCHED_ASSIST_UX_MASK);
+				ux_orig &= SCHED_ASSIST_UX_MASK;
+				ux_state |= ux_orig;
+			}
+		} else if (ux_value & SA_OPT_SET) {
+			if ((ux_value & SCHED_ASSIST_UX_MASK) == SA_OPT_CLEAR) {
+				/* clear all ux type but animator type */
+				ux_state = ux_orig & (SCHED_ASSIST_UX_PRIORITY_MASK|SA_TYPE_ANIMATOR);
+			} else {
+				/* union two ux type bit */
+				ux_state = ux_value & SCHED_ASSIST_UX_MASK;
+				ux_orig &= (SCHED_ASSIST_UX_PRIORITY_MASK|SCHED_ASSIST_UX_MASK);
+				ux_state |= ux_orig;
+			}
+		} else if (ux_value & SA_OPT_SET_PRIORITY) {
+			if (ux_orig & SCHED_ASSIST_UX_MASK) {
+				/* only change current ux priority */
+				ux_state = ux_value & SCHED_ASSIST_UX_PRIORITY_MASK;
+				ux_state |= (ux_orig & SCHED_ASSIST_UX_MASK);
+			} else {
+				/* current isn't ux, don't set ux priority */
+				need_update = false;
+			}
+		} else {
+			if ((ux_value & SCHED_ASSIST_UX_MASK) == SA_OPT_CLEAR) {
+				/* clear all ux type but animator type */
+				ux_state = ux_orig & (SCHED_ASSIST_UX_PRIORITY_MASK|SA_TYPE_ANIMATOR);
+			} else {
+				/* reset target ux type bit */
+				ux_value = ~(ux_value & SCHED_ASSIST_UX_MASK);
+				ux_state = ux_orig & (SCHED_ASSIST_UX_PRIORITY_MASK|ux_value);
+			}
+			/* if ux_state->0 after clear ux bit, and it is inherited, should keep it */
+			if (!(ux_state & SCHED_ASSIST_UX_MASK) && (ux_orig & SA_TYPE_INHERIT)) {
+				need_update = false;
+			}
+		}
+
+		if (need_update) {
+			oplus_set_ux_state_lock(ux_task, ux_state, true);
+		}
+
+		put_task_struct(ux_task);
+		ret = ux_state;
+	}
+
+	return ret;
+}
+
+static long proc_ux_task_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	long ret = -1;
+	void __user *uarg = (void __user *)arg;
+
+	if (cmd == CMD_UX_READ) {
+		int read_ux_param[2];
+		pid_t pid, tid;
+
+		if (copy_from_user(read_ux_param, uarg, sizeof(read_ux_param))) {
+			return -EFAULT;
+		}
+
+		pid = read_ux_param[0];
+		tid = read_ux_param[1];
+		ret = read_task_ux(pid, tid, true);
+	} else if (cmd == CMD_UX_WRITE) {
+		int write_ux_param[3];
+		pid_t pid, tid;
+		int ux_value;
+
+		if (copy_from_user(write_ux_param, uarg, sizeof(write_ux_param))) {
+			return -EFAULT;
+		}
+
+		pid = write_ux_param[0];
+		tid = write_ux_param[1];
+		ux_value = write_ux_param[2];
+		ret = write_task_ux(pid, tid, ux_value, true);
+	}
+
+	return ret;
+}
+
+static long proc_ux_task_app_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	long ret = -1;
+	void __user *uarg = (void __user *)arg;
+
+	if (cmd == CMD_UX_READ) {
+		int read_ux_param[2];
+		pid_t pid, tid;
+
+		if (copy_from_user(read_ux_param, uarg, sizeof(read_ux_param))) {
+			return -EFAULT;
+		}
+
+		pid = read_ux_param[0];
+		tid = read_ux_param[1];
+		ret = read_task_ux(pid, tid, false);
+	} else if (cmd == CMD_UX_WRITE) {
+		int write_ux_param[3];
+		pid_t pid, tid;
+		int ux_value;
+
+		if (copy_from_user(write_ux_param, uarg, sizeof(write_ux_param))) {
+			return -EFAULT;
+		}
+
+		pid = write_ux_param[0];
+		tid = write_ux_param[1];
+		ux_value = write_ux_param[2];
+		ret = write_task_ux(pid, tid, ux_value, false);
+	}
+
+	return ret;
+}
+
+#ifdef CONFIG_COMPAT
+static long proc_ux_task_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	return proc_ux_task_ioctl(file, cmd, (unsigned long)(compat_ptr(arg)));
+}
+#endif
 
 static const struct proc_ops proc_debug_enabled_fops = {
 	.proc_write		= proc_debug_enabled_write,
@@ -333,29 +578,28 @@ static int im_flag_set_handle(struct task_struct *task, int im_flag)
 	 * Note:
 	 * The following operations are order sensitive.
 	 */
-	if (im_flag_to_prio(im_flag) < 0) {
-		remove_rt_boost_task(task);
-		ots->im_flag = im_flag;
-	} else {
-		ots->im_flag = im_flag;
+	if (im_flag < IM_FLAG_CLEAR && im_flag_to_prio(1UL << im_flag) > 0) {
+		set_im_flag_with_bit(im_flag, task);
 		add_rt_boost_task(task);
+	} else {
+		remove_rt_boost_task(task);
+		set_im_flag_with_bit(im_flag, task);
 	}
 #else
-	ots->im_flag = im_flag;
+	set_im_flag_with_bit(im_flag, task);
 #endif
 
-	switch (ots->im_flag) {
-	case IM_FLAG_LAUNCHER_NON_UX_RENDER: {
+	if (test_bit(IM_FLAG_LAUNCHER_NON_UX_RENDER, &ots->im_flag)) {
 		int ux_state = oplus_get_ux_state(task);
 
 		oplus_set_ux_state_lock(task, ux_state | SA_TYPE_HEAVY, true);
 		}
-		break;
-	default:
-		break;
-	}
-
 	return 0;
+}
+
+bool is_kthread(struct task_struct *tsk)
+{
+	return !!(tsk->flags & PF_KTHREAD);
 }
 
 static ssize_t proc_im_flag_write(struct file *file, const char __user *buf,
@@ -415,16 +659,16 @@ static ssize_t proc_im_flag_write(struct file *file, const char __user *buf,
 		if (pid > 0 && pid <= PID_MAX_DEFAULT) {
 			rcu_read_lock();
 			task = find_task_by_vpid(pid);
-			if (task)
-				get_task_struct(task);
-			rcu_read_unlock();
 
-			if (task) {
+			if (task && !is_kthread(task)) {
+				get_task_struct(task);
 				im_flag_set_handle(task, im_flag);
 				put_task_struct(task);
 			} else {
-				ux_debug("Can not find task with pid=%d", pid);
+				ux_debug("Invalid task pid=%d\n", pid);
 			}
+
+			rcu_read_unlock();
 		}
 	}
 
@@ -442,7 +686,7 @@ static ssize_t proc_im_flag_read(struct file *file, char __user *buf,
 	task = find_task_by_vpid(global_im_flag_pid);
 	if (task) {
 		get_task_struct(task);
-		len = snprintf(buffer, sizeof(buffer), "comm=%s pid=%d tgid=%d im_flag=%d\n",
+		len = snprintf(buffer, sizeof(buffer), "comm=%s pid=%d tgid=%d im_flag=0x%08lx\n",
 			task->comm, task->pid, task->tgid, oplus_get_im_flag(task));
 		put_task_struct(task);
 	} else
@@ -550,7 +794,7 @@ static ssize_t proc_im_flag_app_read(struct file *file, char __user *buf,
 	task = find_task_by_vpid(global_im_flag_pid);
 	if (task && can_access_im_flag_app(task)) {
 		get_task_struct(task);
-		len = snprintf(buffer, sizeof(buffer), "comm=%s pid=%d tgid=%d im_flag=%d\n",
+		len = snprintf(buffer, sizeof(buffer), "comm=%s pid=%d tgid=%d im_flag=0x%08lx\n",
 			task->comm, task->pid, task->tgid, oplus_get_im_flag(task));
 		put_task_struct(task);
 	} else
@@ -655,6 +899,20 @@ static const struct proc_ops proc_ux_task_fops = {
 	.proc_write		= proc_ux_task_write,
 	.proc_read		= proc_ux_task_read,
 	.proc_lseek		= default_llseek,
+	.proc_ioctl		= proc_ux_task_ioctl,
+#ifdef CONFIG_COMPAT
+	.proc_compat_ioctl	= proc_ux_task_compat_ioctl,
+#endif
+};
+
+static const struct proc_ops proc_ux_task_app_fops = {
+	.proc_write		= NULL,
+	.proc_read		= NULL,
+	.proc_lseek		= NULL,
+	.proc_ioctl		= proc_ux_task_app_ioctl,
+#ifdef CONFIG_COMPAT
+	.proc_compat_ioctl	= proc_ux_task_compat_ioctl,
+#endif
 };
 
 static const struct proc_ops proc_im_flag_fops = {
@@ -717,6 +975,12 @@ int oplus_sched_assist_proc_init(void)
 	proc_node = proc_create("ux_task", 0666, d_sched_assist, &proc_ux_task_fops);
 	if (!proc_node) {
 		ux_err("failed to create proc node ux_task\n");
+		goto err_creat_ux_task;
+	}
+
+	proc_node = proc_create("ux_task_app", 0666, d_sched_assist, &proc_ux_task_app_fops);
+	if (!proc_node) {
+		ux_err("failed to create proc node ux_task_app\n");
 		goto err_creat_ux_task;
 	}
 

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2018-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -1669,6 +1669,7 @@ static void mlme_vdev_subst_mlo_sync_wait_entry(void *ctx)
 		QDF_BUG(0);
 
 	mlme_vdev_set_substate(vdev, WLAN_VDEV_SS_MLO_SYNC_WAIT);
+	mlme_vdev_notify_mlo_sync_wait_entry(vdev_mlme);
 }
 
 /**
@@ -1703,7 +1704,11 @@ static bool mlme_vdev_subst_mlo_sync_wait_event(void *ctx, uint16_t event,
 
 	switch (event) {
 	case WLAN_VDEV_SM_EV_START_SUCCESS:
-		mlme_vdev_up_notify_mlo_mgr(vdev_mlme);
+		if (mlme_vdev_up_notify_mlo_mgr(vdev_mlme))
+			mlme_vdev_sm_deliver_event(
+					vdev_mlme,
+					WLAN_VDEV_SM_EV_MLO_SYNC_COMPLETE,
+					event_data_len, event_data);
 		status = true;
 		break;
 
@@ -1722,6 +1727,7 @@ static bool mlme_vdev_subst_mlo_sync_wait_event(void *ctx, uint16_t event,
 		break;
 
 	case WLAN_VDEV_SM_EV_RADAR_DETECTED:
+	case WLAN_VDEV_SM_EV_CSA_RESTART:
 		mlme_vdev_sm_transition_to(vdev_mlme, WLAN_VDEV_S_START);
 		mlme_vdev_sm_deliver_event(vdev_mlme,
 					   WLAN_VDEV_SM_EV_RESTART_REQ,

@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_REQ_MGR_WORKQ_H_
@@ -30,6 +31,10 @@
  */
 #define CAM_WORKQ_FLAG_SERIAL                    (1 << 1)
 
+#ifdef OPLUS_FEATURE_CAMERA_COMMON
+#define CAM_WORKQ_FLAG_UX                        (1 << 2)
+#endif
+
 /* Task priorities, lower the number higher the priority*/
 enum crm_task_priority {
 	CRM_TASK_PRIORITY_0,
@@ -45,27 +50,29 @@ enum crm_workq_context {
 };
 
 /** struct crm_workq_task
- * @priority   : caller can assign priority to task based on type.
- * @payload    : depending of user of task this payload type will change
- * @process_cb : registered callback called by workq when task enqueued is
- *               ready for processing in workq thread context
- * @parent     : workq's parent is link which is enqqueing taks to this workq
- * @entry      : list head of this list entry is worker's empty_head
- * @cancel     : if caller has got free task from pool but wants to abort
- *               or put back without using it
- * @priv       : when task is enqueuer caller can attach priv along which
- *               it will get in process callback
- * @ret        : return value in future to use for blocking calls
+ * @priority         : caller can assign priority to task based on type.
+ * @payload          : depending of user of task this payload type will change
+ * @process_cb       : registered callback called by workq when task enqueued is
+ *                     ready for processing in workq thread context
+ * @parent           : workq's parent is link which is enqqueing taks to this workq
+ * @entry            : list head of this list entry is worker's empty_head
+ * @cancel           : if caller has got free task from pool but wants to abort
+ *                     or put back without using it
+ * @priv             : when task is enqueuer caller can attach priv along which
+ *                     it will get in process callback
+ * @ret              : return value in future to use for blocking calls
+ * @task_scheduled_ts: enqueue time of task
  */
 struct crm_workq_task {
 	int32_t                    priority;
+	int32_t                    ret;
 	void                      *payload;
 	int32_t                  (*process_cb)(void *priv, void *data);
 	void                      *parent;
 	struct list_head           entry;
 	uint8_t                    cancel;
 	void                      *priv;
-	int32_t                    ret;
+	ktime_t                    task_scheduled_ts;
 };
 
 /** struct cam_req_mgr_core_workq

@@ -71,7 +71,24 @@ static int io_wait_count = 0;
 
 #endif
 
-/* key process:zygote system_server surfaceflinger*/
+#if IS_ENABLED (CONFIG_OPLUS_FEATURE_HUNGTASK_GAIA)
+#include <linux/time.h>
+#define CREATE_TRACE_POINTS
+#include "hungtask_trace.h"
+#define THEIA_KEY_PROCESS_HUNG_APPID 20120
+#define THEIA_LOG_TAG "CriticalLog"
+#define THEIA_EVENT_ID "Theia"
+#define THEIA_LOG_TYPE_INIT_HUNG "init_hung"
+
+static long get_timestamp_ms(void)
+{
+	struct timespec64 now;
+	ktime_get_real_ts64(&now);
+	return timespec64_to_ns(&now) / NSEC_PER_MSEC;
+}
+#endif
+
+/* key process:zygote system_server surfaceflinger init vendor_init */
 static bool is_usersapce_key_process(struct task_struct *t)
 {
 	const struct cred *tcred = __task_cred(t);
@@ -83,7 +100,12 @@ static bool is_usersapce_key_process(struct task_struct *t)
 	if (!strncmp(t->comm, "Binder:", 7) && (t->group_leader->pid == t->pid)
 			&& (tcred->uid.val == 1000) && (t->parent != 0 && !strcmp(t->parent->comm, "main")))
 		return true;
-
+	if (!strcmp(t->comm, "init") && (tcred->uid.val == 0)
+			&& (t->pid == 1))
+		return true;
+	if (!strcmp(t->comm, "init") && (tcred->uid.val == 0)
+			&& ((t->parent != 0) && !strcmp(t->parent->comm, "init") && (t->parent->pid == 1)))
+		return true;
 	return false;
 }
 
@@ -136,6 +158,10 @@ static void oplus_check_hung_task(struct task_struct *t, unsigned long timeout, 
 #endif
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_THEIA) && (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
 	char extra_info[64];
+#endif
+
+#if IS_ENABLED (CONFIG_OPLUS_FEATURE_HUNGTASK_GAIA)
+	char init_hung_info[128];
 #endif
 
 	if(is_ignore_process(t))
@@ -237,7 +263,18 @@ static void oplus_check_hung_task(struct task_struct *t, unsigned long timeout, 
 		snprintf(extra_info, 64, "DeathHealer: task %s:%d blocked for more than %lu seconds in state 0x%lx. Count:%d\n",
 			t->comm, t->pid, timeout, GET_STATE(t), death_count + 1);
 #endif
+                /*temp remove old theia event*/
+                /*
 		theia_send_event(THEIA_EVENT_HUNGTASK, THEIA_LOGINFO_KERNEL_LOG, t->pid, extra_info);
+                */
+#endif
+
+#if IS_ENABLED (CONFIG_OPLUS_FEATURE_HUNGTASK_GAIA)
+		memset(init_hung_info, 0, sizeof(init_hung_info));
+		snprintf(init_hung_info, sizeof(init_hung_info), "DeathHealer: task %s:%d blocked for more than %lu seconds in state 0x%x. Count:%d.",
+			t->comm, t->pid, timeout, GET_STATE(t), death_count + 1);
+		trace_init_hung(get_timestamp_ms(), THEIA_KEY_PROCESS_HUNG_APPID, THEIA_LOG_TAG, THEIA_EVENT_ID,
+			THEIA_LOG_TYPE_INIT_HUNG, init_hung_info);
 #endif
 
 #if IS_ENABLED (CONFIG_OPLUS_BSP_DFR_USERSPACE_BACKTRACE)

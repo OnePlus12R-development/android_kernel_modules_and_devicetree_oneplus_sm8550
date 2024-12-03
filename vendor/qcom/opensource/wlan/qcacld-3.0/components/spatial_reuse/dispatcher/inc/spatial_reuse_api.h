@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -44,10 +44,13 @@ enum sr_osif_operation {
  * @SR_REASON_CODE_CONCURRENCY: Spatial Reuse reason code is concurrency
  *				 will be set when SR is suspended / resumed
  *				 due to concurrency
+ * @SR_REASON_CODE_BCN_IE_CHANGE: Spatial Reuse reason code is SRP IE change
+ *				  in the beacon/probe rsp of the associated AP
  */
 enum sr_osif_reason_code {
 	SR_REASON_CODE_ROAMING = 0,
 	SR_REASON_CODE_CONCURRENCY = 1,
+	SR_REASON_CODE_BCN_IE_CHANGE = 2,
 };
 
 /**
@@ -74,16 +77,6 @@ typedef void (*sr_osif_event_cb)(struct wlan_objmgr_vdev *vdev,
 QDF_STATUS wlan_spatial_reuse_config_set(struct wlan_objmgr_vdev *vdev,
 					 uint8_t sr_ctrl,
 					 uint8_t non_srg_max_pd_offset);
-
-/**
- * wlan_spatial_reuse_pdev_init() - Send PDEV command with disabled
- *				    PD threshold value to initialize HW
- *				    registers
- * @pdev: objmgr manager pdev
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS wlan_spatial_reuse_pdev_init(struct wlan_objmgr_pdev *pdev);
 
 /**
  * wlan_sr_register_callback() - registers SR osif events
@@ -116,12 +109,6 @@ QDF_STATUS wlan_spatial_reuse_config_set(struct wlan_objmgr_vdev *vdev,
 }
 
 static inline
-QDF_STATUS wlan_spatial_reuse_pdev_init(struct wlan_objmgr_pdev *pdev)
-{
-	return QDF_STATUS_SUCCESS;
-}
-
-static inline
 void wlan_spatial_reuse_osif_event(struct wlan_objmgr_vdev *vdev,
 				   enum sr_osif_operation sr_osif_oper,
 				   enum sr_osif_reason_code sr_osif_rc)
@@ -143,16 +130,16 @@ QDF_STATUS wlan_spatial_reuse_he_siga_val15_allowed_set(
 
 /**
  * wlan_sr_setup_req() - Enable SR with provided pd threshold
- *
  * @vdev: objmgr vdev
  * @pdev: objmgr pdev
  * @is_sr_enable: sr enable/disable
- * @pd_threshold: pd threshold
+ * @srg_pd_threshold: SRG pd threshold
+ * @non_srg_pd_threshold: NON SRG PD threshold
  *
  * Return: QDF_STATUS
  */
 QDF_STATUS
 wlan_sr_setup_req(struct wlan_objmgr_vdev *vdev,
 		  struct wlan_objmgr_pdev *pdev, bool is_sr_enable,
-		  int32_t pd_threshold);
+		  int32_t srg_pd_threshold, int32_t non_srg_pd_threshold);
 #endif

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -324,7 +324,6 @@ more_data:
 			if (qdf_unlikely(rx_desc && rx_desc->nbuf)) {
 				qdf_assert_always(!rx_desc->unmapped);
 				dp_rx_nbuf_unmap(soc, rx_desc, reo_ring_num);
-				rx_desc->unmapped = 1;
 				dp_rx_buffer_pool_nbuf_free(soc, rx_desc->nbuf,
 							    rx_desc->pool_id);
 				dp_rx_add_to_free_desc_list(
@@ -332,7 +331,6 @@ more_data:
 					&tail[rx_desc->chip_id][rx_desc->pool_id],
 					rx_desc);
 			}
-			hal_srng_dst_get_next(hal_soc, hal_ring_hdl);
 			continue;
 		}
 
@@ -349,9 +347,6 @@ more_data:
 			dp_info_rl("Reaping rx_desc not in use!");
 			dp_rx_dump_info_and_assert(soc, hal_ring_hdl,
 						   ring_desc, rx_desc);
-			/* ignore duplicate RX desc and continue to process */
-			/* Pop out the descriptor */
-			hal_srng_dst_get_next(hal_soc, hal_ring_hdl);
 			continue;
 		}
 
@@ -362,7 +357,6 @@ more_data:
 			dp_rx_dump_info_and_assert(soc, hal_ring_hdl,
 						   ring_desc, rx_desc);
 			rx_desc->in_err_state = 1;
-			hal_srng_dst_get_next(hal_soc, hal_ring_hdl);
 			continue;
 		}
 
@@ -496,7 +490,6 @@ more_data:
 		 * in case double skb unmap happened.
 		 */
 		dp_rx_nbuf_unmap(soc, rx_desc, reo_ring_num);
-		rx_desc->unmapped = 1;
 		DP_RX_PROCESS_NBUF(soc, nbuf_head, nbuf_tail, ebuf_head,
 				   ebuf_tail, rx_desc);
 
@@ -1093,7 +1086,7 @@ QDF_STATUS dp_rx_desc_pool_init_be(struct dp_soc *soc,
 	QDF_STATUS status = QDF_STATUS_SUCCESS;
 
 	/* Only regular RX buffer desc pool use HW cookie conversion */
-	if (rx_desc_pool->desc_type == DP_RX_DESC_BUF_TYPE) {
+	if (rx_desc_pool->desc_type == QDF_DP_RX_DESC_BUF_TYPE) {
 		dp_info("rx_desc_buf pool init");
 		status = dp_rx_desc_pool_init_be_cc(soc,
 						    rx_desc_pool,
@@ -1111,7 +1104,7 @@ void dp_rx_desc_pool_deinit_be(struct dp_soc *soc,
 			       struct rx_desc_pool *rx_desc_pool,
 			       uint32_t pool_id)
 {
-	if (rx_desc_pool->desc_type == DP_RX_DESC_BUF_TYPE)
+	if (rx_desc_pool->desc_type == QDF_DP_RX_DESC_BUF_TYPE)
 		dp_rx_desc_pool_deinit_be_cc(soc, rx_desc_pool, pool_id);
 }
 

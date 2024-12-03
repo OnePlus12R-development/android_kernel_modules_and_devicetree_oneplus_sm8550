@@ -24,6 +24,7 @@
 #ifdef CONFIG_MAPPED_PROTECT_ALL
 #define MAPCOUNT_PROTECT_THRESHOLD (20)
 #define RETRY_GET_MAPCOUNT (3)
+#define MAX_BUF_LEN 10
 /*
  * [0]: nr_anon_mapped_multiple
  * [1]: nr_file_mapped_multiple
@@ -37,6 +38,18 @@ static atomic_long_t nr_mapped_multiple_debug[2] = {
 };
 
 long  max_nr_mapped_multiple[2] = { 0 };
+#ifdef CONFIG_OPLUS_FG_PROTECT
+unsigned long fg_mapped_file = 0;
+
+static atomic_long_t fg_mapcount_debug_1[21] = {
+	ATOMIC_INIT(0)
+};
+
+static atomic_t fg_mapcount = ATOMIC_INIT(0);
+static atomic_long_t fg_protect_count = ATOMIC_INIT(0);
+static atomic_t fg_mapcount_enable = ATOMIC_INIT(0);
+#endif
+
 unsigned long  mapcount_protected_high[2] = { 0 };
 
 unsigned long  memavail_noprotected = 0;
@@ -44,6 +57,12 @@ static bool mapcount_protect_setup = false;
 extern struct lruvec* page_to_lruvec(struct page *page, pg_data_t *pgdat);
 extern void do_traversal_all_lruvec(void);
 extern int __page_mapcount(struct page *page);
+#ifdef CONFIG_OPLUS_FG_PROTECT
+extern s64 get_mem_cgroup_app_uid(struct mem_cgroup *memcg);
+extern bool is_fg(int uid);
+extern struct mem_cgroup *get_next_memcg(struct mem_cgroup *prev);
+extern void get_next_memcg_break(struct mem_cgroup *memcg);
+#endif
 
 static inline bool page_evictable(struct page *page)
 {
@@ -106,17 +125,49 @@ static void mark_page_accessed_handler(void *data, struct page* page)
 	}
 }
 
+#ifdef CONFIG_OPLUS_FG_PROTECT
+static void update_fg_mapcount(long fg_mapped_file) {
+	unsigned long fg_mapped_file_mb = fg_mapped_file >> 8;
+	if (fg_mapped_file_mb  < 100)
+		atomic_set(&fg_mapcount, 0);
+	else if (fg_mapped_file_mb  < 150)
+		atomic_set(&fg_mapcount, 1);
+	else if (fg_mapped_file_mb  < 200)
+		atomic_set(&fg_mapcount, 2);
+	else if (fg_mapped_file_mb  < 250)
+		atomic_set(&fg_mapcount, 3);
+	else if (fg_mapped_file_mb  < 300)
+		atomic_set(&fg_mapcount, 4);
+	else if (fg_mapped_file_mb  < 350)
+		atomic_set(&fg_mapcount, 5);
+	else if (fg_mapped_file_mb  < 400)
+		atomic_set(&fg_mapcount, 6);
+	else if (fg_mapped_file_mb  < 450)
+		atomic_set(&fg_mapcount, 7);
+	else if (fg_mapped_file_mb  < 500)
+		atomic_set(&fg_mapcount, 8);
+	else if (fg_mapped_file_mb  < 550)
+		atomic_set(&fg_mapcount, 9);
+	else if (fg_mapped_file_mb  < 600)
+		atomic_set(&fg_mapcount, 10);
+	else
+		atomic_set(&fg_mapcount, 20);
+}
+#endif
+
 static void page_should_be_protect(void *data, struct page* page,
 				bool *should_protect)
 {
 	int file;
+#ifdef CONFIG_OPLUS_FG_PROTECT
+	struct mem_cgroup *memcg = NULL;
+	int uid;
+	long fg_mapped_file = 0;
+#endif
+
+	file = page_is_file_lru(page);
 
 	if (unlikely(!mapcount_protect_setup)) {
-		*should_protect = false;
-		return;
-	}
-
-	if (likely(page_mapcount(page) < MAPCOUNT_PROTECT_THRESHOLD)) {
 		*should_protect = false;
 		return;
 	}
@@ -126,13 +177,33 @@ static void page_should_be_protect(void *data, struct page* page,
 		return;
 	}
 
-	file = page_is_file_lru(page);
-	if (unlikely(mapped_protected_is_full(file))) {
+	if (unlikely(mem_available_is_low())) {
 		*should_protect = false;
 		return;
 	}
 
-	if (unlikely(mem_available_is_low())) {
+#ifdef CONFIG_OPLUS_FG_PROTECT
+	if (atomic_read(&fg_mapcount_enable) && file && page_memcg(page)) {
+		memcg = page_memcg(page);
+		uid = (int)get_mem_cgroup_app_uid(memcg);
+		if (is_fg(uid)) {
+			fg_mapped_file = READ_ONCE(memcg->vmstats.state[NR_FILE_MAPPED]);
+			update_fg_mapcount(fg_mapped_file);
+			if (page_mapcount(page) > atomic_read(&fg_mapcount)) {
+				*should_protect = true;
+				atomic_long_add(1, &fg_protect_count);
+				return;
+			}
+		}
+	}
+#endif
+
+	if (likely(page_mapcount(page) < MAPCOUNT_PROTECT_THRESHOLD)) {
+		*should_protect = false;
+		return;
+	}
+
+	if (unlikely(mapped_protected_is_full(file))) {
 		*should_protect = false;
 		return;
 	}
@@ -229,6 +300,50 @@ static void del_page_from_lrulist(void *data, struct page *page, bool compound, 
 	atomic_long_sub(1, &nr_mapped_multiple[file]);
 }
 
+#ifdef CONFIG_OPLUS_FG_PROTECT
+static void do_traversal_fg_memcg()
+{
+	struct page *page;
+	struct lruvec* lruvec;
+	int lru, i;
+	struct mem_cgroup *memcg = NULL;
+	pg_data_t *pgdat = NODE_DATA(0);
+
+	while ((memcg = get_next_memcg(memcg))) {
+		if (is_fg(get_mem_cgroup_app_uid(memcg))) {
+			lruvec = mem_cgroup_lruvec(memcg, pgdat);
+			fg_mapped_file = READ_ONCE(memcg->vmstats.state[NR_FILE_MAPPED]);
+			spin_lock_irq(&lruvec->lru_lock);
+			for_each_evictable_lru(lru) {
+				int file = is_file_lru(lru);
+				if (file) {
+					list_for_each_entry(page, &lruvec->lists[lru], lru) {
+						if (!page)
+							continue;
+						if (PageHead(page)) {
+							for (i = 0; i < compound_nr(page); i++) {
+								if (page_mapcount(page) < 20)
+									atomic_long_add(1, &fg_mapcount_debug_1[page_mapcount(page)]);
+								else
+									atomic_long_add(1, &fg_mapcount_debug_1[20]);
+							}
+							continue;
+						}
+						if (page_mapcount(page) < 20)
+							atomic_long_add(1, &fg_mapcount_debug_1[page_mapcount(page)]);
+						else
+							atomic_long_add(1, &fg_mapcount_debug_1[20]);
+					}
+				}
+			}
+			spin_unlock_irq(&lruvec->lru_lock);
+			get_next_memcg_break(memcg);
+			break;
+		}
+	}
+}
+#endif
+
 static void do_traversal_lruvec(void *data, struct lruvec *lruvec)
 {
 	struct page *page;
@@ -237,7 +352,7 @@ static void do_traversal_lruvec(void *data, struct lruvec *lruvec)
 	spin_lock_irq(&lruvec->lru_lock);
 	for_each_evictable_lru(lru) {
 		int file = is_file_lru(lru);
-                list_for_each_entry(page, &lruvec->lists[lru], lru) {
+		list_for_each_entry(page, &lruvec->lists[lru], lru) {
 			if (!page)
 				continue;
 			if (PageHead(page)) {
@@ -385,8 +500,161 @@ static int mapcount_protect_show(struct seq_file *m, void *arg)
 }
 #endif
 
+#ifdef CONFIG_OPLUS_FG_PROTECT
+static int fg_protect_show(struct seq_file *m, void *arg)
+{
+	int i = 0;
+	memset(fg_mapcount_debug_1, 0, sizeof(fg_mapcount_debug_1));
+	do_traversal_fg_memcg();
+
+	seq_printf(m,
+		   "fg_mapcount:     %d\n",
+		   fg_mapcount);
+	seq_printf(m,
+		   "fg_mapped_file:     %lu\n",
+		   fg_mapped_file);
+
+	for (i = 0; i < 21; i++) {
+		seq_printf(m,
+			   "fg_mapcount_debug_%d:     %lu\n",
+			   i, fg_mapcount_debug_1[i]);
+	}
+
+	seq_putc(m, '\n');
+
+	return 0;
+}
+
+static ssize_t fg_mapcount_enable_ops_write(struct file *file,
+			const char __user *buff, size_t len, loff_t *ppos)
+{
+	int ret;
+	char kbuf[MAX_BUF_LEN] = {'\0'};
+	char *str;
+	int val;
+
+	if (len > MAX_BUF_LEN - 1) {
+		return -EINVAL;
+	}
+
+	if (copy_from_user(&kbuf, buff, len))
+		return -EFAULT;
+	kbuf[len] = '\0';
+
+	str = strstrip(kbuf);
+	if (!str) {
+		return -EINVAL;
+	}
+
+	ret = kstrtoint(str, 10, &val);
+	if (ret) {
+		return -EINVAL;
+	}
+
+	if (val < 0 || val > INT_MAX) {
+		return -EINVAL;
+	}
+
+	printk("fg_mapcount_ops_write is %d\n", val);
+	atomic_set(&fg_mapcount_enable, val);
+
+	return len;
+}
+
+
+static ssize_t fg_mapcount_enable_ops_read(struct file *file,
+			char __user *buffer, size_t count, loff_t *off)
+{
+	char kbuf[MAX_BUF_LEN] = {'\0'};
+	int len;
+
+	len = snprintf(kbuf, MAX_BUF_LEN, "%d\n", fg_mapcount_enable);
+
+	if (len > *off)
+		len -= *off;
+	else
+		len = 0;
+
+	if (copy_to_user(buffer, kbuf + *off, (len < count ? len : count)))
+		return -EFAULT;
+
+	*off += (len < count ? len : count);
+	return (len < count ? len : count);
+}
+
+static ssize_t fg_protect_count_ops_write(struct file *file,
+			const char __user *buff, size_t len, loff_t *ppos)
+{
+	int ret;
+	char kbuf[MAX_BUF_LEN] = {'\0'};
+	char *str;
+	int val;
+
+	if (len > MAX_BUF_LEN - 1) {
+		return -EINVAL;
+	}
+
+	if (copy_from_user(&kbuf, buff, len))
+		return -EFAULT;
+	kbuf[len] = '\0';
+
+	str = strstrip(kbuf);
+	if (!str) {
+		return -EINVAL;
+	}
+
+	ret = kstrtoint(str, 10, &val);
+	if (ret) {
+		return -EINVAL;
+	}
+
+	if (val < 0 || val > INT_MAX) {
+		return -EINVAL;
+	}
+
+	printk("fg_mapcount_ops_write is %lu\n", val);
+	atomic_long_set(&fg_protect_count, val);
+
+	return len;
+}
+
+static ssize_t fg_protect_count_ops_read(struct file *file,
+			char __user *buffer, size_t count, loff_t *off)
+{
+	char kbuf[MAX_BUF_LEN] = {'\0'};
+	int len;
+
+	len = snprintf(kbuf, MAX_BUF_LEN, "%lu\n", fg_protect_count);
+
+	if (len > *off)
+		len -= *off;
+	else
+		len = 0;
+
+	if (copy_to_user(buffer, kbuf + *off, (len < count ? len : count)))
+		return -EFAULT;
+
+	*off += (len < count ? len : count);
+	return (len < count ? len : count);
+}
+
+static const struct proc_ops fg_mapcount_enable_ops = {
+	.proc_write = fg_mapcount_enable_ops_write,
+	.proc_read = fg_mapcount_enable_ops_read,
+};
+
+static const struct proc_ops fg_protect_count_ops = {
+	.proc_write = fg_protect_count_ops_write,
+	.proc_read = fg_protect_count_ops_read,
+};
+#endif
+
 static int __init mapped_protect_init(void)
 {
+#ifdef CONFIG_OPLUS_FG_PROTECT
+	static struct proc_dir_entry *enable_entry;
+	static struct proc_dir_entry *protect_count_entry;
+#endif
 	int ret = 0;
 #ifdef CONFIG_MAPPED_PROTECT_ALL
 	int retry = 0;
@@ -422,6 +690,12 @@ retry_get_num_mapcpount:
 	}
 	mapcount_protect_setup = true;
 	proc_create_single("mapped_protect_show", 0, NULL, mapcount_protect_show);
+#ifdef CONFIG_OPLUS_FG_PROTECT
+	proc_create_single("fg_protect_show", 0, NULL, fg_protect_show);
+	enable_entry = proc_create("fg_protect_enable", 0666, NULL, &fg_mapcount_enable_ops);
+	protect_count_entry = proc_create("fg_protect_count", 0666, NULL, &fg_protect_count_ops);
+#endif
+
 #endif
 	pr_info("mapped_protect_init succeed!\n");
 	return 0;

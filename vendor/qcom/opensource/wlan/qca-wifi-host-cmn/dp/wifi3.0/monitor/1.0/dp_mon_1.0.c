@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -178,10 +178,13 @@ void dp_flush_monitor_rings(struct dp_soc *soc)
 	hal_soc_handle_t hal_soc = soc->hal_soc;
 	uint32_t lmac_id;
 	uint32_t hp, tp;
-	int dp_intr_id;
 	int budget;
 	void *mon_dst_srng;
 	struct dp_mon_pdev *mon_pdev = pdev->monitor_pdev;
+	struct dp_mon_soc *mon_soc = soc->monitor_soc;
+
+	if (qdf_unlikely(mon_soc->full_mon_mode))
+		return;
 
 	/* Reset monitor filters before reaping the ring*/
 	qdf_spin_lock_bh(&mon_pdev->mon_lock);
@@ -190,15 +193,11 @@ void dp_flush_monitor_rings(struct dp_soc *soc)
 		dp_info("failed to reset monitor filters");
 	qdf_spin_unlock_bh(&mon_pdev->mon_lock);
 
-	if (mon_pdev->mon_chan_band == REG_BAND_UNKNOWN)
+	if (qdf_unlikely(mon_pdev->mon_chan_band >= REG_BAND_UNKNOWN))
 		return;
 
 	lmac_id = pdev->ch_band_lmac_id_mapping[mon_pdev->mon_chan_band];
 	if (qdf_unlikely(lmac_id == DP_MON_INVALID_LMAC_ID))
-		return;
-
-	dp_intr_id = soc->mon_intr_id_lmac_map[lmac_id];
-	if (qdf_unlikely(dp_intr_id == DP_MON_INVALID_LMAC_ID))
 		return;
 
 	mon_dst_srng = dp_rxdma_get_mon_dst_ring(pdev, lmac_id);
@@ -207,12 +206,12 @@ void dp_flush_monitor_rings(struct dp_soc *soc)
 	budget = wlan_cfg_get_dma_mon_stat_ring_size(pdev->wlan_cfg_ctx);
 
 	hal_get_sw_hptp(hal_soc, mon_dst_srng, &tp, &hp);
-	dp_info("Before reap: Monitor DST ring HP %u TP %u", hp, tp);
+	dp_info("Before flush: Monitor DST ring HP %u TP %u", hp, tp);
 
-	dp_mon_process(soc, &soc->intr_ctx[dp_intr_id], lmac_id, budget);
+	dp_mon_drop_packets_for_mac(pdev, lmac_id, budget, true);
 
 	hal_get_sw_hptp(hal_soc, mon_dst_srng, &tp, &hp);
-	dp_info("After reap: Monitor DST ring HP %u TP %u", hp, tp);
+	dp_info("After flush: Monitor DST ring HP %u TP %u", hp, tp);
 }
 
 static
@@ -1223,6 +1222,7 @@ dp_mon_register_feature_ops_1_0(struct dp_soc *soc)
 		dp_mon_filter_reset_undecoded_metadata_capture_1_0;
 #endif
 	mon_ops->mon_rx_print_advanced_stats = NULL;
+	mon_ops->mon_mac_filter_set = dp_mon_mac_filter_set;
 }
 
 struct dp_mon_ops monitor_ops_1_0 = {
@@ -1270,6 +1270,7 @@ struct dp_mon_ops monitor_ops_1_0 = {
 	.mon_filter_reset_tx_mon_mode = NULL,
 	.rx_mon_filter_update = dp_mon_filter_update_1_0,
 	.tx_mon_filter_update = NULL,
+	.set_mon_mode_buf_rings_tx = NULL,
 	.rx_mon_desc_pool_init = dp_rx_pdev_mon_desc_pool_init,
 	.rx_mon_desc_pool_deinit = dp_rx_pdev_mon_desc_pool_deinit,
 	.rx_mon_desc_pool_alloc = dp_rx_pdev_mon_desc_pool_alloc,

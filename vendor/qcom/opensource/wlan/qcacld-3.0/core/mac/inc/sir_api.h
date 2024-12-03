@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -651,7 +651,8 @@ struct sme_ready_req {
 	uint16_t length;
 	QDF_STATUS (*csr_roam_auth_event_handle_cb)(struct mac_context *mac,
 						    uint8_t vdev_id,
-						    struct qdf_mac_addr bssid);
+						    struct qdf_mac_addr bssid,
+						    uint32_t akm);
 	pe_roam_synch_fn_t pe_roam_synch_cb;
 	stop_roaming_fn_t stop_roaming_cb;
 	QDF_STATUS (*sme_msg_cb)(struct mac_context *mac,
@@ -1679,6 +1680,20 @@ struct sir_set_he_bss_color {
 	uint16_t length;
 	uint8_t vdev_id;
 	uint8_t bss_color;
+};
+
+/**
+ * struct sir_cfg_obss_scan
+ * @message_type: SME message type
+ * @length: size of struct sir_cfg_obss_scan
+ * @vdev_id: vdev ID
+ * @is_scan_reconfig: true for NDP session
+ */
+struct sir_cfg_obss_scan {
+	uint16_t message_type;
+	uint16_t length;
+	uint8_t vdev_id;
+	bool is_scan_reconfig;
 };
 
 /**
@@ -4643,6 +4658,16 @@ struct sme_sta_inactivity_timeout {
 	uint32_t sta_inactivity_timeout;
 };
 
+/**
+ * struct sme_vdev_pause - Pause vdev for a defined time interval
+ * @session_id: Session id
+ * @vdev_pause_duration: vdev pause duration
+ */
+struct sme_vdev_pause {
+	uint8_t session_id;
+	uint8_t vdev_pause_duration;
+};
+
 /*
  * struct wow_pulse_mode - WoW Pulse set cmd struct
  * @wow_pulse_enable: enable or disable this feature
@@ -4673,6 +4698,24 @@ struct wow_pulse_mode {
  */
 QDF_STATUS umac_send_mb_message_to_mac(void *msg);
 
+/* Max supported bandwidth is 320Mhz, so max 16 subbands fo 20Mhz */
+#define MAX_WIDE_BAND_SCAN_CHAN 16
+
+/**
+ * struct wide_band_scan_chan_info - wide band scan channel info
+ * @vdev_id: vdev id
+ * @num_chan: number of channels (for each subbands fo 20Mhz)
+ * @is_wide_band_scan: wide band scan or not
+ * @cca_busy_subband_info: CCA busy for each possible 20Mhz subbands
+ * of the wideband scan channel
+ */
+struct wide_band_scan_chan_info {
+	uint32_t vdev_id;
+	uint8_t num_chan;
+	bool is_wide_band_scan;
+	uint32_t cca_busy_subband_info[MAX_WIDE_BAND_SCAN_CHAN];
+};
+
 /**
  * struct scan_chan_info - channel info
  * @freq: radio frequence
@@ -4682,6 +4725,8 @@ QDF_STATUS umac_send_mb_message_to_mac(void *msg);
  * @rx_clear_count: rx clear count
  * @tx_frame_count: TX frame count
  * @clock_freq: clock frequence MHZ
+ * @cca_busy_subband_info: CCA busy for each possible 20Mhz subbands
+ * of the wideband scan channel
  */
 struct scan_chan_info {
 	uint32_t freq;
@@ -4691,6 +4736,7 @@ struct scan_chan_info {
 	uint32_t rx_clear_count;
 	uint32_t tx_frame_count;
 	uint32_t clock_freq;
+	struct wide_band_scan_chan_info subband_info;
 };
 
 /**
@@ -5143,6 +5189,7 @@ struct sir_roam_scan_stats {
  * @vdev_id: vdev id
  * @peer_mac_addr: peer MAC address
  * @ssid: SSID
+ * @akm: key mgmt suite used
  */
 struct sir_sae_info {
 	uint16_t msg_type;
@@ -5150,6 +5197,7 @@ struct sir_sae_info {
 	uint32_t vdev_id;
 	struct qdf_mac_addr peer_mac_addr;
 	tSirMacSSid ssid;
+	uint32_t akm;
 };
 
 /**

@@ -270,6 +270,7 @@ struct reclining_mode_data {
 #define MAKEUP_REAL_POINT (0xFF)
 #define POINT_DIFF_CNT  10
 struct kernel_grip_info {
+	int                       tp_index;
 	int                       touch_dir;                              /*shows touchpanel direction*/
 	int                       touch_reclining_mode;                   /*shows touchpanel recliing mode*/
 	u64                       reclining_start_time;
@@ -366,6 +367,8 @@ struct kernel_grip_info {
 	/*add for curved_screen_v4* end*/
 	uint16_t                  large_corner_exit_distance;             /*large corner distance exit condition*/
 	uint16_t                  large_corner_detect_time_ms;            /*large corner judge detect time*/
+	uint16_t                  large_corner_detect_time_ms_ime;        /*large corner judge detect time for IME*/
+	uint16_t                  large_corner_detect_time_ms_restore;    /*large corner judge detect time for IME restore*/
 	uint16_t                  large_corner_debounce_ms;               /*large corner judge center down debounce time interval*/
 	uint16_t                  large_corner_width;                     /*large corner width*/
 	uint16_t                  large_corner_height;                    /*large corner height*/

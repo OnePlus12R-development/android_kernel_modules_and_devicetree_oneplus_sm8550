@@ -43,9 +43,14 @@
 #define UX_DEPTH_MAX		5
 
 /* define for debug */
-#define DEBUG_SYSTRACE  (1 << 0)
-#define DEBUG_FTRACE    (1 << 1)
-#define DEBUG_PIPELINE  (1 << 2)
+#define DEBUG_SYSTRACE (1 << 0)
+#define DEBUG_FTRACE   (1 << 1)
+#define DEBUG_KMSG     (1 << 2)	/* used for frameboost */
+#define DEBUG_PIPELINE (1 << 3)
+#define DEBUG_DYNAMIC_HZ (1 << 4)
+#define DEBUG_DYNAMIC_PREEMPT (1 << 5)
+#define DEBUG_AMU_INSTRUCTION (1 << 6)
+#define DEBUG_VERBOSE  (1 << 10)	/* used for frameboost */
 
 /* define for sched assist feature */
 #define FEATURE_COMMON (1 << 0)
@@ -61,6 +66,7 @@
 /* SA_TYPE_LISTPICK for camera */
 #define SA_TYPE_LISTPICK			(1 << 3)
 #define SA_OPT_SET					(1 << 7)
+#define SA_OPT_RESET				(1 << 8)
 #define SA_OPT_SET_PRIORITY			(1 << 9)
 
 /* The following ux value only used in kernel */
@@ -101,10 +107,12 @@
 #define SA_LAUNCHER_SI				(1 << 6)
 #define SA_SCENE_OPT_SET			(1 << 7)
 
+#define ROOT_UID               0
 #define SYSTEM_UID             1000
 #define CAMERA_UID             1047
 #define FIRST_APPLICATION_UID  10000
 #define LAST_APPLICATION_UID   19999
+#define PER_USER_RANGE         100000
 #define SCHED_UX_STATE_DEBUG_MAGIC  123456789
 
 #define CAMERA_PROVIDER_NAME "provider@2.4-se"
@@ -117,6 +125,11 @@ extern unsigned int top_app_type;
 #define BOOST_THRESHOLD_UNIT (51)
 
 #define MAX_CLUSTER          (3)
+/* define for clear IM_FLAG
+if im_flag is 70, it should clear im_flag_audio (70 - 64 = 6)
+eg: gerrit patchset "30438485"
+ */
+#define IM_FLAG_CLEAR			64
 
 enum UX_STATE_TYPE {
 	UX_STATE_INVALID = 0,
@@ -140,7 +153,6 @@ enum INHERIT_UX_TYPE {
  * the value of those existed flag type.
  */
 enum IM_FLAG_TYPE {
-	INVALID_IM_FLAG = -1,
 	IM_FLAG_NONE = 0,
 	IM_FLAG_SURFACEFLINGER,
 	IM_FLAG_HWC,			/* Discarded */
@@ -155,6 +167,7 @@ enum IM_FLAG_TYPE {
 	IM_FLAG_FORBID_SET_CPU_AFFINITY, /* forbid setting cpu affinity from app */
 	IM_FLAG_SYSTEMSERVER_PID,
 	IM_FLAG_MIDASD,
+	IM_FLAG_AUDIO_CAMERA_HAL, /* audio mode disable camera hal ux */
 	MAX_IM_FLAG_TYPE,
 };
 
@@ -177,20 +190,14 @@ struct ux_sched_cputopo {
 };
 
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_CPU_JANKINFO)
-/* hot-thread */
-struct task_record {
-#define RECOED_WINSIZE			(1 << 8)
-#define RECOED_WINIDX_MASK		(RECOED_WINSIZE - 1)
-	u8 winidx;
-	u8 count;
-};
-
+#define MAX_TASK_COMM_LEN 256
 struct uid_struct {
 	uid_t uid;
 	u64 uid_total_cycle;
 	u64 uid_total_inst;
 	spinlock_t lock;
 	char leader_comm[TASK_COMM_LEN];
+	char cmdline[MAX_TASK_COMM_LEN];
 };
 
 struct  amu_uid_entry {
@@ -205,6 +212,8 @@ struct  amu_uid_entry {
 struct locking_info {
 	u64 waittime_stamp;
 	u64 holdtime_stamp;
+	/* Used in torture acquire latency statistic.*/
+	u64 acquire_stamp;
 	/*
 	 * mutex or rwsem optimistic spin start time. Because a task
 	 * can't spin both on mutex and rwsem at one time, use one common
@@ -242,7 +251,7 @@ struct oplus_task_struct {
 	u8 ux_depth;
 	s8 ux_priority;
 	s8 ux_nice;
-	s8 im_flag;
+	unsigned long im_flag;
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_ABNORMAL_FLAG)
 	int abnormal_flag;
 #endif
@@ -257,21 +266,22 @@ struct oplus_task_struct {
 	bool update_running_start_time;
 	u64 exec_calc_runtime;
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_CPU_JANKINFO)
-	struct task_record record[MAX_CLUSTER];	/* 2*u64 */
 	u64 block_start_time;
 #endif
 	/* CONFIG_OPLUS_FEATURE_FRAME_BOOST */
 	struct list_head fbg_list;
 	raw_spinlock_t fbg_list_entry_lock;
 	bool fbg_running; /* task belongs to a group, and in running */
-	u8 fbg_state;
+	u16 fbg_state;
 	s8 preferred_cluster_id;
 	s8 fbg_depth;
 	u64 last_wake_ts;
+	int fbg_cur_group;
 #ifdef CONFIG_LOCKING_PROTECT
 	unsigned long locking_start_time;
 	struct list_head locking_entry;
 	int locking_depth;
+	int lk_tick_hit;
 #endif
 
 #if IS_ENABLED(CONFIG_OPLUS_LOCKING_STRATEGY)
@@ -300,9 +310,7 @@ struct oplus_task_struct {
 #endif
 
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_PIPELINE)
-	u64 pipeline_enqueue_ts;
-	u64 pipeline_switch_out_ts;
-	int pipeline_cpu;
+	atomic_t pipeline_cpu;
 #endif
 	/* for binder ux */
 	int binder_async_ux_enable;
@@ -367,11 +375,13 @@ static inline bool orq_has_ux_tasks(struct oplus_rq *orq)
 }
 
 /* attention: before insert .ko, task's node->__rb_parent_color is init with 0 */
-static inline bool oplus_rbnode_empty(struct rb_node *node) {
+static inline bool oplus_rbnode_empty(struct rb_node *node)
+{
 	return RB_EMPTY_NODE(node) || (node->__rb_parent_color == 0);
 }
 
-static inline struct oplus_task_struct *ux_list_first_entry(struct rb_root_cached *list) {
+static inline struct oplus_task_struct *ux_list_first_entry(struct rb_root_cached *list)
+{
 	struct rb_node *leftmost = rb_first_cached(list);
 	if (leftmost == NULL) {
 		return NULL;
@@ -379,7 +389,8 @@ static inline struct oplus_task_struct *ux_list_first_entry(struct rb_root_cache
 	return rb_entry(leftmost, struct oplus_task_struct, ux_entry);
 }
 
-static inline struct oplus_task_struct *exec_timeline_first_entry(struct rb_root_cached *tree) {
+static inline struct oplus_task_struct *exec_timeline_first_entry(struct rb_root_cached *tree)
+{
 	struct rb_node *leftmost = rb_first_cached(tree);
 	if (leftmost == NULL) {
 		return NULL;
@@ -413,19 +424,22 @@ static inline struct oplus_task_struct *get_oplus_task_struct(struct task_struct
 	return ots;
 }
 
-static inline int oplus_get_im_flag(struct task_struct *t)
+static inline unsigned long oplus_get_im_flag(struct task_struct *t)
 {
 	struct oplus_task_struct *ots = get_oplus_task_struct(t);
 
 	if (IS_ERR_OR_NULL(ots))
-		return INVALID_IM_FLAG;
+		return IM_FLAG_NONE;
 
 	return ots->im_flag;
 }
 
 static inline bool is_optimized_audio_thread(struct task_struct *t)
 {
-	if (oplus_get_im_flag(t) == IM_FLAG_AUDIO)
+	unsigned long im_flag;
+
+	im_flag = oplus_get_im_flag(t);
+	if (test_bit(IM_FLAG_AUDIO, &im_flag))
 		return true;
 
 	return false;
@@ -433,12 +447,13 @@ static inline bool is_optimized_audio_thread(struct task_struct *t)
 
 static inline void oplus_set_im_flag(struct task_struct *t, int im_flag)
 {
-	struct oplus_task_struct *ots = get_oplus_task_struct(t);
+	struct oplus_task_struct *ots = NULL;
+	ots = get_oplus_task_struct(t);
 
 	if (IS_ERR_OR_NULL(ots))
 		return;
 
-	ots->im_flag = im_flag;
+	set_bit(im_flag, &ots->im_flag);
 }
 
 static inline int oplus_get_ux_state(struct task_struct *t)
@@ -589,15 +604,18 @@ static inline void init_task_ux_info(struct task_struct *t)
 #endif
 
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_PIPELINE)
-	ots->pipeline_enqueue_ts = 0;
-	ots->pipeline_switch_out_ts = 0;
-	ots->pipeline_cpu = -1;
+	atomic_set(&ots->pipeline_cpu, -1);
 #endif
 #ifdef CONFIG_OPLUS_CAMERA_UX
 	if (CAMERA_UID == task_uid(t).val) {
 		if (!strncmp(t->comm, CAMERA_PROVIDER_NAME, 15)) {
 			ots->ux_state = SA_TYPE_HEAVY;
 		}
+	}
+#endif
+#ifdef CONFIG_OPLUS_CAMERA_UX
+	if (!strncmp(t->comm, "C2OMXNode", 15) || !strncmp(t->comm, "MP4WtrAudTrkThr", 15) || !strncmp(t->comm, "MP4WtrVidTrkThr", 15)) {
+			ots->ux_state = SA_TYPE_ANIMATOR;
 	}
 #endif
 };
@@ -659,7 +677,7 @@ bool is_min_cluster(int cpu);
 bool is_max_cluster(int cpu);
 bool is_mid_cluster(int cpu);
 bool task_is_runnable(struct task_struct *task);
-int get_ux_state(struct task_struct * task);
+int get_ux_state(struct task_struct *task);
 
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_LOADBALANCE)
 int ux_mask_to_prio(int ux_mask);
@@ -703,7 +721,6 @@ bool sa_skip_rt_sync(struct rq *rq, struct task_struct *p, bool *sync);
 bool sa_rt_skip_ux_cpu(int cpu);
 
 /* s64 account_ux_runtime(struct rq *rq, struct task_struct *curr); */
-unsigned int ux_task_exec_limit(struct task_struct *p);
 void opt_ss_lock_contention(struct task_struct *p, int old_im, int new_im);
 
 /* register vender hook in kernel/sched/topology.c */
@@ -719,6 +736,8 @@ void android_rvh_enqueue_task_handler(void *unused, struct rq *rq, struct task_s
 void android_rvh_dequeue_task_handler(void *unused, struct rq *rq, struct task_struct *p, int flags);
 void android_rvh_schedule_handler(void *unused, struct task_struct *prev, struct task_struct *next, struct rq *rq);
 void android_vh_scheduler_tick_handler(void *unused, struct rq *rq);
+
+void set_im_flag_with_bit(int im_flag, struct task_struct *task);
 
 /* register vendor hook in kernel/cgroup/cgroup-v1.c */
 void android_vh_cgroup_set_task_handler(void *unused, int ret, struct task_struct *task);

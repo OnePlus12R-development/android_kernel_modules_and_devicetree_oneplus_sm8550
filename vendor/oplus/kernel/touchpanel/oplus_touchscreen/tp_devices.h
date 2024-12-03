@@ -31,6 +31,8 @@ typedef enum tp_dev{
     TP_LS,
     TP_TXD,
     TP_VXN,
+    TP_HKC,
+    TP_XX,
     TP_UNKNOWN,
 }tp_dev;
 

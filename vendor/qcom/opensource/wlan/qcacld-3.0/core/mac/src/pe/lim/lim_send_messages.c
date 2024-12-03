@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -489,11 +489,13 @@ QDF_STATUS lim_send_ht40_obss_scanind(struct mac_context *mac_ctx,
 	uint32_t channelnum, chan_freq;
 	struct scheduler_msg msg = {0};
 	uint8_t channel24gnum, count;
+	uint8_t reg_cc[REG_ALPHA2_LEN + 1];
 
 	ht40_obss_scanind = qdf_mem_malloc(sizeof(struct obss_ht40_scanind));
 	if (!ht40_obss_scanind)
 		return QDF_STATUS_E_FAILURE;
 
+	wlan_reg_read_current_country(mac_ctx->psoc, reg_cc);
 	ht40_obss_scanind->cmd = HT40_OBSS_SCAN_PARAM_START;
 	ht40_obss_scanind->scan_type = eSIR_ACTIVE_SCAN;
 	ht40_obss_scanind->obss_passive_dwelltime =
@@ -512,7 +514,7 @@ QDF_STATUS lim_send_ht40_obss_scanind(struct mac_context *mac_ctx,
 		session->obss_ht40_scanparam.obss_activity_threshold;
 	ht40_obss_scanind->current_operatingclass =
 		wlan_reg_dmn_get_opclass_from_channel(
-			mac_ctx->scan.countryCodeCurrent,
+			reg_cc,
 			wlan_reg_freq_to_chan(
 			mac_ctx->pdev, session->curr_op_freq),
 			session->ch_width);
@@ -548,6 +550,38 @@ QDF_STATUS lim_send_ht40_obss_scanind(struct mac_context *mac_ctx,
 		pe_err("WDA_HT40_OBSS_SCAN_IND msg failed, reason=%X",
 			ret);
 		qdf_mem_free(ht40_obss_scanind);
+	}
+	return ret;
+}
+
+QDF_STATUS
+lim_send_edca_pifs_param(struct mac_context *mac,
+			 struct wlan_edca_pifs_param_ie *param,
+			 uint8_t vdev_id)
+{
+	struct edca_pifs_vparam *edca_pifs = NULL;
+	QDF_STATUS ret = QDF_STATUS_SUCCESS;
+	struct scheduler_msg msgQ = {0};
+
+	edca_pifs = qdf_mem_malloc(sizeof(*edca_pifs));
+	if (!edca_pifs)
+		return QDF_STATUS_E_NOMEM;
+
+	edca_pifs->vdev_id = vdev_id;
+	qdf_mem_copy(&edca_pifs->param, param,
+		     sizeof(struct wlan_edca_pifs_param_ie));
+
+	msgQ.type = WMA_UPDATE_EDCA_PIFS_PARAM_IND;
+	msgQ.reserved = 0;
+	msgQ.bodyptr = edca_pifs;
+	msgQ.bodyval = 0;
+	pe_debug("Sending WMA_UPDATE_EDCA_PIFS_PARAM_IND");
+	MTRACE(mac_trace_msg_tx(mac, NO_SESSION, msgQ.type));
+	ret = wma_post_ctrl_msg(mac, &msgQ);
+	if (QDF_IS_STATUS_ERROR(ret)) {
+		qdf_mem_free(edca_pifs);
+		pe_err("Posting WMA_UPDATE_EDCA_PIFS_PARAM_IND failed, reason=%X",
+		       ret);
 	}
 	return ret;
 }

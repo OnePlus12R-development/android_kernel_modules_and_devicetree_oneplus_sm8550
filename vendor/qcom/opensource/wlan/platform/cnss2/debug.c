@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Copyright (c) 2016-2021, The Linux Foundation. All rights reserved. */
-/* Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved. */
+/* Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved. */
 
 
 #include <linux/err.h>
@@ -13,10 +13,33 @@
 
 #define MMIO_REG_ACCESS_MEM_TYPE		0xFF
 #define MMIO_REG_RAW_ACCESS_MEM_TYPE		0xFE
+#define DEFAULT_KERNEL_LOG_LEVEL		INFO_LOG
+#define DEFAULT_IPC_LOG_LEVEL			DEBUG_LOG
+
+enum log_level cnss_kernel_log_level = DEFAULT_KERNEL_LOG_LEVEL;
 
 #if IS_ENABLED(CONFIG_IPC_LOGGING)
 void *cnss_ipc_log_context;
 void *cnss_ipc_log_long_context;
+enum log_level cnss_ipc_log_level = DEFAULT_IPC_LOG_LEVEL;
+
+static int cnss_set_ipc_log_level(u32 val)
+{
+	if (val < MAX_LOG) {
+		cnss_ipc_log_level = val;
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
+static u32 cnss_get_ipc_log_level(void)
+{
+	return cnss_ipc_log_level;
+}
+#else
+static int cnss_set_ipc_log_level(int val) { return -EINVAL; }
+static u32 cnss_get_ipc_log_level(void) { return MAX_LOG; }
 #endif
 
 static int cnss_pin_connect_show(struct seq_file *s, void *data)
@@ -223,7 +246,7 @@ static ssize_t cnss_dev_boot_debug_write(struct file *fp,
 	cnss_pr_dbg("Received dev_boot debug command: %s\n", cmd);
 
 	if (sysfs_streq(cmd, "on")) {
-		ret = cnss_power_on_device(plat_priv);
+		ret = cnss_power_on_device(plat_priv, false);
 	} else if (sysfs_streq(cmd, "off")) {
 		cnss_power_off_device(plat_priv);
 	} else if (sysfs_streq(cmd, "enumerate")) {
@@ -576,6 +599,8 @@ static ssize_t cnss_runtime_pm_debug_write(struct file *fp,
 	buf[len] = '\0';
 	cmd = buf;
 
+	cnss_pr_dbg("Received runtime_pm debug command: %s\n", cmd);
+
 	if (sysfs_streq(cmd, "usage_count")) {
 		cnss_pci_pm_runtime_show_usage_count(pci_priv);
 	} else if (sysfs_streq(cmd, "request_resume")) {
@@ -755,7 +780,12 @@ static ssize_t cnss_control_params_debug_write(struct file *fp,
 		plat_priv->ctrl_params.bdf_type = val;
 	else if (strcmp(cmd, "time_sync_period") == 0)
 		plat_priv->ctrl_params.time_sync_period = val;
-	else
+	else if (strcmp(cmd, "kern_log_level") == 0) {
+		if (val < MAX_LOG)
+			cnss_kernel_log_level = val;
+	} else if (strcmp(cmd, "ipc_log_level") == 0) {
+		return cnss_set_ipc_log_level(val) ? -EINVAL : count;
+	} else
 		return -EINVAL;
 
 	return count;
@@ -816,6 +846,9 @@ static int cnss_show_quirks_state(struct seq_file *s,
 		case DISABLE_TIME_SYNC:
 			seq_puts(s, "DISABLE_TIME_SYNC");
 			continue;
+		case FORCE_ONE_MSI:
+			seq_puts(s, "FORCE_ONE_MSI");
+			continue;
 		default:
 			continue;
 		}
@@ -827,6 +860,7 @@ static int cnss_show_quirks_state(struct seq_file *s,
 static int cnss_control_params_debug_show(struct seq_file *s, void *data)
 {
 	struct cnss_plat_data *cnss_priv = s->private;
+	u32 ipc_log_level;
 
 	seq_puts(s, "\nUsage: echo <params_name> <value> > <debugfs_path>/cnss/control_params\n");
 	seq_puts(s, "<params_name> can be one of below:\n");
@@ -845,6 +879,11 @@ static int cnss_control_params_debug_show(struct seq_file *s, void *data)
 	seq_printf(s, "bdf_type: %u\n", cnss_priv->ctrl_params.bdf_type);
 	seq_printf(s, "time_sync_period: %u\n",
 		   cnss_priv->ctrl_params.time_sync_period);
+	seq_printf(s, "kern_log_level: %u\n", cnss_kernel_log_level);
+
+	ipc_log_level = cnss_get_ipc_log_level();
+	if (ipc_log_level != MAX_LOG)
+		seq_printf(s, "ipc_log_level: %u\n", ipc_log_level);
 
 	return 0;
 }
@@ -855,6 +894,106 @@ static int cnss_control_params_debug_open(struct inode *inode,
 	return single_open(file, cnss_control_params_debug_show,
 			   inode->i_private);
 }
+
+#ifdef OPLUS_FEATURE_WIFI_DCS_SWITCH
+//Add for wifi switch monitor
+static int oplus_cnss_switch_debug_show(struct seq_file *s, void *data)
+{
+	seq_puts(s, "\nUsage: echo <params_name>=<value> > /sys/kernel/debug/cnss/oplus_cnss_switch_debug\n");
+	seq_puts(s, "<params_name> can be one of below:\n");
+	seq_puts(s, "debug_cnss: debug cnss error file flag test\n");
+	seq_puts(s, "idle_shutdown: idle shut down flag test\n\n");
+	seq_puts(s, "firmware_ready: firmware_ready flag test\n");
+	seq_puts(s, "pcie_link_down: pcie status flag test\n");
+	return 0;
+}
+
+static ssize_t oplus_cnss_switch_debug_write(struct file *fp,
+					  const char __user *user_buf,
+					  size_t count, loff_t *off)
+{
+	struct cnss_plat_data *plat_priv =
+		((struct seq_file *)fp->private_data)->private;
+	char buf[64];
+	char *sptr, *token;
+	//value for the cmd：debug_cnss, debug error log msgs
+	char *cmd, *value;
+	//val for other cmd
+	u32 val;
+
+	unsigned int len = 0;
+	const char *delim = " ";
+
+	if (!plat_priv)
+		return -ENODEV;
+
+	len = min(count, sizeof(buf) - 1);
+	if (copy_from_user(buf, user_buf, len))
+		return -EFAULT;
+
+	buf[len] = '\0';
+	sptr = buf;
+
+	cmd = strsep(&sptr, delim);
+	if (!cmd)
+		return -EINVAL;
+	if (!sptr)
+		return -EINVAL;
+	value = sptr;
+
+	//for cmd debug_cnss
+	if (strcmp(cmd, "debug_cnss") == 0) {
+		cnss_pr_err(value);
+	}
+
+	//for other cmd
+	token = strsep(&sptr, delim);
+	if (!token)
+		return -EINVAL;
+	if (kstrtou32(token, 0, &val))
+		return -EINVAL;
+
+	if (strcmp(cmd, "idle_shutdown") == 0) {
+		if (val == 1) {
+			cnss_pr_err("idle_shutdown true");
+			idle_shutdown = true;
+		} else {
+			cnss_pr_err("idle_shutdown falsa");
+			idle_shutdown = false;
+		}
+	} else if (strcmp(cmd, "firmware_ready") == 0) {
+		if (val == 1) {
+			set_bit(CNSS_FW_READY, &plat_priv->driver_state);
+		} else {
+			clear_bit(CNSS_FW_READY, &plat_priv->driver_state);
+		}
+	} else if (strcmp(cmd, "pcie_link_down") == 0) {
+		if (val == 1) {
+			set_bit(CNSS_PCIE_LINK_DOWN,&plat_priv->pcieLinkDown);
+		} else {
+			clear_bit(CNSS_PCIE_LINK_DOWN,&plat_priv->pcieLinkDown);
+		}
+	} else
+		return -EINVAL;
+
+	return count;
+}
+
+static int oplus_cnss_switch_debug_open(struct inode *inode,
+					  struct file *file)
+{
+	return single_open(file, oplus_cnss_switch_debug_show,
+			   inode->i_private);
+}
+
+static const struct file_operations oplus_cnss_switch_debug_fops = {
+	.read = seq_read,
+	.write = oplus_cnss_switch_debug_write,
+	.open = oplus_cnss_switch_debug_open,
+	.owner = THIS_MODULE,
+	.llseek = seq_lseek,
+};
+#endif /* OPLUS_FEATURE_WIFI_DCS_SWITCH*/
 
 static const struct file_operations cnss_control_params_debug_fops = {
 	.read = seq_read,
@@ -909,6 +1048,39 @@ static const struct file_operations cnss_dynamic_feature_fops = {
 	.llseek = seq_lseek,
 };
 
+static int cnss_smmu_fault_timestamp_show(struct seq_file *s, void *data)
+{
+	struct cnss_plat_data *plat_priv = s->private;
+	struct cnss_pci_data *pci_priv = plat_priv->bus_priv;
+
+	if (!pci_priv)
+		return -ENODEV;
+
+	seq_printf(s, "smmu irq cb entry timestamp : %llu ns\n",
+		   pci_priv->smmu_fault_timestamp[SMMU_CB_ENTRY]);
+	seq_printf(s, "smmu irq cb before doorbell ring timestamp : %llu ns\n",
+		   pci_priv->smmu_fault_timestamp[SMMU_CB_DOORBELL_RING]);
+	seq_printf(s, "smmu irq cb after doorbell ring timestamp : %llu ns\n",
+		   pci_priv->smmu_fault_timestamp[SMMU_CB_EXIT]);
+
+	return 0;
+}
+
+static int cnss_smmu_fault_timestamp_open(struct inode *inode,
+					  struct file *file)
+{
+	return single_open(file, cnss_smmu_fault_timestamp_show,
+			   inode->i_private);
+}
+
+static const struct file_operations cnss_smmu_fault_timestamp_fops = {
+	.read = seq_read,
+	.release = single_release,
+	.open = cnss_smmu_fault_timestamp_open,
+	.owner = THIS_MODULE,
+	.llseek = seq_lseek,
+};
+
 #ifdef CONFIG_DEBUG_FS
 #ifdef CONFIG_CNSS2_DEBUG
 static int cnss_create_debug_only_node(struct cnss_plat_data *plat_priv)
@@ -927,7 +1099,13 @@ static int cnss_create_debug_only_node(struct cnss_plat_data *plat_priv)
 			    &cnss_control_params_debug_fops);
 	debugfs_create_file("dynamic_feature", 0600, root_dentry, plat_priv,
 			    &cnss_dynamic_feature_fops);
-
+	debugfs_create_file("cnss_smmu_fault_timestamp", 0600, root_dentry,
+			    plat_priv, &cnss_smmu_fault_timestamp_fops);
+#ifdef OPLUS_FEATURE_WIFI_DCS_SWITCH
+//Add for wifi switch monitor
+	debugfs_create_file("oplus_cnss_switch_debug", 0600, root_dentry,
+			    plat_priv, &oplus_cnss_switch_debug_fops);
+#endif /* OPLUS_FEATURE_WIFI_DCS_SWITCH*/
 	return 0;
 }
 #else
@@ -941,8 +1119,15 @@ int cnss_debugfs_create(struct cnss_plat_data *plat_priv)
 {
 	int ret = 0;
 	struct dentry *root_dentry;
+	char name[CNSS_FS_NAME_SIZE];
 
-	root_dentry = debugfs_create_dir("cnss", 0);
+	if (cnss_is_dual_wlan_enabled())
+		snprintf(name, CNSS_FS_NAME_SIZE, CNSS_FS_NAME "_%d",
+			 plat_priv->plat_idx);
+	else
+		snprintf(name, CNSS_FS_NAME_SIZE, CNSS_FS_NAME);
+
+	root_dentry = debugfs_create_dir(name, 0);
 	if (IS_ERR(root_dentry)) {
 		ret = PTR_ERR(root_dentry);
 		cnss_pr_err("Unable to create debugfs %d\n", ret);
@@ -1085,7 +1270,8 @@ void oplus_free_cnss_error_logs(void)
 
 #if IS_ENABLED(CONFIG_IPC_LOGGING)
 void cnss_debug_ipc_log_print(void *log_ctx, char *process, const char *fn,
-			      const char *log_level, char *fmt, ...)
+			      enum log_level kern_log_level,
+			      enum log_level ipc_log_level, char *fmt, ...)
 {
 	struct va_format vaf;
 	va_list va_args;
@@ -1094,10 +1280,40 @@ void cnss_debug_ipc_log_print(void *log_ctx, char *process, const char *fn,
 	vaf.fmt = fmt;
 	vaf.va = &va_args;
 
-	if (log_level)
-		printk("%scnss: %pV", log_level, &vaf);
+	if (kern_log_level <= cnss_kernel_log_level) {
+		switch (kern_log_level) {
+		case EMERG_LOG:
+			pr_emerg("cnss: %pV", &vaf);
+			break;
+		case ALERT_LOG:
+			pr_alert("cnss: %pV", &vaf);
+			break;
+		case CRIT_LOG:
+			pr_crit("cnss: %pV", &vaf);
+			break;
+		case ERR_LOG:
+			pr_err("cnss: %pV", &vaf);
+			break;
+		case WARNING_LOG:
+			pr_warn("cnss: %pV", &vaf);
+			break;
+		case NOTICE_LOG:
+			pr_notice("cnss: %pV", &vaf);
+			break;
+		case INFO_LOG:
+			pr_info("cnss: %pV", &vaf);
+			break;
+		case DEBUG_LOG:
+		case DEBUG_HI_LOG:
+			pr_debug("cnss: %pV", &vaf);
+			break;
+		default:
+			break;
+		}
+	}
 
-	ipc_log_string(log_ctx, "[%s] %s: %pV", process, fn, &vaf);
+	if (ipc_log_level <= cnss_ipc_log_level)
+		ipc_log_string(log_ctx, "[%s] %s: %pV", process, fn, &vaf);
 
 	va_end(va_args);
 }
@@ -1138,7 +1354,8 @@ static void cnss_ipc_logging_deinit(void)
 static int cnss_ipc_logging_init(void) { return 0; }
 static void cnss_ipc_logging_deinit(void) {}
 void cnss_debug_ipc_log_print(void *log_ctx, char *process, const char *fn,
-			      const char *log_level, char *fmt, ...)
+			      enum log_level kern_log_level,
+			      enum log_level ipc_log_level, char *fmt, ...)
 {
 	struct va_format vaf;
 	va_list va_args;
@@ -1147,8 +1364,37 @@ void cnss_debug_ipc_log_print(void *log_ctx, char *process, const char *fn,
 	vaf.fmt = fmt;
 	vaf.va = &va_args;
 
-	if (log_level)
-		printk("%scnss: %pV", log_level, &vaf);
+	if (kern_log_level <= cnss_kernel_log_level) {
+		switch (kern_log_level) {
+		case EMERG_LOG:
+			pr_emerg("cnss: %pV", &vaf);
+			break;
+		case ALERT_LOG:
+			pr_alert("cnss: %pV", &vaf);
+			break;
+		case CRIT_LOG:
+			pr_crit("cnss: %pV", &vaf);
+			break;
+		case ERR_LOG:
+			pr_err("cnss: %pV", &vaf);
+			break;
+		case WARNING_LOG:
+			pr_warn("cnss: %pV", &vaf);
+			break;
+		case NOTICE_LOG:
+			pr_notice("cnss: %pV", &vaf);
+			break;
+		case INFO_LOG:
+			pr_info("cnss: %pV", &vaf);
+			break;
+		case DEBUG_LOG:
+		case DEBUG_HI_LOG:
+			pr_debug("cnss: %pV", &vaf);
+			break;
+		default:
+			break;
+		}
+	}
 
 	va_end(va_args);
 }

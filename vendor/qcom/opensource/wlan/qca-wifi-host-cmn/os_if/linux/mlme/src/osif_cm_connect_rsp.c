@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2015, 2020-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -496,9 +496,14 @@ osif_fill_peer_mld_mac_connect_resp(struct wlan_objmgr_vdev *vdev,
 				    struct cfg80211_connect_resp_params *conn_rsp_params)
 {
 	struct wlan_objmgr_peer *peer_obj;
+	struct wlan_objmgr_psoc *psoc;
 
-	peer_obj = wlan_objmgr_get_peer_by_mac(wlan_vdev_get_psoc(vdev),
-					       rsp->bssid.bytes, WLAN_OSIF_ID);
+	psoc = wlan_vdev_get_psoc(vdev);
+	if (!psoc)
+		return QDF_STATUS_E_INVAL;
+
+	peer_obj = wlan_objmgr_get_peer_by_mac(psoc, rsp->bssid.bytes,
+					       WLAN_OSIF_ID);
 	if (!peer_obj)
 		return QDF_STATUS_E_INVAL;
 
@@ -1057,16 +1062,13 @@ bool osif_cm_is_unlink_bss_required(struct wlan_cm_connect_resp *rsp)
 	return false;
 }
 static inline void osif_check_and_unlink_bss(struct wlan_objmgr_vdev *vdev,
-					     struct vdev_osif_priv *osif_priv,
 					     struct wlan_cm_connect_resp *rsp)
 {
 	if (osif_cm_is_unlink_bss_required(rsp))
-		osif_cm_unlink_bss(vdev, osif_priv, &rsp->bssid, rsp->ssid.ssid,
-				   rsp->ssid.length);
+		osif_cm_unlink_bss(vdev, &rsp->bssid);
 }
 #else
 static inline void osif_check_and_unlink_bss(struct wlan_objmgr_vdev *vdev,
-					     struct vdev_osif_priv *osif_priv,
 					     struct wlan_cm_connect_resp *rsp)
 {}
 #endif
@@ -1086,7 +1088,7 @@ QDF_STATUS osif_connect_handler(struct wlan_objmgr_vdev *vdev,
 		       rsp->reason, rsp->status_code, rsp->is_reassoc,
 		       rsp->send_disconnect);
 
-	osif_check_and_unlink_bss(vdev, osif_priv, rsp);
+	osif_check_and_unlink_bss(vdev, rsp);
 
 	status = osif_validate_connect_and_reset_src_id(osif_priv, rsp);
 	if (QDF_IS_STATUS_ERROR(status)) {
@@ -1121,7 +1123,7 @@ QDF_STATUS osif_connect_handler(struct wlan_objmgr_vdev *vdev,
 		 QDF_IS_STATUS_ERROR(rsp->connect_status))
 		osif_cm_indicate_disconnect(vdev, osif_priv->wdev->netdev,
 					    WLAN_REASON_UNSPECIFIED,
-					    false, NULL, 0,
+					    false, NULL, 0, -1,
 					    qdf_mem_malloc_flags());
 	else
 		osif_indcate_connect_results(vdev, osif_priv, rsp);
@@ -1148,7 +1150,7 @@ QDF_STATUS osif_failed_candidate_handler(struct wlan_objmgr_vdev *vdev,
 	 * connection on other links.
 	 */
 	if (!wlan_vdev_mlme_is_mlo_vdev(vdev))
-		osif_check_and_unlink_bss(vdev, osif_priv, rsp);
+		osif_check_and_unlink_bss(vdev, rsp);
 
 	return QDF_STATUS_SUCCESS;
 }

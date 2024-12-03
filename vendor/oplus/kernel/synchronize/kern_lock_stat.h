@@ -6,12 +6,8 @@
 #ifndef _KERN_LOCK_STAT_H_
 #define _KERN_LOCK_STAT_H_
 
-/* #define INCLUDE_UNUSE */
 
 enum lock_type {
-#ifdef INCLUDE_UNUSE
-	SPINLOCK,
-#endif
 	MUTEX,
 	RWSEM_READ,
 	RWSEM_WRITE,
@@ -21,9 +17,6 @@ enum lock_type {
 	OSQ_RWSEM_WRITE,
 #endif
 	FUTEX_ART,
-#ifdef INCLUDE_UNUSE
-	FUTEX_JUC,
-#endif
 
 	LOCK_TYPES,
 };

@@ -128,26 +128,28 @@ static void boost_page_pool_add(struct boost_page_pool *pool, struct page *page)
 	else
 		index = POOL_LOWPAGE;
 
-	mutex_lock(&pool->mutex);
+	spin_lock(&pool->lock);
 	list_add_tail(&page->lru, &pool->items[index]);
 	pool->count[index]++;
+	spin_unlock(&pool->lock);
 	atomic64_add(1 << pool->order, &boost_pool_pages);
-	mutex_unlock(&pool->mutex);
 }
 
 static struct page *boost_page_pool_remove(struct boost_page_pool *pool, int index)
 {
 	struct page *page;
 
-	mutex_lock(&pool->mutex);
+	spin_lock(&pool->lock);
 	page = list_first_entry_or_null(&pool->items[index], struct page, lru);
 	if (page) {
 		pool->count[index]--;
 		list_del(&page->lru);
+		spin_unlock(&pool->lock);
 		atomic64_sub(1 << pool->order, &boost_pool_pages);
+		goto out;
 	}
-	mutex_unlock(&pool->mutex);
-
+	spin_unlock(&pool->lock);
+out:
 	return page;
 }
 
@@ -217,7 +219,7 @@ static struct boost_page_pool *boost_page_pool_create(gfp_t gfp_mask, unsigned i
 	}
 	pool->gfp_mask = gfp_mask | __GFP_COMP;
 	pool->order = order;
-	mutex_init(&pool->mutex);
+	spin_lock_init(&pool->lock);
 
 	return pool;
 }

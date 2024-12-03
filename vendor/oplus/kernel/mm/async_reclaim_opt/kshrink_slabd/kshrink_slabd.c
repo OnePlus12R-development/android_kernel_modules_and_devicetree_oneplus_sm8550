@@ -175,8 +175,7 @@ static int kshrink_slabd_func(void *p)
 	return 0;
 }
 
-
-static void should_shrink_async(void *data, gfp_t gfp_mask, int nid,
+void should_shrink_async(void *data, gfp_t gfp_mask, int nid,
 			struct mem_cgroup *memcg, int priority, bool *bypass)
 {
 	if (unlikely(!async_shrink_slabd_setup)) {
@@ -190,24 +189,28 @@ static void should_shrink_async(void *data, gfp_t gfp_mask, int nid,
 		*bypass = wakeup_shrink_slabd(gfp_mask, nid, memcg, priority);
 	}
 }
+EXPORT_SYMBOL_GPL(should_shrink_async);
 
 static int register_shrink_async_vendor_hooks(void)
 {
 	int ret = 0;
 
+#if !IS_ENABLED(CONFIG_HYBRIDSWAP_SWAPD)
 	ret = register_trace_android_vh_shrink_slab_bypass(should_shrink_async, NULL);
 	if (ret != 0) {
 		pr_err("register_trace_android_vh_shrink_slab_bypass failed! ret=%d\n", ret);
 		goto out;
 	}
 out:
+#endif
 	return ret;
 }
 
 static void unregister_shrink_async_vendor_hooks(void)
 {
+#if !IS_ENABLED(CONFIG_HYBRIDSWAP_SWAPD)
 	unregister_trace_android_vh_shrink_slab_bypass(should_shrink_async, NULL);
-
+#endif
 	return;
 }
 

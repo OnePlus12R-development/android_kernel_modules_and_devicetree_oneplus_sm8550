@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* Copyright (c) 2012,2014-2017,2019-2021 The Linux Foundation. All rights reserved. */
+/*
+ * Copyright (c) 2012,2014-2017,2019-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ */
 
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -7,10 +10,23 @@
 #include <linux/mm.h>
 #include <linux/err.h>
 #include <linux/of.h>
+#include <linux/version.h>
+#include "cnss_common.h"
 #ifdef CONFIG_CNSS_OUT_OF_TREE
 #include "cnss_prealloc.h"
 #else
 #include <net/cnss_prealloc.h>
+#endif
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0))
+/* Ideally header should be from standard include path. So this is not an
+ * ideal way of header inclusion but use of slab struct to derive cache
+ * from a mem ptr helps in avoiding additional tracking and/or adding headroom
+ * of 8 bytes for cache in the beginning of buffer and wasting extra memory,
+ * particulary in the case when size of memory requested falls around the edge
+ * of a page boundary. We also have precedence of minidump_memory.c which
+ * includes mm/slab.h using this style.
+ */
+#include "../mm/slab.h"
 #endif
 
 MODULE_LICENSE("GPL v2");
@@ -53,13 +69,32 @@ struct cnss_pool {
  */
 
 /* size, min pool reserve, name, memorypool handler, cache handler*/
-static struct cnss_pool cnss_pools[] = {
-	{8 * 1024, 22, "cnss-pool-8k", NULL, NULL},
+static struct cnss_pool cnss_pools_default[] = {
+	{8 * 1024, 16, "cnss-pool-8k", NULL, NULL},
 	{16 * 1024, 16, "cnss-pool-16k", NULL, NULL},
-	{32 * 1024, 6, "cnss-pool-32k", NULL, NULL},
-	{64 * 1024, 8, "cnss-pool-64k", NULL, NULL},
+	{32 * 1024, 22, "cnss-pool-32k", NULL, NULL},
+	{64 * 1024, 38, "cnss-pool-64k", NULL, NULL},
+	{128 * 1024, 10, "cnss-pool-128k", NULL, NULL},
+};
+
+static struct cnss_pool cnss_pools_adrastea[] = {
+	{8 * 1024, 2, "cnss-pool-8k", NULL, NULL},
+	{16 * 1024, 10, "cnss-pool-16k", NULL, NULL},
+	{32 * 1024, 8, "cnss-pool-32k", NULL, NULL},
+	{64 * 1024, 4, "cnss-pool-64k", NULL, NULL},
 	{128 * 1024, 2, "cnss-pool-128k", NULL, NULL},
 };
+
+static struct cnss_pool cnss_pools_wcn6750[] = {
+	{8 * 1024, 2, "cnss-pool-8k", NULL, NULL},
+	{16 * 1024, 8, "cnss-pool-16k", NULL, NULL},
+	{32 * 1024, 11, "cnss-pool-32k", NULL, NULL},
+	{64 * 1024, 15, "cnss-pool-64k", NULL, NULL},
+	{128 * 1024, 4, "cnss-pool-128k", NULL, NULL},
+};
+
+struct cnss_pool *cnss_pools;
+unsigned int cnss_prealloc_pool_size = ARRAY_SIZE(cnss_pools_default);
 
 /**
  * cnss_pool_alloc_threshold() - Allocation threshold
@@ -89,7 +124,7 @@ static int cnss_pool_init(void)
 {
 	int i;
 
-	for (i = 0; i < ARRAY_SIZE(cnss_pools); i++) {
+	for (i = 0; i < cnss_prealloc_pool_size; i++) {
 		/* Create the slab cache */
 		cnss_pools[i].cache =
 			kmem_cache_create_usercopy(cnss_pools[i].name,
@@ -134,13 +169,56 @@ static void cnss_pool_deinit(void)
 {
 	int i;
 
-	for (i = 0; i < ARRAY_SIZE(cnss_pools); i++) {
+	if (!cnss_pools)
+		return;
+
+	for (i = 0; i < cnss_prealloc_pool_size; i++) {
 		pr_info("cnss_prealloc: destroy mempool %s\n",
 			cnss_pools[i].name);
 		mempool_destroy(cnss_pools[i].mp);
 		kmem_cache_destroy(cnss_pools[i].cache);
+		cnss_pools[i].mp = NULL;
+		cnss_pools[i].cache = NULL;
 	}
 }
+
+void cnss_assign_prealloc_pool(unsigned long device_id)
+{
+	pr_info("cnss_prealloc: assign cnss pool for device id 0x%lx", device_id);
+
+	switch (device_id) {
+	case ADRASTEA_DEVICE_ID:
+		cnss_pools = cnss_pools_adrastea;
+		cnss_prealloc_pool_size = ARRAY_SIZE(cnss_pools_adrastea);
+		break;
+	case WCN6750_DEVICE_ID:
+		cnss_pools = cnss_pools_wcn6750;
+		cnss_prealloc_pool_size = ARRAY_SIZE(cnss_pools_wcn6750);
+		break;
+	case WCN6450_DEVICE_ID:
+	case QCA6390_DEVICE_ID:
+	case QCA6490_DEVICE_ID:
+	case MANGO_DEVICE_ID:
+	case PEACH_DEVICE_ID:
+	case KIWI_DEVICE_ID:
+	default:
+		cnss_pools = cnss_pools_default;
+		cnss_prealloc_pool_size = ARRAY_SIZE(cnss_pools_default);
+	}
+}
+
+void cnss_initialize_prealloc_pool(unsigned long device_id)
+{
+	cnss_assign_prealloc_pool(device_id);
+	cnss_pool_init();
+}
+EXPORT_SYMBOL(cnss_initialize_prealloc_pool);
+
+void cnss_deinitialize_prealloc_pool(void)
+{
+	cnss_pool_deinit();
+}
+EXPORT_SYMBOL(cnss_deinitialize_prealloc_pool);
 
 /**
  * cnss_pool_get_index() - Get the index of memory pool
@@ -151,6 +229,34 @@ static void cnss_pool_deinit(void)
  * value with error code in case of failure.
  *
  */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0))
+static int cnss_pool_get_index(void *mem)
+{
+	struct slab *slab;
+	struct kmem_cache *cache;
+	int i;
+
+	if (!virt_addr_valid(mem))
+		return -EINVAL;
+
+	/* mem -> slab -> cache */
+	slab = virt_to_slab(mem);
+	if (!slab)
+		return -ENOENT;
+
+	cache = slab->slab_cache;
+	if (!cache)
+		return -ENOENT;
+
+	/* Check if memory belongs to a pool */
+	for (i = 0; i < cnss_prealloc_pool_size; i++) {
+		if (cnss_pools[i].cache == cache)
+			return i;
+	}
+
+	return -ENOENT;
+}
+#else /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0)) */
 static int cnss_pool_get_index(void *mem)
 {
 	struct page *page;
@@ -169,15 +275,15 @@ static int cnss_pool_get_index(void *mem)
 	if (!cache)
 		return -ENOENT;
 
-
 	/* Check if memory belongs to a pool */
-	for (i = 0; i < ARRAY_SIZE(cnss_pools); i++) {
+	for (i = 0; i < cnss_prealloc_pool_size; i++) {
 		if (cnss_pools[i].cache == cache)
 			return i;
 	}
 
 	return -ENOENT;
 }
+#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0)) */
 
 /**
  * wcnss_prealloc_get() - Get preallocated memory from a pool
@@ -195,6 +301,9 @@ void *wcnss_prealloc_get(size_t size)
 	gfp_t gfp_mask = __GFP_ZERO;
 	int i;
 
+	if (!cnss_pools)
+		return mem;
+
 	if (in_interrupt() || !preemptible() || rcu_preempt_depth())
 		gfp_mask |= GFP_ATOMIC;
 	else
@@ -202,8 +311,8 @@ void *wcnss_prealloc_get(size_t size)
 
 	if (size >= cnss_pool_alloc_threshold()) {
 
-		for (i = 0; i < ARRAY_SIZE(cnss_pools); i++) {
-			if (cnss_pools[i].size >= size) {
+		for (i = 0; i < cnss_prealloc_pool_size; i++) {
+			if (cnss_pools[i].size >= size && cnss_pools[i].mp) {
 				mem = mempool_alloc(cnss_pools[i].mp, gfp_mask);
 				if (mem)
 					break;
@@ -234,12 +343,11 @@ int wcnss_prealloc_put(void *mem)
 {
 	int i;
 
-	if (!mem)
+	if (!mem || !cnss_pools)
 		return 0;
 
 	i = cnss_pool_get_index(mem);
-
-	if (i >= 0 && i < ARRAY_SIZE(cnss_pools)) {
+	if (i >= 0 && i < cnss_prealloc_pool_size && cnss_pools[i].mp) {
 		mempool_free(mem, cnss_pools[i].mp);
 		return 1;
 	}
@@ -285,12 +393,12 @@ static int __init cnss_prealloc_init(void)
 	if (!cnss_prealloc_is_valid_dt_node_found())
 		return -ENODEV;
 
-	return cnss_pool_init();
+	return 0;
 }
 
 static void __exit cnss_prealloc_exit(void)
 {
-	cnss_pool_deinit();
+	return;
 }
 
 module_init(cnss_prealloc_init);

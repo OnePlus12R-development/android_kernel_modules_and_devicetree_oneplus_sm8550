@@ -112,11 +112,13 @@ int find_in_plist(struct task_struct *p,  struct oplus_task_struct *ots)
 {
 	struct hot_thread_node *tmp;
 	bool is_find = false;
+	int cpuctl_id;
 
+	cpuctl_id = task_cgroup_id(p);
 	plist_for_each_entry(tmp, &hot_thread_head, node) {
 		if (tmp->hot_thread_struct.pid == p->pid) {
 			/*find the same node, just update hot thread info*/
-			if (is_topapp(p))
+			if (cpuctl_id ==  CGROUP_TOP_APP)
 				tmp->hot_thread_struct.top_app_cnt++;
 			else
 				tmp->hot_thread_struct.non_topapp_cnt++;
@@ -141,6 +143,7 @@ static int insert_hot_thread(struct oplus_task_struct *ots, struct task_struct *
 	struct task_struct *leader;
 	const struct cred *tcred;
 	uid_t uid;
+	int cpuctl_id;
 
 	rcu_read_lock();
 	tcred = __task_cred(p);
@@ -151,6 +154,7 @@ static int insert_hot_thread(struct oplus_task_struct *ots, struct task_struct *
 	}
 	uid = __kuid_val(tcred->uid);
 	rcu_read_unlock();
+	cpuctl_id = task_cgroup_id(p);
 	raw_spin_lock_irqsave(&hot_thread_lock, flags);
 	if (find_in_plist(p, ots) == -ESRCH) {
 			hot_thread_node = kmem_cache_zalloc(hot_thread_struct_cachep, GFP_ATOMIC);
@@ -169,7 +173,7 @@ static int insert_hot_thread(struct oplus_task_struct *ots, struct task_struct *
 			hot_thread_node->hot_thread_struct.uid = uid;
 			hot_thread_node->hot_thread_struct.top_app_cnt = 0;
 			hot_thread_node->hot_thread_struct.non_topapp_cnt = 0;
-			if (is_topapp(p))
+			if (cpuctl_id == CGROUP_TOP_APP)
 				hot_thread_node->hot_thread_struct.top_app_cnt = 1;
 			else
 				hot_thread_node->hot_thread_struct.non_topapp_cnt = 1;
@@ -234,23 +238,10 @@ static void cal_rq_num(void)
 	}
 }
 
-static struct task_record *get_task_record(struct task_struct *t,
-			u32 cluster)
-{
-	struct task_record *rc = NULL;
-	struct oplus_task_struct *ots = get_oplus_task_struct(t);
-
-	if (IS_ERR_OR_NULL(ots))
-		return NULL;
-
-	rc = (struct task_record *) (&(ots->record));
-	return (struct task_record *) (&rc[cluster]);
-}
 
 /* updated in each tick */
 void jank_hotthread_update_tick(struct task_struct *p, u64 now)
 {
-	struct task_record *record_p, *record_b;
 	struct oplus_task_struct *ots;
 	u64 timestamp, timestamp_prewin;
 	u32 now_idx;
@@ -262,24 +253,13 @@ void jank_hotthread_update_tick(struct task_struct *p, u64 now)
 	ots = get_oplus_task_struct(p);
 	cpu = p->cpu;
 	cluster_id = get_cluster_id(cpu);
-	record_p = get_task_record(p, cluster_id);
 
-	if (!record_p)
-		return;
-	if (record_p->winidx == get_record_winidx(now)) {
-		record_p->count++;
-	} else {
-		record_p->count = 1;
-	}
-
-	record_p->winidx = get_record_winidx(now);
 
 	now_idx = time2winidx(now);
 	if (unlikely(g_over_load)) {
 		insert_hot_thread(ots, p, now_idx);
 		count_rq_num(cpu);
 	}
-	record_b = &task_track[cluster_id].track[now_idx].record;
 	timestamp = task_track[cluster_id].track[now_idx].timestamp;
 	timestamp_prewin = hot_thread_top[now_idx][0].timestamp;
 	if (!is_same_idx(timestamp_prewin, now)) {
@@ -292,16 +272,6 @@ void jank_hotthread_update_tick(struct task_struct *p, u64 now)
 			}
 		}
 		hot_thread_top[now_idx][0].timestamp = now;
-	}
-	if (!is_same_idx(timestamp, now) || (record_p->count > record_b->count)) {
-		task_track[cluster_id].track[now_idx].pid = p->pid;
-		task_track[cluster_id].track[now_idx].tgid = p->tgid;
-
-		memcpy(task_track[cluster_id].track[now_idx].comm,
-			p->comm, TASK_COMM_LEN);
-		memcpy(record_b, record_p, sizeof(struct task_record));
-
-		task_track[cluster_id].track[now_idx].timestamp = now;
 	}
 }
 
@@ -339,42 +309,6 @@ void hotthread_show(struct seq_file *m, u32 win_idx, u64 now)
 
 void jank_hotthread_show(struct seq_file *m, u32 win_idx, u64 now)
 {
-	u32 i, idx, now_index;
-	u64 timestamp;
-	struct task_track *track_p;
-	struct task_struct *leader;
-	char *comm;
-	bool nospace = false;
-
-	now_index =  time2winidx(now);
-
-	for (i = 0; i < MAX_CLUSTER; i++) {
-		nospace = (i == MAX_CLUSTER-1) ? true : false;
-
-
-		idx = winidx_sub(now_index, win_idx);
-		track_p = &task_track[i].track[idx];
-		timestamp = track_p->timestamp;
-
-		leader = jank_find_get_task_by_vpid(track_p->tgid);
-		comm = leader ? leader->comm : track_p->comm;
-
-		/*
-		 * The following situations indicate that this thread is not hot
-		 *  a) task is null, which means no suitable task, or task is dead
-		 *  b) the time stamp is overdue
-		 *  c) count did not reach the threshold
-		 */
-		if (!timestamp_is_valid(timestamp, now))
-			seq_printf(m, "-%s", nospace ? "" : " ");
-		else
-			seq_printf(m, "%s$%d%s", comm,
-						track_p->record.count,
-						nospace ? "" : " ");
-
-		if (leader)
-			put_task_struct(leader);
-	}
 }
 
 static int  top_hotthread_dump_win(struct seq_file *m, void *v, u32 win_cnt)

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -98,17 +98,22 @@
 #define QDF_NBUF_TRAC_DOUBLE_VLAN_IP_OFFSET	22
 /* One dword for IPv4 header size unit */
 #define QDF_NBUF_IPV4_HDR_SIZE_UNIT	4
+#define QDF_NBUF_TRAC_IPV4_TOTAL_LEN_OFFSET 16
+#define QDF_NBUF_TRAC_IPV6_PAYLOAD_LEN_OFFSET 18
 
 /* EAPOL Related MASK */
 #define EAPOL_PACKET_TYPE_OFFSET		15
 #define EAPOL_KEY_INFO_OFFSET			19
 #define EAPOL_PKT_LEN_OFFSET			16
 #define EAPOL_KEY_LEN_OFFSET			21
+#define EAPOL_KEY_DATA_LENGTH_OFFSET		111
+#define EAPOL_WPA_KEY_NONCE_OFFSET		31
 
 #define EAPOL_PACKET_TYPE_EAP                   0
 #define EAPOL_PACKET_TYPE_START                 1
 #define EAPOL_PACKET_TYPE_LOGOFF                2
 #define EAPOL_PACKET_TYPE_KEY                   3
+#define EAPOL_PACKET_TYPE_ASF			4
 
 #define EAPOL_KEY_TYPE_MASK			0x0800
 #define EAPOL_KEY_ENCRYPTED_MASK		0x0010
@@ -147,6 +152,14 @@
 #define QDF_NBUF_PKT_TCPOP_ACK			0x10
 #define QDF_NBUF_PKT_TCP_SRC_PORT_OFFSET	34
 #define QDF_NBUF_PKT_TCP_DST_PORT_OFFSET	36
+#define QDF_NBUF_PKT_IPV4_TCP_HDR_LEN_OFFSET 46
+#define QDF_NBUF_PKT_IPV4_TCP_OPCODE_OFFSET 47
+#define QDF_NBUF_PKT_IPV6_TCP_HDR_LEN_OFFSET 66
+#define QDF_NBUF_PKT_IPV6_TCP_OPCODE_OFFSET 67
+#define QDF_NBUF_PKT_TCP_HDR_LEN_MASK 0xF0
+#define QDF_NBUF_PKT_TCP_HDR_LEN_LSB 4
+#define QDF_NBUF_PKT_TCP_HDR_LEN_UNIT 4
+#define QDF_NBUF_PKT_TCP_ACK_MAX_LEN 100
 
 /* DNS Related MASK */
 #define QDF_NBUF_PKT_DNS_OVER_UDP_OPCODE_OFFSET	44
@@ -201,6 +214,8 @@
 
 #define MAX_CHAIN 8
 #define QDF_MON_STATUS_MPDU_FCS_BMAP_NWORDS 8
+
+#define EHT_USER_INFO_LEN 4
 
 /**
  * @qdf_nbuf_queue_t - Platform independent packet queue abstraction
@@ -291,6 +306,7 @@ typedef __qdf_nbuf_queue_t qdf_nbuf_queue_t;
  * @reception_type: PPDU reception type
  * @ltf_size: ltf size
  * @tx_status: packet tx status
+ * @mu_dl_ul: MU down or up link, 0 downlink, 1 uplink
  * @rx_antenna: rx antenna
  * @vht_flag_values6: VHT flag value6
  * @he_mu_other_flags: HE MU other flag
@@ -407,7 +423,8 @@ struct mon_rx_status {
 		 add_rtap_ext2 : 1,
 		 reception_type : 4,
 		 ltf_size : 2,
-		 tx_status : 4;
+		 tx_status : 4,
+		 mu_dl_ul : 1;
 	uint32_t rx_antenna : 24;
 	uint16_t vht_flag_values6;
 	uint16_t he_mu_other_flags;
@@ -468,7 +485,7 @@ struct mon_rx_status {
 	uint32_t usig_mask;
 	uint32_t eht_known;
 	uint32_t eht_data[6];
-	uint32_t eht_user_info[4];
+	uint32_t eht_user_info[EHT_USER_INFO_LEN];
 #ifdef QCA_UNDECODED_METADATA_SUPPORT
 	uint32_t phyrx_abort:1,
 		 phyrx_abort_reason:8,
@@ -1031,6 +1048,7 @@ enum qdf_reception_type {
  * @CB_FTYPE_MESH_TX_INFO - Mesh Tx information
  * @CB_FTYPE_DMS - Directed Multicast Service
  * @CB_FTYPE_SAWF - SAWF information
+ * @CB_FTYPE_MLO_MCAST - MLO MCAST enable information
  */
 enum cb_ftype {
 	CB_FTYPE_INVALID = 0,
@@ -1044,6 +1062,7 @@ enum cb_ftype {
 	CB_FTYPE_MESH_TX_INFO = 8,
 	CB_FTYPE_DMS = 9,
 	CB_FTYPE_SAWF = 10,
+	CB_FTYPE_MLO_MCAST = 11,
 };
 
 /**
@@ -1370,6 +1389,18 @@ static inline
 void qdf_nbuf_queue_head_purge(qdf_nbuf_queue_head_t *nbuf_queue_head)
 {
 	return __qdf_nbuf_queue_head_purge(nbuf_queue_head);
+}
+
+/**
+ * qdf_nbuf_queue_empty() - dequeue nbuf from the head of queue
+ * @nbuf_queue_head: pointer to nbuf queue head
+ *
+ * Return: true if queue is empty else false
+ */
+static inline
+int qdf_nbuf_queue_empty(qdf_nbuf_queue_head_t *nbuf_queue_head)
+{
+	return __qdf_nbuf_queue_empty(nbuf_queue_head);
 }
 
 /**
@@ -1966,6 +1997,45 @@ static inline qdf_nbuf_t qdf_nbuf_next(qdf_nbuf_t buf)
 	return __qdf_nbuf_next(buf);
 }
 
+#ifdef IPA_OFFLOAD
+/**
+ * qdf_nbuf_smmu_map_debug() - map smmu buffer
+ * @nbuf: network buffer
+ * @hdl: ipa handle
+ * @num_buffers: number of buffers
+ * @info: memory info
+ * @func: function name
+ * @line: line number
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS qdf_nbuf_smmu_map_debug(qdf_nbuf_t nbuf,
+				   uint8_t hdl,
+				   uint8_t num_buffers,
+				   qdf_mem_info_t *info,
+				   const char *func,
+				   uint32_t line);
+
+/**
+ * qdf_nbuf_smmu_unmap_debug() - unmap smmu buffer
+ * @nbuf: network buffer
+ * @hdl: ipa handle
+ * @num_buffers: number of buffers
+ * @info: memory info
+ * @func: function name
+ * @line: line number
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS qdf_nbuf_smmu_unmap_debug(qdf_nbuf_t nbuf,
+				     uint8_t hdl,
+				     uint8_t num_buffers,
+				     qdf_mem_info_t *info,
+				     const char *func,
+				     uint32_t line);
+
+#endif /* IPA_OFFLOAD */
+
 #ifdef NBUF_MEMORY_DEBUG
 
 #define QDF_NET_BUF_TRACK_MAX_SIZE    (1024)
@@ -2012,42 +2082,6 @@ void qdf_net_buf_debug_update_map_node(qdf_nbuf_t net_buf,
 				       const char *func_name,
 				       uint32_t line_num);
 
-/**
- * qdf_nbuf_smmu_map_debug() - map smmu buffer
- * @nbuf: network buffer
- * @hdl: ipa handle
- * @num_buffers: number of buffers
- * @info: memory info
- * @func: function name
- * @line: line number
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS qdf_nbuf_smmu_map_debug(qdf_nbuf_t nbuf,
-				   uint8_t hdl,
-				   uint8_t num_buffers,
-				   qdf_mem_info_t *info,
-				   const char *func,
-				   uint32_t line);
-
-/**
- * qdf_nbuf_smmu_unmap_debug() - unmap smmu buffer
- * @nbuf: network buffer
- * @hdl: ipa handle
- * @num_buffers: number of buffers
- * @info: memory info
- * @func: function name
- * @line: line number
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS qdf_nbuf_smmu_unmap_debug(qdf_nbuf_t nbuf,
-				     uint8_t hdl,
-				     uint8_t num_buffers,
-				     qdf_mem_info_t *info,
-				     const char *func,
-				     uint32_t line);
-
 #ifdef NBUF_SMMU_MAP_UNMAP_DEBUG
 /**
  * qdf_nbuf_map_check_for_smmu_leaks() - check for nbuf smmu map leaks
@@ -2091,7 +2125,7 @@ void qdf_net_buf_debug_update_smmu_unmap_node(qdf_nbuf_t nbuf,
 					      unsigned long pa,
 					      const char *func,
 					      uint32_t line);
-#endif
+#endif /* NBUF_SMMU_MAP_UNMAP_DEBUG */
 
 /**
  * qdf_net_buf_debug_update_unmap_node() - update nbuf in debug
@@ -2230,6 +2264,29 @@ qdf_nbuf_t
 qdf_nbuf_unshare_debug(qdf_nbuf_t buf, const char *func_name,
 		       uint32_t line_num);
 
+/**
+ * qdf_nbuf_kfree_list() - Free nbuf list using kfree
+ * @buf: Pointer to network buffer head
+ *
+ * This function is called to free the nbuf list on failure cases
+ *
+ * Return: None
+ */
+#define qdf_nbuf_dev_kfree_list(d) \
+	qdf_nbuf_dev_kfree_list_debug(d, __func__, __LINE__)
+
+void
+qdf_nbuf_dev_kfree_list_debug(qdf_nbuf_queue_head_t *nbuf_queue_head,
+			      const char *func_name,
+			      uint32_t line_num);
+
+#define qdf_nbuf_page_frag_alloc(d, s, r, a, p) \
+	qdf_nbuf_page_frag_alloc_debug(d, s, r, a, p, __func__, __LINE__)
+
+qdf_nbuf_t
+qdf_nbuf_page_frag_alloc_debug(qdf_device_t osdev, qdf_size_t size, int reserve,
+			       int align, qdf_frag_cache_t *pf_cache,
+			       const char *func, uint32_t line);
 #else /* NBUF_MEMORY_DEBUG */
 
 static inline void qdf_net_buf_debug_init(void) {}
@@ -2359,7 +2416,50 @@ static inline qdf_nbuf_t qdf_nbuf_unshare(qdf_nbuf_t buf)
 {
 	return __qdf_nbuf_unshare(buf);
 }
+
+/**
+ * qdf_nbuf_kfree_list() - Free nbuf list using kfree
+ * @buf: Pointer to network buffer head
+ *
+ * This function is called to free the nbuf list on failure cases
+ *
+ * Return: None
+ */
+static inline void
+qdf_nbuf_dev_kfree_list(qdf_nbuf_queue_head_t *nbuf_queue_head)
+{
+	__qdf_nbuf_dev_kfree_list(nbuf_queue_head);
+}
+
+#define qdf_nbuf_page_frag_alloc(osdev, size, reserve, align, pf_cache) \
+	qdf_nbuf_page_frag_alloc_fl(osdev, size, reserve, align, pf_cache, \
+			  __func__, __LINE__)
+
+static inline qdf_nbuf_t
+qdf_nbuf_page_frag_alloc_fl(qdf_device_t osdev, qdf_size_t size, int reserve,
+			    int align, qdf_frag_cache_t *pf_cache,
+			    const char *func, uint32_t line)
+{
+	return __qdf_nbuf_page_frag_alloc(osdev, size, reserve, align, pf_cache,
+					  func, line);
+}
 #endif /* NBUF_MEMORY_DEBUG */
+
+/**
+ * qdf_nbuf_dev_queue_head() - Queue a buffer at the list head
+ * @nbuf_queue_head: Pointer to buffer list head
+ * @buff: Pointer to network buffer head
+ *
+ * This function is called to queue a buffer at the list head
+ *
+ * Return: None
+ */
+static inline void
+qdf_nbuf_dev_queue_head(qdf_nbuf_queue_head_t *nbuf_queue_head,
+			qdf_nbuf_t buf)
+{
+	__qdf_nbuf_dev_queue_head(nbuf_queue_head, buf);
+}
 
 /**
  * qdf_nbuf_kfree() - Free nbuf using kfree
@@ -4148,6 +4248,75 @@ bool qdf_nbuf_is_mcast_replay(qdf_nbuf_t buf)
 	return __qdf_nbuf_is_mcast_replay(buf);
 }
 
+#ifdef DP_TX_PACKET_INSPECT_FOR_ILP
+/* Reuse bit24~31 in skb->priority for packet type */
+#define QDF_NBUF_PRIORITY_PKT_TYPE_MASK 0xFF000000
+#define QDF_NBUF_PRIORITY_PKT_TYPE_LSB 24
+/* TCP ACK */
+#define QDF_NBUF_PRIORITY_PKT_TCP_ACK 0x1
+
+#define QDF_NBUF_GET_PRIORITY_PKT_TYPE(_pri) \
+	(((_pri) & QDF_NBUF_PRIORITY_PKT_TYPE_MASK) >> \
+	 QDF_NBUF_PRIORITY_PKT_TYPE_LSB)
+
+#define QDF_NBUF_PRIORITY_PKT_TYPE(_pkt_type) \
+	(((_pkt_type) << QDF_NBUF_PRIORITY_PKT_TYPE_LSB) & \
+	 QDF_NBUF_PRIORITY_PKT_TYPE_MASK)
+
+/**
+ * qdf_nbuf_get_priority_pkt_type() - Get packet type from priority
+ * @nbuf: pointer to network buffer
+ *
+ * Return: packet type
+ */
+static inline
+uint8_t qdf_nbuf_get_priority_pkt_type(qdf_nbuf_t nbuf)
+{
+	return QDF_NBUF_GET_PRIORITY_PKT_TYPE(nbuf->priority);
+}
+
+/**
+ * qdf_nbuf_set_priority_pkt_type() - Set packet type to priority
+ * @nbuf: pointer to network buffer
+ * @pkt_type: packet type to be set
+ *
+ * Return: none
+ */
+static inline
+void qdf_nbuf_set_priority_pkt_type(qdf_nbuf_t nbuf, uint8_t pkt_type)
+{
+	nbuf->priority |= QDF_NBUF_PRIORITY_PKT_TYPE(pkt_type);
+}
+
+/**
+ * qdf_nbuf_remove_priority_pkt_type() - Remove the packet type bits
+ *					 from priority
+ * @@nbuf: pointer to network buffer
+ *
+ * Return: none
+ */
+static inline
+void qdf_nbuf_remove_priority_pkt_type(qdf_nbuf_t nbuf)
+{
+	nbuf->priority &= ~QDF_NBUF_PRIORITY_PKT_TYPE_MASK;
+}
+#endif
+
+/**
+ * qdf_nbuf_is_ipv4_v6_pure_tcp_ack() - check if it is pure tcp ack
+ *					without data payload
+ * @buf: Network buffer
+ *
+ * Check whether the packet is pure TCP ack without data payload.
+ *
+ * Return : true if TCP ack, else return false
+ */
+static inline
+bool qdf_nbuf_is_ipv4_v6_pure_tcp_ack(qdf_nbuf_t buf)
+{
+	return __qdf_nbuf_is_ipv4_v6_pure_tcp_ack(buf);
+}
+
 /**
  * qdf_nbuf_is_arp_local() - check if it is local or no local arp
  * @buf: Network buffer
@@ -4827,6 +4996,18 @@ static inline qdf_size_t qdf_nbuf_get_end_offset(qdf_nbuf_t nbuf)
 static inline qdf_size_t qdf_nbuf_get_truesize(qdf_nbuf_t nbuf)
 {
 	return __qdf_nbuf_get_truesize(nbuf);
+}
+
+/**
+ * qdf_nbuf_get_allocsize() - Return the actual size of the skb->head
+ * excluding the header and variable data area
+ * @nbuf: qdf_nbuf_t
+ *
+ * Return: actual allocated size of network buffer
+ */
+static inline qdf_size_t qdf_nbuf_get_allocsize(qdf_nbuf_t nbuf)
+{
+	return __qdf_nbuf_get_allocsize(nbuf);
 }
 
 #ifdef NBUF_FRAG_MEMORY_DEBUG

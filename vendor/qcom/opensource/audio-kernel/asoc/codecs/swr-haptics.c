@@ -16,6 +16,7 @@
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
 #include <linux/soc/qcom/battery_charger.h>
+#include <dsp/digital-cdc-rsc-mgr.h>
 
 #define HAPTICS_RATES (SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_16000 |\
 		SNDRV_PCM_RATE_32000 | SNDRV_PCM_RATE_48000 |\
@@ -369,7 +370,7 @@ static int hap_enable_swr_dac_port(struct snd_soc_dapm_widget *w,
 		swr_device_wakeup_vote(swr_hap->swr_slave);
 #endif /* OPLUS_ARCH_EXTENDS */
 		/* stop SWR play */
-		val = 0;
+		val = SWR_PLAY_SRC_VAL_SWR;
 		rc = regmap_write(swr_hap->regmap, SWR_PLAY_REG, val);
 		if (rc) {
 			dev_err_ratelimited(swr_hap->dev, "%s: Enable SWR_PLAY failed, rc=%d\n",
@@ -771,7 +772,7 @@ static int swr_haptics_suspend(struct device *dev)
 		dev_err_ratelimited(dev, "%s: no data for swr_hap\n", __func__);
 		return -ENODEV;
 	}
-	trace_printk("%s: suspended\n", __func__);
+	TRACE_PRINTK("%s: suspended\n", __func__);
 
 	return rc;
 }
@@ -786,7 +787,7 @@ static int swr_haptics_resume(struct device *dev)
 		dev_err_ratelimited(dev, "%s: no data for swr_hap\n", __func__);
 		return -ENODEV;
 	}
-	trace_printk("%s: resumed\n", __func__);
+	TRACE_PRINTK("%s: resumed\n", __func__);
 
 	return rc;
 }

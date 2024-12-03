@@ -218,7 +218,7 @@ u64 msm_vidc_calc_freq_iris3(struct msm_vidc_inst *inst, u32 data_size)
 				vsp_cycles += div_u64(vsp_cycles * 25, 100);
 			}
 
-			if (inst->codec == MSM_VIDC_VP9 &&
+			if ((inst->codec == MSM_VIDC_VP9 || inst->codec == MSM_VIDC_HEVC) &&
 					inst->capabilities->cap[STAGE].value ==
 						MSM_VIDC_STAGE_2 &&
 					inst->capabilities->cap[PIPE].value == 4 &&

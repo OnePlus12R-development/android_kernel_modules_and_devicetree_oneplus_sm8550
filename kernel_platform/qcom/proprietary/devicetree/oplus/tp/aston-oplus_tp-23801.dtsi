@@ -144,7 +144,8 @@
 
 	devinfo_salami {
 		status = "disabled";
-    };
+	};
+
 	devinfo_aston {
 		compatible = "oplus-devinfo";
 
@@ -165,6 +166,11 @@
 		};
 	};
 
+	gpio_keys {
+		vol_up {
+			debounce-interval = <32>;
+		};
+	};
 };
 
 &qupv3_se4_i2c {
@@ -409,5 +415,7 @@
 		interf_down_tolen = <3000 3000 3700 3700>;
 		position_judge_tolen = <4000 5000>;
 		default_position_xtolen = <3000 3000>;
+		exception_upload_support;
+		health_monitor_support;
 	};
 };

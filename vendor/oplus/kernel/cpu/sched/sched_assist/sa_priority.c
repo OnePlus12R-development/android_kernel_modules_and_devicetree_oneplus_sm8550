@@ -358,7 +358,8 @@ void update_ux_timeline_task_change(struct oplus_rq *orq, struct oplus_task_stru
 	rb_add_cached(&ots->ux_entry, &orq->ux_list, __entity_less);
 }
 
-void update_ux_timeline_task_tick(struct oplus_rq *orq, struct oplus_task_struct *ots) {
+void update_ux_timeline_task_tick(struct oplus_rq *orq, struct oplus_task_struct *ots)
+{
 	struct rb_node *next;
 	struct oplus_task_struct *ots_next;
 	bool need_update_min_vrt;
@@ -440,7 +441,7 @@ void update_ux_timeline_task_removal(struct oplus_rq *orq, struct oplus_task_str
 		* When switch to next task, next task's exec_vruntime may begin at zero again.
 		* follow up exec_vruntime let orq->min_vruntime move on.
 		*/
-		struct oplus_task_struct * first_ots;
+		struct oplus_task_struct *first_ots;
 		u64 exec_vruntime;
 
 		first_ots = exec_timeline_first_entry(&orq->exec_timeline);

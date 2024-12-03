@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -94,6 +94,7 @@ struct weight_cfg {
  * @good_rssi_bucket_size: Channel band weightage
  * @bad_rssi_bucket_size: NSS weightage
  * @rssi_pref_5g_rssi_thresh: Beamforming caps weightage
+ * @con_non_hint_target_rssi_threshold: RSSI threshold value
  */
 struct rssi_config_score  {
 	uint8_t best_rssi_threshold;
@@ -104,6 +105,7 @@ struct rssi_config_score  {
 	uint8_t good_rssi_bucket_size;
 	uint8_t bad_rssi_bucket_size;
 	uint8_t rssi_pref_5g_rssi_thresh;
+	int8_t con_non_hint_target_rssi_threshold;
 };
 
 /**
@@ -230,9 +232,10 @@ enum cm_security_idx {
  * @is_bssid_hint_priority: True if bssid_hint is given priority
  * @check_assoc_disallowed: Should assoc be disallowed if MBO OCE IE indicate so
  * @vendor_roam_score_algorithm: Preferred ETP vendor roam score algorithm
- * @check_6ghz_security: check security for 6Ghz candidate
- * @relaxed_6ghz_conn_policy: check for 6Ghz relaxed connection policy
- * @key_mgmt_mask_6ghz: user configurable mask for 6ghz AKM
+ * @check_6ghz_security: check security for 6 GHz candidate
+ * @standard_6ghz_conn_policy: check for 6 GHz standard connection policy
+ * @disable_vlp_sta_conn_to_sp_ap: check for disable vlp sta conn to sp ap
+ * @key_mgmt_mask_6ghz: user configurable mask for 6 GHz AKM
  * @mlsr_link_selection: MLSR link selection config
  * @roam_tgt_score_cap: Roam score capability
  * @security_weight_per_index: security weight per index
@@ -249,7 +252,9 @@ struct scoring_cfg {
 		 check_assoc_disallowed:1,
 		 vendor_roam_score_algorithm:1,
 		 check_6ghz_security:1,
-		 relaxed_6ghz_conn_policy:1;
+		 standard_6ghz_conn_policy:1,
+		 disable_vlp_sta_conn_to_sp_ap:1;
+
 	uint32_t key_mgmt_mask_6ghz;
 #ifdef WLAN_FEATURE_11BE_MLO
 	uint8_t mlsr_link_selection;
@@ -323,13 +328,15 @@ wlan_denylist_action_on_bssid(struct wlan_objmgr_pdev *pdev,
  * @scan_list: scan list, contains the input list and after the
  *             func it will have sorted list
  * @bssid_hint: bssid hint
+ * @self_mac: connecting vdev self mac address
  *
  * Return: void
  */
 void wlan_cm_calculate_bss_score(struct wlan_objmgr_pdev *pdev,
 				 struct pcl_freq_weight_list *pcl_lst,
 				 qdf_list_t *scan_list,
-				 struct qdf_mac_addr *bssid_hint);
+				 struct qdf_mac_addr *bssid_hint,
+				 struct qdf_mac_addr *self_mac);
 
 /**
  * wlan_cm_init_score_config() - Init score INI and config
@@ -404,22 +411,43 @@ void wlan_cm_set_6ghz_key_mgmt_mask(struct wlan_objmgr_psoc *psoc,
 uint32_t wlan_cm_get_6ghz_key_mgmt_mask(struct wlan_objmgr_psoc *psoc);
 
 /**
- * wlan_cm_set_relaxed_6ghz_conn_policy() - Set 6Ghz relaxed connection policy
+ * wlan_cm_get_disable_vlp_sta_conn_to_sp_ap() - Set disable vlp sta connection
+ *                                               to sp ap
+ * @psoc: pointer to psoc object
+ *
+ * Return: value
+ */
+bool wlan_cm_get_disable_vlp_sta_conn_to_sp_ap(struct wlan_objmgr_psoc *psoc);
+
+/**
+ * wlan_cm_set_disable_vlp_sta_conn_to_sp_ap() - Set disable vlp sta connection
+ *                                               to sp ap
  * @psoc: pointer to psoc object
  * @value: value to be set
  *
  * Return: void
  */
-void wlan_cm_set_relaxed_6ghz_conn_policy(struct wlan_objmgr_psoc *psoc,
-					  bool value);
+void wlan_cm_set_disable_vlp_sta_conn_to_sp_ap(struct wlan_objmgr_psoc *psoc,
+					       bool value);
 /**
- * wlan_cm_get_relaxed_6ghz_conn_policy() - Get 6Ghz relaxed connection policy
- *                                          flag
+ * wlan_cm_set_standard_6ghz_conn_policy() - Set 6 GHz standard connection
+ *					     policy
+ * @psoc: pointer to psoc object
+ * @value: value to be set
+ *
+ * Return: void
+ */
+void wlan_cm_set_standard_6ghz_conn_policy(struct wlan_objmgr_psoc *psoc,
+					   bool value);
+
+/**
+ * wlan_cm_get_standard_6ghz_conn_policy() - Get 6Ghz standard connection
+ *					     policy
  * @psoc: pointer to psoc object
  *
  * Return: value
  */
-bool wlan_cm_get_relaxed_6ghz_conn_policy(struct wlan_objmgr_psoc *psoc);
+bool wlan_cm_get_standard_6ghz_conn_policy(struct wlan_objmgr_psoc *psoc);
 
 #else
 static inline bool
@@ -445,6 +473,29 @@ bool wlan_cm_get_check_6ghz_security(struct wlan_objmgr_psoc *psoc)
 }
 
 static inline
+void wlan_cm_set_standard_6ghz_conn_policy(struct wlan_objmgr_psoc *psoc,
+					   uint32_t value)
+{
+}
+
+static inline
+bool wlan_cm_get_standard_6ghz_conn_policy(struct wlan_objmgr_psoc *psoc)
+{
+	return false;
+}
+
+static inline
+void wlan_cm_set_disable_vlp_sta_conn_to_sp_ap(struct wlan_objmgr_psoc *psoc,
+					       bool value)
+{}
+
+static inline
+bool wlan_cm_get_disable_vlp_sta_conn_to_sp_ap(struct wlan_objmgr_psoc *psoc)
+{
+	return false;
+}
+
+static inline
 void wlan_cm_set_6ghz_key_mgmt_mask(struct wlan_objmgr_psoc *psoc,
 				    uint32_t value) {}
 
@@ -452,17 +503,6 @@ static inline
 uint32_t wlan_cm_get_6ghz_key_mgmt_mask(struct wlan_objmgr_psoc *psoc)
 {
 	return DEFAULT_KEYMGMT_6G_MASK;
-}
-
-static inline
-void wlan_cm_set_relaxed_6ghz_conn_policy(struct wlan_objmgr_psoc *psoc,
-					  bool value)
-{}
-
-static inline
-bool wlan_cm_get_relaxed_6ghz_conn_policy(struct wlan_objmgr_psoc *psoc)
-{
-	return false;
 }
 #endif
 

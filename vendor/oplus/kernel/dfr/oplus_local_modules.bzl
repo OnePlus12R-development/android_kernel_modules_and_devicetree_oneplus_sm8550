@@ -24,11 +24,6 @@ def define_oplus_local_modules():
             "**/*.h",
             "common/hung_task_enhance/hung_task_enhance.c",
         ]),
-
-        conditional_defines = {
-            "mtk":  ["CONFIG_OPLUS_SYSTEM_KERNEL_MTK"],
-            "qcom": ["CONFIG_OPLUS_SYSTEM_KERNEL_QCOM"],
-        },
         includes = ["."],
         ko_deps = [
             "//vendor/oplus/kernel/dfr:oplus_bsp_dfr_theia",
@@ -38,6 +33,7 @@ def define_oplus_local_modules():
             "CONFIG_OPLUS_FEATURE_THEIA",
             "CONFIG_OPLUS_FEATURE_DEATH_HEALER",
             "CONFIG_OPLUS_BSP_DFR_USERSPACE_BACKTRACE",
+            "CONFIG_OPLUS_FEATURE_HUNGTASK_GAIA",
         ],
     )
 
@@ -163,7 +159,11 @@ def define_oplus_local_modules():
         conditional_srcs = {
             "CONFIG_OPLUS_DDK_MTK": {
                 True:  ["mtk/oplus_pmic_monitor_mtk/oplus_pmic_info_get_mtk.c","mtk/oplus_pmic_monitor_mtk/main.c"],
-                False: ["qcom/qcom_pmic_monitor/oplus_pmic_info_smem.c","qcom/qcom_pmic_monitor/main.c","qcom/qcom_pmic_monitor/oplus_pmic_machine_state.c"],
+                False: ["qcom/qcom_pmic_monitor/oplus_pmic_info_smem.c",
+			"qcom/qcom_pmic_monitor/main.c",
+			"qcom/qcom_pmic_monitor/oplus_pmic_machine_state.c",
+			"qcom/qcom_pmic_monitor/oplus_ocp_dev.c",
+			"qcom/qcom_pmic_monitor/oplus_ocp_state_nvmem.c"],
             }
         },
         includes = ["."],
@@ -200,6 +200,49 @@ def define_oplus_local_modules():
         includes = ["."],
     )
 
+    define_oplus_ddk_module(
+        name = "oplus_inject",
+        srcs = native.glob([
+            "**/*.h",
+            "fault_inject/common/oplus_inject_hook.c",
+            "fault_inject/common/oplus_inject_proc.c",
+        ]),
+        includes = ["."],
+        conditional_build = {
+            "OPLUS_FEATURE_BSP_DRV_INJECT_TEST": "1",
+        },
+    )
+
+    define_oplus_ddk_module(
+        name = "oplus_inject_aw8692x",
+        srcs = native.glob([
+            "**/*.h",
+        ]),
+        conditional_srcs = {
+            "CONFIG_OPLUS_DDK_MTK": {
+                True:  ["fault_inject/vibrator/oplus_inject_aw8692x.c"],
+                False: ["fault_inject/vibrator/oplus_inject_haptics.c"],
+            },
+        },
+        ko_deps = [
+            "//vendor/oplus/kernel/dfr:oplus_inject",
+        ],
+        includes = ["."],
+        conditional_build = {
+            "OPLUS_FEATURE_BSP_DRV_INJECT_TEST": "1",
+        },
+    )
+
+    define_oplus_ddk_module(
+        name = "oplus_bsp_dfr_ordump",
+        srcs = native.glob([
+            "**/*.h",
+            "qcom/oplus_ordump/ordump.c",
+        ]),
+        includes = ["."],
+        local_defines = ["CONFIG_OPLUS_FEATURE_FULLDUMP_BACK"],
+    )
+
     ddk_copy_to_dist_dir(
         name = "oplus_bsp_dfr",
         module_list = [
@@ -217,5 +260,16 @@ def define_oplus_local_modules():
             "oplus_bsp_dfr_dump_device_info",
             "oplus_bsp_dfr_dump_reason",
             "oplus_bsp_dfr_pmic_watchdog",
+            "oplus_inject",
+            "oplus_inject_aw8692x",
+            "oplus_bsp_dfr_ordump",
         ],
+        conditional_builds = {
+            "oplus_inject_aw8692x": {
+                "OPLUS_FEATURE_BSP_DRV_INJECT_TEST": "1",
+            },
+            "oplus_inject": {
+                "OPLUS_FEATURE_BSP_DRV_INJECT_TEST": "1",
+            },
+        },
     )

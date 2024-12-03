@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -2107,15 +2107,15 @@ wmi_fill_data_synch_frame_event(struct rso_config *rso_cfg,
 	uint8_t *reassoc_req_ptr;
 
 	/* Beacon/Probe Rsp data */
-	roam_sync_ind->beaconProbeRespOffset =
+	roam_sync_ind->beacon_probe_resp_offset =
 		sizeof(struct roam_offload_synch_ind);
 	bcn_probersp_ptr = (uint8_t *)roam_sync_ind +
-		roam_sync_ind->beaconProbeRespOffset;
-	roam_sync_ind->beaconProbeRespLength =
+		roam_sync_ind->beacon_probe_resp_offset;
+	roam_sync_ind->beacon_probe_resp_length =
 		rso_cfg->roam_sync_frame_ind.bcn_probe_rsp_len;
 	qdf_mem_copy(bcn_probersp_ptr,
 		     rso_cfg->roam_sync_frame_ind.bcn_probe_rsp,
-		     roam_sync_ind->beaconProbeRespLength);
+		     roam_sync_ind->beacon_probe_resp_length);
 	qdf_mem_free(rso_cfg->roam_sync_frame_ind.bcn_probe_rsp);
 	rso_cfg->roam_sync_frame_ind.bcn_probe_rsp = NULL;
 
@@ -2123,7 +2123,7 @@ wmi_fill_data_synch_frame_event(struct rso_config *rso_cfg,
 	if (rso_cfg->roam_sync_frame_ind.link_bcn_probe_rsp) {
 		roam_sync_ind->link_beacon_probe_resp_offset =
 			sizeof(struct roam_offload_synch_ind) +
-			roam_sync_ind->beaconProbeRespLength;
+			roam_sync_ind->beacon_probe_resp_length;
 		roam_sync_ind->link_beacon_probe_resp_length =
 			rso_cfg->roam_sync_frame_ind.link_bcn_probe_rsp_len;
 		roam_sync_ind->is_link_beacon =
@@ -2138,26 +2138,26 @@ wmi_fill_data_synch_frame_event(struct rso_config *rso_cfg,
 	}
 
 	/* ReAssoc Rsp data */
-	roam_sync_ind->reassocRespOffset =
+	roam_sync_ind->reassoc_resp_offset =
 		sizeof(struct roam_offload_synch_ind) +
-		roam_sync_ind->beaconProbeRespLength +
+		roam_sync_ind->beacon_probe_resp_length +
 		roam_sync_ind->link_beacon_probe_resp_length;
-	roam_sync_ind->reassocRespLength =
+	roam_sync_ind->reassoc_resp_length =
 		rso_cfg->roam_sync_frame_ind.reassoc_rsp_len;
 	reassoc_rsp_ptr = (uint8_t *)roam_sync_ind +
-			  roam_sync_ind->reassocRespOffset;
+			  roam_sync_ind->reassoc_resp_offset;
 	qdf_mem_copy(reassoc_rsp_ptr,
 		     rso_cfg->roam_sync_frame_ind.reassoc_rsp,
-		     roam_sync_ind->reassocRespLength);
+		     roam_sync_ind->reassoc_resp_length);
 	qdf_mem_free(rso_cfg->roam_sync_frame_ind.reassoc_rsp);
 	rso_cfg->roam_sync_frame_ind.reassoc_rsp = NULL;
 
 	/* ReAssoc Req data */
 	roam_sync_ind->reassoc_req_offset =
 		sizeof(struct roam_offload_synch_ind) +
-		roam_sync_ind->beaconProbeRespLength +
+		roam_sync_ind->beacon_probe_resp_length +
 		roam_sync_ind->link_beacon_probe_resp_length +
-		roam_sync_ind->reassocRespLength;
+		roam_sync_ind->reassoc_resp_length;
 	roam_sync_ind->reassoc_req_length =
 		rso_cfg->roam_sync_frame_ind.reassoc_req_len;
 	reassoc_req_ptr = (uint8_t *)roam_sync_ind +
@@ -2195,34 +2195,34 @@ wmi_fill_data_synch_event(struct roam_offload_synch_ind *roam_sync_ind,
 	synch_event = param_buf->fixed_param;
 
 	/* Beacon/Probe Rsp data */
-	roam_sync_ind->beaconProbeRespOffset =
+	roam_sync_ind->beacon_probe_resp_offset =
 		sizeof(struct roam_offload_synch_ind);
 	bcn_probersp_ptr = (uint8_t *)roam_sync_ind +
-		roam_sync_ind->beaconProbeRespOffset;
-	roam_sync_ind->beaconProbeRespLength =
+		roam_sync_ind->beacon_probe_resp_offset;
+	roam_sync_ind->beacon_probe_resp_length =
 		synch_event->bcn_probe_rsp_len;
 	qdf_mem_copy(bcn_probersp_ptr, param_buf->bcn_probe_rsp_frame,
-		     roam_sync_ind->beaconProbeRespLength);
+		     roam_sync_ind->beacon_probe_resp_length);
 	/*
 	 * Firmware doesn't support link beacon/Probe Rsp data in roam sync
 	 * event. It's always sent in sync_frame event
 	 */
 	/* ReAssoc Rsp data */
-	roam_sync_ind->reassocRespOffset =
+	roam_sync_ind->reassoc_resp_offset =
 		sizeof(struct roam_offload_synch_ind) +
-		roam_sync_ind->beaconProbeRespLength;
-	roam_sync_ind->reassocRespLength = synch_event->reassoc_rsp_len;
+		roam_sync_ind->beacon_probe_resp_length;
+	roam_sync_ind->reassoc_resp_length = synch_event->reassoc_rsp_len;
 	reassoc_rsp_ptr = (uint8_t *)roam_sync_ind +
-			  roam_sync_ind->reassocRespOffset;
+			  roam_sync_ind->reassoc_resp_offset;
 	qdf_mem_copy(reassoc_rsp_ptr,
 		     param_buf->reassoc_rsp_frame,
-		     roam_sync_ind->reassocRespLength);
+		     roam_sync_ind->reassoc_resp_length);
 
 	/* ReAssoc Req data */
 	roam_sync_ind->reassoc_req_offset =
 		sizeof(struct roam_offload_synch_ind) +
-		roam_sync_ind->beaconProbeRespLength +
-		roam_sync_ind->reassocRespLength;
+		roam_sync_ind->beacon_probe_resp_length +
+		roam_sync_ind->reassoc_resp_length;
 	roam_sync_ind->reassoc_req_length = synch_event->reassoc_req_len;
 	reassoc_req_ptr = (uint8_t *)roam_sync_ind +
 			  roam_sync_ind->reassoc_req_offset;
@@ -2263,6 +2263,13 @@ wmi_fill_roam_mlo_info(wmi_unified_t wmi_handle,
 
 			WMI_MAC_ADDR_TO_CHAR_ARRAY(&setup_links->link_addr,
 						   link->link_addr.bytes);
+			wmi_debug("link_id: %u vdev_id: %u flags: 0x%x addr:" QDF_MAC_ADDR_FMT,
+				  link->link_id, link->vdev_id,
+				  link->flags, link->link_addr.bytes);
+			wmi_debug("channel: %u mhz center_freq1: %u center_freq2: %u",
+				  link->channel.mhz,
+				  link->channel.band_center_freq1,
+				  link->channel.band_center_freq2);
 			setup_links++;
 		}
 	}
@@ -2280,6 +2287,8 @@ wmi_fill_roam_mlo_info(wmi_unified_t wmi_handle,
 				     WMI_MAX_PN_LEN);
 			qdf_mem_copy(key->key_buff, ml_key_param->key_buff,
 				     WMI_MAX_KEY_LEN);
+			wmi_debug("link_id: %u key_idx: %u key_cipher: %u",
+				  key->link_id, key->key_idx, key->key_cipher);
 			ml_key_param++;
 		}
 	}
@@ -2306,7 +2315,7 @@ wmi_fill_roam_sync_buffer(wmi_unified_t wmi_handle,
 	void *soc = cds_get_context(QDF_MODULE_ID_SOC);
 	wmi_channel *chan = NULL;
 	wmi_key_material *key;
-	wmi_key_material_ext *key_ft;
+	wmi_key_material_ext *key_ext;
 	wmi_roam_fils_synch_tlv_param *fils_info;
 	wmi_roam_pmk_cache_synch_tlv_param *pmk_cache_info;
 	QDF_STATUS status = QDF_STATUS_E_FAILURE;
@@ -2318,15 +2327,16 @@ wmi_fill_roam_sync_buffer(wmi_unified_t wmi_handle,
 	roam_sync_ind->auth_status = synch_event->auth_status;
 	roam_sync_ind->roam_reason = synch_event->roam_reason;
 	roam_sync_ind->rssi = synch_event->rssi;
+	roam_sync_ind->is_beacon = synch_event->is_beacon;
 
 	WMI_MAC_ADDR_TO_CHAR_ARRAY(&synch_event->bssid,
 				   roam_sync_ind->bssid.bytes);
-	wmi_debug("roamedVdevId %d authStatus %d roamReason %d rssi %d isBeacon %d",
+	wmi_debug("roamed_vdev_id %d auth_status %d roam_reason %d rssi %d is_beacon %d",
 		  roam_sync_ind->roamed_vdev_id,
 		  roam_sync_ind->auth_status,
 		  roam_sync_ind->roam_reason,
 		  roam_sync_ind->rssi,
-		  roam_sync_ind->isBeacon);
+		  roam_sync_ind->is_beacon);
 
 	cdp_update_roaming_peer_in_vdev(soc, synch_event->vdev_id,
 					roam_sync_ind->bssid.bytes,
@@ -2373,7 +2383,7 @@ wmi_fill_roam_sync_buffer(wmi_unified_t wmi_handle,
 	}
 
 	key = param_buf->key;
-	key_ft = param_buf->key_ext;
+	key_ext = param_buf->key_ext;
 	if (key) {
 		roam_sync_ind->kck_len = KCK_KEY_LEN;
 		qdf_mem_copy(roam_sync_ind->kck, key->kck,
@@ -2383,31 +2393,33 @@ wmi_fill_roam_sync_buffer(wmi_unified_t wmi_handle,
 			     KEK_KEY_LEN);
 		qdf_mem_copy(roam_sync_ind->replay_ctr,
 			     key->replay_counter, REPLAY_CTR_LEN);
-	} else if (key_ft) {
+	} else if (key_ext) {
 		/*
-		 * For AKM 00:0F:AC (FT suite-B-SHA384)
-		 * KCK-bits:192 KEK-bits:256
-		 * Firmware sends wmi_key_material_ext tlv now only if
-		 * auth is FT Suite-B SHA-384 auth. If further new suites
-		 * are added, add logic to get kck, kek bits based on
-		 * akm protocol
+		 * key_ext carries key materials whose size
+		 * is greater than conventional 16bytes.
 		 */
-		kck_len = KCK_192BIT_KEY_LEN;
-		kek_len = KEK_256BIT_KEY_LEN;
+		kck_len = key_ext->kck_len ?
+				key_ext->kck_len : KCK_192BIT_KEY_LEN;
+		kek_len = key_ext->kek_len ?
+				key_ext->kek_len : KEK_256BIT_KEY_LEN;
 
 		roam_sync_ind->kck_len = kck_len;
 		qdf_mem_copy(roam_sync_ind->kck,
-			     key_ft->key_buffer, kck_len);
+			     key_ext->key_buffer, kck_len);
 
 		roam_sync_ind->kek_len = kek_len;
 		qdf_mem_copy(roam_sync_ind->kek,
-			     (key_ft->key_buffer + kck_len),
+			     (key_ext->key_buffer + kck_len),
 			     kek_len);
 
 		qdf_mem_copy(roam_sync_ind->replay_ctr,
-			     (key_ft->key_buffer + kek_len + kck_len),
+			     (key_ext->key_buffer + kek_len + kck_len),
 			     REPLAY_CTR_LEN);
 	}
+
+	wmi_debug("ROAM_SYNC kek_len %d kck_len %d",
+		  roam_sync_ind->kek_len,
+		  roam_sync_ind->kck_len);
 
 	if (param_buf->hw_mode_transition_fixed_param) {
 		wmi_extract_pdev_hw_mode_trans_ind(
@@ -2446,9 +2458,10 @@ wmi_fill_roam_sync_buffer(wmi_unified_t wmi_handle,
 		roam_sync_ind->next_erp_seq_num =
 				fils_info->next_erp_seq_num;
 
-		wmi_debug("Update ERP Seq Num %d, Next ERP Seq Num %d",
+		wmi_debug("Update ERP Seq Num %d, Next ERP Seq Num %d KEK len %d",
 			  roam_sync_ind->update_erp_next_seq_num,
-			  roam_sync_ind->next_erp_seq_num);
+			  roam_sync_ind->next_erp_seq_num,
+			  roam_sync_ind->kek_len);
 	}
 
 	pmk_cache_info = param_buf->roam_pmk_cache_synch_info;
@@ -3299,6 +3312,7 @@ extract_auth_offload_event_tlv(wmi_unified_t wmi_handle,
 	}
 
 	auth_event->vdev_id = rso_auth_start_ev->vdev_id;
+	auth_event->akm = rso_auth_start_ev->akm_suite_type;
 
 	WMI_MAC_ADDR_TO_CHAR_ARRAY(&rso_auth_start_ev->candidate_ap_bssid,
 				   auth_event->ap_bssid.bytes);
@@ -3312,10 +3326,10 @@ extract_auth_offload_event_tlv(wmi_unified_t wmi_handle,
 	}
 
 	wmi_debug("Received Roam auth offload event for bss:"
-		  QDF_MAC_ADDR_FMT " ta:" QDF_MAC_ADDR_FMT " vdev_id: %d",
+		  QDF_MAC_ADDR_FMT " ta:" QDF_MAC_ADDR_FMT " vdev_id: %d akm: %d",
 		  QDF_MAC_ADDR_REF(auth_event->ap_bssid.bytes),
 		  QDF_MAC_ADDR_REF(auth_event->ta.bytes),
-		  auth_event->vdev_id);
+		  auth_event->vdev_id, auth_event->akm);
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -3446,6 +3460,8 @@ extract_roam_candidate_frame_tlv(wmi_unified_t wmi_handle, uint8_t *event,
 	data->vdev_id = frame_params->vdev_id;
 	data->frame_length = frame_params->frame_length;
 	data->frame = (uint8_t *)param_buf->frame;
+	QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_WMI, QDF_TRACE_LEVEL_DEBUG,
+			   data->frame, data->frame_length);
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -3659,8 +3675,6 @@ extract_roam_event(wmi_unified_t wmi_handle, void *evt_buf, uint32_t len,
 }
 #endif /* WLAN_FEATURE_ROAM_OFFLOAD */
 
-#define ROAM_OFFLOAD_PMK_EXT_BYTES 16
-
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
 /**
  * wmi_fill_roam_offload_11r_params() - Fill roam scan params to send it to fw
@@ -3727,6 +3741,7 @@ static bool wmi_is_ft_akm(int akm,
 	case WMI_AUTH_FT_RSNA_SUITE_B_8021X_SHA384:
 	case WMI_AUTH_FT_RSNA_FILS_SHA256:
 	case WMI_AUTH_FT_RSNA_FILS_SHA384:
+	case WMI_AUTH_FT_RSNA_SAE_SHA384:
 		return true;
 	case WMI_AUTH_OPEN:
 		if (roam_req->rso_11r_info.mdid.mdie_present &&
@@ -4163,9 +4178,13 @@ wmi_fill_rso_tlvs(wmi_unified_t wmi_handle, uint8_t *buf,
 				     src_11i_info->psk_pmk,
 				     roam_offload_11i->pmk_len);
 
-			roam_offload_11i->pmk_ext_len =
-			    src_11i_info->pmk_len > ROAM_OFFLOAD_PMK_BYTES ?
-			    ROAM_OFFLOAD_PMK_EXT_BYTES : 0;
+			roam_offload_11i->pmk_ext_len = 0;
+			if (src_11i_info->pmk_len > ROAM_OFFLOAD_PMK_BYTES) {
+				roam_offload_11i->pmk_ext_len =
+					QDF_MIN(src_11i_info->pmk_len -
+						ROAM_OFFLOAD_PMK_BYTES,
+						ROAM_OFFLOAD_PMK_BYTES);
+			}
 			qdf_mem_copy(
 				roam_offload_11i->pmk_ext,
 				&src_11i_info->psk_pmk[ROAM_OFFLOAD_PMK_BYTES],
@@ -4201,6 +4220,11 @@ wmi_fill_rso_tlvs(wmi_unified_t wmi_handle, uint8_t *buf,
 				QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_WMI,
 						   QDF_TRACE_LEVEL_DEBUG,
 						   roam_offload_11i->pmk,
+						   WLAN_MAX_PMK_DUMP_BYTES);
+			if (roam_offload_11i->pmk_ext_len)
+				QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_WMI,
+						   QDF_TRACE_LEVEL_DEBUG,
+						   roam_offload_11i->pmk_ext,
 						   WLAN_MAX_PMK_DUMP_BYTES);
 		}
 	} else {

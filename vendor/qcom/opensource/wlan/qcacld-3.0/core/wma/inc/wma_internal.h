@@ -1813,4 +1813,16 @@ int oplusLpmUeventInit(void);
 void oplusConnUeventDeinit(void);
 #endif /* OPLUS_FEATURE_CONN_POWER_MONITOR */
 
+/**
+ * wma_update_edca_pifs_param() - Update edca/pifs param
+ * @handle: wma handle
+ * @edca_pifs_param: pointer to edca_pifs_vparam struct
+ *
+ * This is a helper function to update edca/pifs param for ll sap
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+wma_update_edca_pifs_param(WMA_HANDLE handle,
+			   struct edca_pifs_vparam *edca_pifs_param);
 #endif

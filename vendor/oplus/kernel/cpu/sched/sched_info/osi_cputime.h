@@ -15,12 +15,6 @@ struct cputime {
 	u64 running_time[JANK_WIN_CNT];
 	u64 running_time32[JANK_WIN_CNT];
 	u64 running_time32_scale[JANK_WIN_CNT];
-	u64 fg_running_time[JANK_WIN_CNT];
-
-	u64 default_runtime[JANK_WIN_CNT];
-	u64 foreground_runtime[JANK_WIN_CNT];
-	u64 background_runtime[JANK_WIN_CNT];
-	u64 topapp_runtime[JANK_WIN_CNT];
 };
 
 

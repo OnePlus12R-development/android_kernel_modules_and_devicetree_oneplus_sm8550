@@ -80,6 +80,13 @@ enum panel_id{
 	HX83112F,
 	TM,
 	P_3,
+	P_B,
+	TD4377,
+	ILI9883C,
+	FT8057P,
+	P_7,
+	ILI7807S,
+	DJN,
 	PANEL_NUM
 };
 
@@ -120,6 +127,10 @@ enum sensor_mode {
 	REAR_PS_NORMAL_MODE,
 	LEAR_CALI_MODE,
 	LEAK_CALI_NORMAL_MODE,
+	CCT_FACTORY_512_GAIN,
+	CCT_FACTORY_1024_GAIN,
+	CCT_FACTORY_2048_GAIN,
+	CCT_FACTORY_GAIN_NORMAL,
 };
 
 enum light_sensor_type {

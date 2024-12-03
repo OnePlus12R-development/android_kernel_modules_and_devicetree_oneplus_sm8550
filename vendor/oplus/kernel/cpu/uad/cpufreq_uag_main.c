@@ -99,6 +99,7 @@ struct uag_gov_cpu {
 	unsigned int		flags;
 };
 
+static bool amu_aware_init;
 static DEFINE_PER_CPU(struct uag_gov_cpu, uag_gov_cpu);
 static DEFINE_PER_CPU(struct uag_gov_tunables *, cached_tunables);
 
@@ -730,6 +731,9 @@ static void uag_gov_util_adjust(struct uag_gov_cpu *sg_cpu, unsigned long cpu_ut
 {
 	struct uag_gov_policy *sg_policy = sg_cpu->sg_policy;
 	bool is_hiload;
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_FRAME_BOOST)
+	int mid_stune_boost, max_stune_boost;
+#endif
 
 	/*add judge of hispeed*/
 	is_hiload = (sg_cpu->prev_frame_loading >= sg_policy->tunables->hispeed_load);
@@ -739,11 +743,13 @@ static void uag_gov_util_adjust(struct uag_gov_cpu *sg_cpu, unsigned long cpu_ut
 
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_FRAME_BOOST)
 	if (sg_policy->flags & SCHED_CPUFREQ_EARLY_DET) {
-		trace_ed_task_boost(cpu_util, *util, ed_task_boost_type, stune_boost[BOOST_ED_TASK_MID_UTIL], stune_boost[BOOST_ED_TASK_MAX_UTIL]);
+		mid_stune_boost = get_effect_stune_boost(current, BOOST_ED_TASK_MID_UTIL);
+		max_stune_boost = get_effect_stune_boost(current, BOOST_ED_TASK_MAX_UTIL);
+		trace_ed_task_boost(cpu_util, *util, ed_task_boost_type, mid_stune_boost, max_stune_boost);
 		if (ed_task_boost_type == ED_TASK_BOOST_MID)
-			cpu_util = cpu_util < stune_boost[BOOST_ED_TASK_MID_UTIL] ? stune_boost[BOOST_ED_TASK_MID_UTIL] : cpu_util;
+			cpu_util = cpu_util < mid_stune_boost ? mid_stune_boost : cpu_util;
 		else if (ed_task_boost_type == ED_TASK_BOOST_MAX)
-			cpu_util = cpu_util < stune_boost[BOOST_ED_TASK_MAX_UTIL] ? stune_boost[BOOST_ED_TASK_MAX_UTIL] : cpu_util;
+			cpu_util = cpu_util < max_stune_boost ? max_stune_boost : cpu_util;
 		*util = max(*util, cpu_util);
 	}
 #endif
@@ -790,6 +796,9 @@ static void uag_gov_util_adjust(struct uag_gov_cpu *sg_cpu, unsigned long cpu_ut
 	struct uag_gov_policy *sg_policy = sg_cpu->sg_policy;
 	bool is_migration = sg_cpu->flags & WALT_CPUFREQ_IC_MIGRATION;
 	bool is_hiload;
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_FRAME_BOOST)
+	 int mid_stune_boost, max_stune_boost;
+#endif
 
 	is_hiload = (cpu_util >= mult_frac(sg_policy->avg_cap,
 					   sg_policy->tunables->hispeed_load,
@@ -803,11 +812,13 @@ static void uag_gov_util_adjust(struct uag_gov_cpu *sg_cpu, unsigned long cpu_ut
 
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_FRAME_BOOST)
 	if (sg_policy->flags & SCHED_CPUFREQ_EARLY_DET) {
-		trace_ed_task_boost(cpu_util, *util, ed_task_boost_type, stune_boost[BOOST_ED_TASK_MID_UTIL], stune_boost[BOOST_ED_TASK_MAX_UTIL]);
+		mid_stune_boost = get_effect_stune_boost(current, BOOST_ED_TASK_MID_UTIL);
+		max_stune_boost = get_effect_stune_boost(current, BOOST_ED_TASK_MAX_UTIL);
+		trace_ed_task_boost(cpu_util, *util, ed_task_boost_type, mid_stune_boost, max_stune_boost);
 		if (ed_task_boost_type == ED_TASK_BOOST_MID)
-			cpu_util = cpu_util < stune_boost[BOOST_ED_TASK_MID_UTIL] ? stune_boost[BOOST_ED_TASK_MID_UTIL] : cpu_util;
+			cpu_util = cpu_util < mid_stune_boost ? mid_stune_boost: cpu_util;
 		else if (ed_task_boost_type == ED_TASK_BOOST_MAX)
-			cpu_util = cpu_util < stune_boost[BOOST_ED_TASK_MAX_UTIL] ? stune_boost[BOOST_ED_TASK_MAX_UTIL] : cpu_util;
+			cpu_util = cpu_util < max_stune_boost ? max_stune_boost : cpu_util;
 		max_and_reason(util, cpu_util, sg_cpu, CPUFREQ_REASON_EARLY_DET);
 	}
 #endif
@@ -2546,7 +2557,10 @@ static int uag_gov_start(struct cpufreq_policy *policy)
 	}
 
 #ifdef CONFIG_OPLUS_UAG_AMU_AWARE
-	uag_register_stall_update();
+	if (!amu_aware_init) {
+		uag_register_stall_update();
+		amu_aware_init = true;
+	}
 #endif
 
 #ifdef CONFIG_OPLUS_FEATURE_TOUCH_BOOST

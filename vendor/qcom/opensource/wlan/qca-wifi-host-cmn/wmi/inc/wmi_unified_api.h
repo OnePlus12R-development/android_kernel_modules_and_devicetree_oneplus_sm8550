@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -358,6 +358,19 @@ static inline int wmi_process_qmi_fw_event(void *wmi_cb_ctx, void *buf, int len)
 }
 #endif
 
+#ifdef WLAN_SUPPORT_GAP_LL_PS_MODE
+/**
+ * wmi_unified_green_ap_ll_ps_send() - Send unified WMI command to
+ * enable/disable green ap low latency power save mode
+ * @wmi_handle: handle to WMI.
+ * @green_ap_ll_ps_params: low latency power save mode parameter
+ *
+ * Return: None
+ */
+QDF_STATUS wmi_unified_green_ap_ll_ps_send(wmi_unified_t wmi_handle,
+					   struct green_ap_ll_ps_cmd_param *green_ap_ll_ps_params);
+#endif
+
 /**
  * wmi_unified_cmd_send_pm_chk() - send unified WMI command with PM check,
  * if target is in suspended state, WMI command will be sent over QMI.
@@ -689,6 +702,34 @@ static inline bool wmi_get_runtime_pm_inprogress(wmi_unified_t wmi_handle)
 	return false;
 }
 #endif
+
+/**
+ * wmi_set_wow_enable_ack_failed() - set wow enable ack failed status
+ *     if wow enable ack failed, which means host and fw have some problem
+ *     to exchange wmi cmd. set indication here and block wmi cmds.
+ *     the cmds can be sent again after wmi re-init in subsystem recovery.
+ * @wmi_handle: wmi context
+ *
+ * return: none
+ */
+void wmi_set_wow_enable_ack_failed(wmi_unified_t wmi_handle);
+
+/**
+ * wmi_clear_wow_enable_ack_failed() - clear wow enable ack failed status
+ *     explicitly clear this status when wmi close of SSR
+ * @wmi_handle: wmi context
+ *
+ * return: none
+ */
+void wmi_clear_wow_enable_ack_failed(wmi_unified_t wmi_handle);
+
+/**
+ * wmi_has_wow_enable_ack_failed() - get wow enable ack failed status
+ * @wmi_handle: wmi context
+ *
+ * Return: true if wow enable ack already failed. other false
+ */
+bool wmi_has_wow_enable_ack_failed(wmi_unified_t wmi_handle);
 
 void *wmi_unified_get_soc_handle(struct wmi_unified *wmi_handle);
 
@@ -3786,6 +3827,23 @@ QDF_STATUS wmi_extract_scan_radio_cap_service_ready_ext2(
 			struct wlan_psoc_host_scan_radio_caps *param);
 
 /**
+ * wmi_extract_msdu_idx_qtype_map_service_ready_ext2: Extract HTT MSDU index
+ *                                                    to qtype map received
+ *                                                    through extended service
+ *                                                    ready2 event
+ * @wmi_handle: WMI handle
+ * @evt_buf: Event buffer
+ * @idx: HTT MSDU index in array
+ * @msdu_qtype: MSDU Qtype pointer
+ *
+ * Return: QDF status of operation
+ */
+QDF_STATUS wmi_extract_msdu_idx_qtype_map_service_ready_ext2(
+			wmi_unified_t wmi_handle,
+			uint8_t *evt_buf, uint8_t idx,
+			uint8_t *msdu_qtype);
+
+/**
  * wmi_extract_sw_cal_ver_ext2: Extract sw cal version received through
  *                              extended service ready2 event
  * @wmi_handle: WMI handle
@@ -4059,6 +4117,21 @@ QDF_STATUS wmi_unified_extract_obss_detection_info(
 QDF_STATUS wmi_extract_green_ap_egap_status_info(
 	wmi_unified_t wmi_hdl, uint8_t *evt_buf,
 	struct wlan_green_ap_egap_status_info *egap_status_info_params);
+#endif
+
+#ifdef WLAN_SUPPORT_GAP_LL_PS_MODE
+/**
+ * wmi_unified_extract_green_ap_ll_ps_param() - API to extract Green AP low
+ * latency power save event parameter
+ * @wmi_handle: wmi handle
+ * @evt_buf: pointer to the event buffer
+ * @green_ap_ll_ps_event_param: Event parameter
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS wmi_unified_extract_green_ap_ll_ps_param(
+	wmi_unified_t wmi_hdl, uint8_t *evt_buf,
+	struct wlan_green_ap_ll_ps_event_param *green_ap_ll_ps_event_param);
 #endif
 
 /**
@@ -5001,4 +5074,32 @@ QDF_STATUS wmi_extract_health_mon_event(
 		void *ev,
 		struct wmi_health_mon_params *param);
 #endif /* HEALTH_MON_SUPPORT */
+
+/**
+ * wmi_unified__update_edca_pifs_param() - update EDCA/PIFS params
+ * @wmi_handle: wmi handle
+ * @edca_pifs_param: pointer to edca_pifs_vparam struct
+ *
+ * This function updates EDCA/PIFS parameters to the target
+ *
+ * Return: QDF_STATUS_SUCCESS on success and QDF_STATUS_E_FAILURE for failure
+ */
+QDF_STATUS
+wmi_unified_update_edca_pifs_param(
+			wmi_unified_t wmi_handle,
+			struct edca_pifs_vparam *edca_pifs_param);
+
+/**
+ * wmi_extract_sap_coex_cap_service_ready_ext2() - extract sap coex capability
+ * @wmi_handle: wmi handle
+ * @evt_buf: pointer to event buffer
+ * @cap: It's set to 1 if fixed chan SAP is supported by firmware even when the
+ *       channel is unsafe due to coex.
+ *
+ * Return: QDF_STATUS_SUCCESS on success, QDF_STATUS_E_** on error
+ */
+QDF_STATUS wmi_extract_sap_coex_cap_service_ready_ext2(
+			wmi_unified_t wmi_handle,
+			uint8_t *evt_buf,
+			struct wmi_host_coex_fix_chan_cap *cap);
 #endif /* _WMI_UNIFIED_API_H_ */

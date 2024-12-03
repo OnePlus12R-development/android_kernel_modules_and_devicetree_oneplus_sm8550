@@ -7,6 +7,7 @@
 #include <linux/module.h>
 #include <linux/gpio.h>
 #include <linux/string.h>
+#include <linux/thermal.h>
 
 #include "ft3518_core.h"
 
@@ -136,6 +137,7 @@ static int fts_power_control(void *chip_data, bool enable)
 
 	} else {
 		fts_rstgpio_set(ts_data->hw_res, false);
+		msleep(1);
 		ret = tp_powercontrol_avdd(ts_data->hw_res, false);
 
 		if (ret) {
@@ -1058,9 +1060,6 @@ raw_fail:
 	kfree(Pstr);
 }
 
-
-
-
 static void fts_delta_read(struct seq_file *s, void *chip_data)
 {
 	int ret = 0;
@@ -1145,6 +1144,75 @@ static void fts_baseline_read(struct seq_file *s, void *chip_data)
 	}
 
 	seq_printf(s, "\n");
+
+raw_fail:
+	focal_esd_check_enable(ts_data, true);
+	kfree(raw);
+}
+
+static void fts_delta_snr_read(struct seq_file *s, void *chip_data, uint32_t count)
+{
+	int ret = 0;
+	int i = 0, j = 0;
+	int *raw = NULL;
+	struct chip_data_ft3518 *ts_data = (struct chip_data_ft3518 *)chip_data;
+	int tx_num = ts_data->hw_res->tx_num;
+	int rx_num = ts_data->hw_res->rx_num;
+	struct touchpanel_snr *snr = ts_data->ts->snr;
+
+	TPD_INFO("%s:snr read diff data", __func__);
+	focal_esd_check_enable(ts_data, false);   /*no allowed esd check*/
+
+	raw = kzalloc(tx_num * rx_num * sizeof(int), GFP_KERNEL);
+	if (!raw) {
+		seq_printf(s, "kzalloc for raw fail\n");
+		goto raw_fail;
+	}
+
+	if (!snr[0].doing) {
+		seq_printf(s, "snr doing zero!\n");
+		goto raw_fail;
+	}
+
+	for (i = 0; i < count; i++) {
+		ret = touch_i2c_write_byte(ts_data->client, FTS_REG_AUTOCLB_ADDR, 0x81);
+		if (ret < 0) {
+			TPD_INFO("%s, write 0x81 to reg 0xee failed\n", __func__);
+		}
+
+		ret = fts_get_rawdata(ts_data, raw, true);
+		if (ret < 0) {
+			seq_printf(s, "get diff data fail\n");
+			goto raw_fail;
+		}
+
+		for (j = 0; j < 10; j++) {
+			if (snr[j].point_status) {
+				if (i) {
+					snr[j].max = raw[rx_num * snr[j].channel_x + snr[j].channel_y] > snr[j].max ? raw[rx_num * snr[j].channel_x + snr[j].channel_y] : snr[j].max;
+					snr[j].min = raw[rx_num * snr[j].channel_x + snr[j].channel_y] < snr[j].min ? raw[rx_num * snr[j].channel_x + snr[j].channel_y] : snr[j].min;
+				} else {
+					snr[j].max = raw[rx_num * snr[j].channel_x + snr[j].channel_y];
+					snr[j].min = raw[rx_num * snr[j].channel_x + snr[j].channel_y];
+				}
+				snr[j].sum += raw[rx_num * snr[j].channel_x + snr[j].channel_y];
+				TPD_INFO("[snr-ft] id:%d report %d += %d \n", j, snr[j].sum, raw[rx_num * snr[j].channel_x + snr[j].channel_y]);
+			}
+		}
+	}
+
+	for (i = 0; i < 10; i++) {
+		if (snr[i].point_status) {
+			seq_printf(s, "%d|%d|", snr[i].channel_x, snr[i].channel_y);
+			snr[i].noise = snr[i].max - snr[i].min;
+			seq_printf(s, "%d|", snr[i].max);
+			seq_printf(s, "%d|", snr[i].min);
+			seq_printf(s, "%d|", snr[i].sum/count);
+			seq_printf(s, "%d\n", snr[i].noise);
+			TPD_INFO("[snr-ft] id:%d cover [%d %d] %d %d %d %d\n", i, snr[i].channel_x, snr[i].channel_y, snr[i].max, snr[i].min, snr[i].sum, snr[i].noise);
+			SNR_RESET(snr[i]);
+		}
+	}
 
 raw_fail:
 	focal_esd_check_enable(ts_data, true);
@@ -1290,6 +1358,37 @@ static int fts_enable_headset_mode(struct chip_data_ft3518 *ts_data,
 	return touch_i2c_write_byte(ts_data->client, FTS_REG_HEADSET_MODE_EN, enable);
 }
 
+static void fts_force_glove_mode(struct chip_data_ft3518 *ts_data, bool enable)
+{
+	int retval = 0;
+	u8 regval = 0;
+
+	TPD_INFO("%s: %s force glove mode.\n", __func__, enable ? "Enter" : "Exit");
+
+	regval = touch_i2c_read_byte(ts_data->client, FTS_REG_GLOVE_MODE_SWITCH);
+	if(regval < 0) {
+		TPD_INFO("Failed to get glove mode config\n");
+		return;
+	}
+	TPD_INFO("%s: before edit glove mode reg_val=0x%x", __func__, regval);
+
+	if(enable)
+		retval = touch_i2c_write_byte(ts_data->client, FTS_REG_GLOVE_MODE_SWITCH, 0x01);
+	else
+		retval = touch_i2c_write_byte(ts_data->client, FTS_REG_GLOVE_MODE_SWITCH, 0x00);
+	if(retval < 0) {
+		TPD_INFO("Failed to set glove mode config\n");
+		return;
+	}
+
+	regval = touch_i2c_read_byte(ts_data->client, FTS_REG_GLOVE_MODE_SWITCH);
+	if(regval < 0) {
+		TPD_INFO("Failed to get glove mode config\n");
+		return;
+	}
+	TPD_INFO("%s: after edit glove mode reg_val=0x%x", __func__, regval);
+}
+
 static int fts_mode_switch(void *chip_data, work_mode mode, int flag)
 {
 	struct chip_data_ft3518 *ts_data = (struct chip_data_ft3518 *)chip_data;
@@ -1336,6 +1435,13 @@ static int fts_mode_switch(void *chip_data, work_mode mode, int flag)
 
 	/*    case MODE_GLOVE:*/
 	/*        break;*/
+	case MODE_GLOVE:
+		TPD_INFO("MODE_GLOVE, Melo, ts->glove_enable = %d \n",
+		         ts_data->ts->glove_enable);
+
+		fts_force_glove_mode(ts_data, flag);
+
+		break;
 
 	case MODE_EDGE:
 		ret = fts_enable_edge_limit(ts_data, flag);
@@ -1391,7 +1497,54 @@ mode_err:
 	return ret;
 }
 
+static int fts_send_temperature(void *chip_data, int temp, bool normal_mode);
 
+#ifndef CONFIG_ARCH_QTI_VM
+static int get_now_temp(struct chip_data_ft3518 *ts_data)
+{
+	struct touchpanel_data *ts = i2c_get_clientdata(ts_data->client);
+	int result = -40000;
+	int ret = 0;
+
+#ifdef CONFIG_TOUCHPANEL_TRUSTED_TOUCH
+	if (atomic_read(&ts->trusted_touch_enabled) == 1) {
+		TPD_INFO("%s: Trusted touch is already enabled, do not get temp\n", __func__);
+		return ret;
+	}
+#endif
+
+	if (ts->is_suspended) {
+		TPD_INFO("%s : !ts->is_suspended\n", __func__);
+		return ret;
+	}
+
+	ts->oplus_shell_themal = thermal_zone_get_zone_by_name("shell_back");
+
+	if (IS_ERR(ts->oplus_shell_themal)) {
+		TPD_INFO("%s Can't get shell_back\n", __func__);
+		ts->oplus_shell_themal = NULL;
+		ret = -1;
+		return ret;
+	}
+
+	TPD_DEBUG("%s get shell_back ret:%d\n", __func__, ret);
+
+	ret = thermal_zone_get_temp(ts->oplus_shell_themal, &result);
+	if (ret < 0)
+		TPD_INFO("%s can't thermal_zone_get_temp, ret=%d\n", __func__, ret);
+
+	result = result / 1000;
+	TPD_INFO("%s : temp is %d\n", __func__, result);
+
+	if (result <= MAX_TEMPERATURE && result >= MIN_TEMPERATURE) {
+		fts_send_temperature(ts->chip_data, result, true);
+	} else {
+		ts->monitor_data.abnormal_temperature_count++;
+	}
+
+	return ret;
+}
+#endif
 
 /*
  * return success: 0; fail : negative
@@ -1402,7 +1555,11 @@ static int fts_reset(void *chip_data)
 
 	TPD_INFO("%s:call\n", __func__);
 	fts_hw_reset(ts_data, RESET_TO_NORMAL_TIME);
-
+        if (ts_data->ts->temperature_detect_shellback_support == true) {
+#ifndef CONFIG_ARCH_QTI_VM
+                get_now_temp(ts_data);
+#endif
+        }
 	return 0;
 }
 
@@ -1590,20 +1747,32 @@ static u32 fts_u32_trigger_reason(void *chip_data, int gesture_enable,
 	struct chip_data_ft3518 *ts_data = (struct chip_data_ft3518 *)chip_data;
 	int ret = 0;
 	u8 cmd = FTS_REG_POINTS;
+	u8 cmd_grip = FTS_REG_GRIP;
 	u32 result_event = 0;
 	u8 *buf = ts_data->rbuf;
 
-
 	memset(buf, 0xFF, FTS_MAX_POINTS_LENGTH);
+
+	if (ts_data->ts->palm_to_sleep_enable && !is_suspended) {
+		ret = touch_i2c_read_byte(ts_data->client, FTS_REG_PALM_TO_SLEEP_STATUS);
+		if (ret < 0) {
+			TPD_INFO("touch_i2c_read_byte PALM_TO_SLEEP_STATUS error\n");
+		} else {
+			if(ret == 0x01) {
+				SET_BIT(result_event, IRQ_PALM);
+				TPD_INFO("fts_enable_palm_to_sleep enable\n");
+			}
+		}
+	}
 
 	if (gesture_enable && is_suspended) {
 		ret = touch_i2c_read_byte(ts_data->client, FTS_REG_GESTURE_EN);
 
 		if (ret == 0x01) {
-					if (ts_data->read_buffer_support) {
-						ret = touch_i2c_read_block(ts_data->client, cmd, FTS_POINTS_ONE, &buf[0]);
-						TPD_DEBUG("touch_i2c_read_block FTS_POINTS_ONE add once");
-				}
+			if (ts_data->read_buffer_support) {
+				ret = touch_i2c_read_block(ts_data->client, cmd, FTS_POINTS_ONE, &buf[0]);
+				TPD_DEBUG("touch_i2c_read_block FTS_POINTS_ONE add once");
+			}
 			ret = touch_i2c_read_byte(ts_data->client, FTS_REG_POINTS_LB);
 			return IRQ_GESTURE;
 		}
@@ -1614,6 +1783,13 @@ static u32 fts_u32_trigger_reason(void *chip_data, int gesture_enable,
 	if (ret < 0) {
 		TPD_INFO("read touch point one fail");
 		return IRQ_IGNORE;
+	}
+
+	if (ts_data->ft3518_grip_v2_support) {
+		ret = touch_i2c_read_block(ts_data->client, cmd_grip, FTS_GRIP_ONE, &buf[FTS_POINTS_LENGTH]);
+		if (ret < 0) {
+			TPD_INFO("[prevent-ft] read grip_info one fail");
+		}
 	}
 
 	if ((buf[0] == 0xFF) && (buf[1] == 0xFF) && (buf[2] == 0xFF) && (!is_suspended)) {
@@ -1631,10 +1807,8 @@ static u32 fts_u32_trigger_reason(void *chip_data, int gesture_enable,
 
 	/*normal touch*/
 	SET_BIT(result_event, IRQ_TOUCH);
-	TPD_DEBUG("%s, fgerprint, is_suspended = %d, fp_en = %d, ", __func__,
-		  is_suspended, ts_data->fp_en);
-	TPD_DEBUG("%s, fgerprint, touched = %d, event_type = %d, fp_down = %d, fp_down_report = %d, ",
-		  __func__, ts_data->ts->view_area_touched, ts_data->fod_info.event_type,
+	TPD_DEBUG("%s, fgerprint, is_suspended = %d, fp_en = %d, touched = %d, event_type = %d, fp_down = %d, fp_down_report = %d, ",
+		  __func__, is_suspended, ts_data->fp_en, ts_data->ts->view_area_touched, ts_data->fod_info.event_type,
 		  ts_data->fod_info.fp_down, ts_data->fod_info.fp_down_report);
 
 	if (!is_suspended && ts_data->fp_en) {
@@ -1699,27 +1873,38 @@ static int fts_get_touch_points(void *chip_data, struct point_info *points,
 {
 	struct chip_data_ft3518 *ts_data = (struct chip_data_ft3518 *)chip_data;
 	int ret = 0;
+	int retval = 0;
 	int i = 0;
 	int obj_attention = 0;
 	int base = 0;
+	int base_prevent = 0;
 	int touch_point = 0;
 	u8 point_num = 0;
 	u8 pointid = 0;
 	u8 event_flag = 0;
 	u8 cmd = FTS_REG_POINTS_N;
+	u8 cmd_grip = FTS_REG_GRIP_N;
 	u8 *buf = ts_data->rbuf;
+	struct touchpanel_snr *snr = ts_data->ts->snr;
 
 	if (buf[FTS_POINTS_ONE - 1] == 0xFF) {
 		ret = touch_i2c_read_byte(ts_data->client, FTS_REG_POINTS_LB);
-
 	} else {
 		ret = touch_i2c_read_block(ts_data->client, cmd, FTS_POINTS_TWO,
 					   &buf[FTS_POINTS_ONE]);
+
+		if (ts_data->ft3518_grip_v2_support) {
+			retval = touch_i2c_read_block(ts_data->client, cmd_grip, FTS_GRIP_TWO,
+						   &buf[FTS_POINTS_LENGTH + FTS_GRIP_ONE]);
+			if (retval < 0) {
+				TPD_INFO("[prevent-ft] read grip_info two fail");
+			}
+		}
 	}
 
 	if (ret < 0) {
 		TPD_INFO("read touch point two fail");
-		return ret;
+		return -EINVAL;
 	}
 
 	/*    fts_show_touch_buffer(buf, FTS_MAX_POINTS_LENGTH);*/
@@ -1728,11 +1913,18 @@ static int fts_get_touch_points(void *chip_data, struct point_info *points,
 
 	if (point_num > max_num) {
 		TPD_INFO("invalid point_num(%d),max_num(%d)", point_num, max_num);
-		return -EIO;
+		return -EINVAL;
+	}
+
+	if (ts_data->snr_read_support) {
+		for (i = 0; i < max_num; i++) {
+			snr[i].point_status = 0;
+		}
 	}
 
 	for (i = 0; i < max_num; i++) {
 		base = 6 * i;
+		base_prevent = 4 * i;
 		pointid = (buf[4 + base]) >> 4;
 
 		if (pointid >= FTS_MAX_ID) {
@@ -1745,26 +1937,43 @@ static int fts_get_touch_points(void *chip_data, struct point_info *points,
 
 		touch_point++;
 		if (!ts_data->high_resolution_support && !ts_data->high_resolution_support_x8) {
-		    points[pointid].x = ((buf[2 + base] & 0x0F) << 8) + (buf[3 + base] & 0xFF);
-		    points[pointid].y = ((buf[4 + base] & 0x0F) << 8) + (buf[5 + base] & 0xFF);
-		    points[pointid].touch_major = buf[7 + base];
-		    points[pointid].width_major = buf[7 + base];
-		    points[pointid].z =  buf[6 + base];
-		    event_flag = (buf[2 + base] >> 6);
+			points[pointid].x = ((buf[2 + base] & 0x0F) << 8) + (buf[3 + base] & 0xFF);
+			points[pointid].y = ((buf[4 + base] & 0x0F) << 8) + (buf[5 + base] & 0xFF);
+			points[pointid].touch_major = buf[7 + base];
+			points[pointid].width_major = buf[7 + base];
+			points[pointid].z =  buf[6 + base];
+			event_flag = (buf[2 + base] >> 6);
+
+			if (ts_data->ft3518_grip_v2_support) {
+				points[pointid].tx_press = buf[62 + base_prevent];
+				points[pointid].rx_press = buf[63 + base_prevent];
+				points[pointid].tx_er = buf[65 + base_prevent];
+				points[pointid].rx_er = buf[64 + base_prevent];
+				TPD_DEBUG("[prevent-ft] id:%2d x:%3d y:%3d | tx_press:%3d rx_press:%3d tx_er:%3d rx_er:%3d", pointid, points[pointid].x, points[pointid].y,
+					points[pointid].tx_press, points[pointid].rx_press, points[pointid].tx_er, points[pointid].rx_er);
+			}
 		} else if (ts_data->high_resolution_support_x8) {
-		    points[pointid].x = ((buf[2 + base] & 0x20) >> 5) +
+			points[pointid].x = ((buf[2 + base] & 0x20) >> 5) +
 					((buf[2 + base] & 0x0F) << 11) +
 					((buf[3 + base] & 0xFF) << 3) +
 					((buf[6 + base] & 0xC0) >> 5);
-		    points[pointid].y = ((buf[2 + base] & 0x10) >> 4) +
+			points[pointid].y = ((buf[2 + base] & 0x10) >> 4) +
 					((buf[4 + base] & 0x0F) << 11) +
 					((buf[5 + base] & 0xFF) << 3) +
 					((buf[6 + base] & 0x30) >> 3);
-		    points[pointid].touch_major = buf[7 + base];
-		    points[pointid].width_major = buf[7 + base];
-		    points[pointid].z =  buf[6 + base] & 0x0F;
-		    event_flag = (buf[2 + base] >> 6);
+			points[pointid].touch_major = buf[7 + base];
+			points[pointid].width_major = buf[7 + base];
+			points[pointid].z =  buf[6 + base] & 0x0F;
+			event_flag = (buf[2 + base] >> 6);
 
+			if (ts_data->ft3518_grip_v2_support) {
+				points[pointid].tx_press = buf[62 + base_prevent];
+				points[pointid].rx_press = buf[63 + base_prevent];
+				points[pointid].tx_er = buf[65 + base_prevent];
+				points[pointid].rx_er = buf[64 + base_prevent];
+				TPD_DEBUG("[prevent-ft] id:%2d x:%3d y:%3d | tx_press:%3d rx_press:%3d tx_er:%3d rx_er:%3d", pointid, points[pointid].x, points[pointid].y,
+					points[pointid].tx_press, points[pointid].rx_press, points[pointid].tx_er, points[pointid].rx_er);
+			}
 		} else {
 			points[pointid].x = ((buf[2 + base] & 0x0F) << 10) + ((buf[3 + base] & 0xFF) << 2)
 					+ ((buf[6 + base] & 0xC0) >> 6);
@@ -1774,6 +1983,29 @@ static int fts_get_touch_points(void *chip_data, struct point_info *points,
 			points[pointid].width_major = buf[7 + base];
 			points[pointid].z =  buf[6 + base] & 0x0F;
 			event_flag = (buf[2 + base] >> 6);
+
+			if (ts_data->ft3518_grip_v2_support) {
+				points[pointid].tx_press = buf[62 + base_prevent];
+				points[pointid].rx_press = buf[63 + base_prevent];
+				points[pointid].tx_er = buf[65 + base_prevent];
+				points[pointid].rx_er = buf[64 + base_prevent];
+				TPD_DEBUG("[prevent-ft] id:%2d x:%3d y:%3d | tx_press:%3d rx_press:%3d tx_er:%3d rx_er:%3d", pointid, points[pointid].x, points[pointid].y,
+					points[pointid].tx_press, points[pointid].rx_press, points[pointid].tx_er, points[pointid].rx_er);
+			}
+		}
+
+		if (ts_data->snr_read_support) {
+			if (snr[pointid].doing) {
+				snr[pointid].point_status = 1;
+				snr[pointid].x = points[pointid].x;
+				snr[pointid].y = points[pointid].y;
+				snr[pointid].width_major = points[pointid].width_major;
+				snr[pointid].channel_x = snr[pointid].x * ts_data->hw_res->tx_num / ts_data->chip_resolution_info->max_x;
+				snr[pointid].channel_y = snr[pointid].y * ts_data->hw_res->rx_num / ts_data->chip_resolution_info->max_y;
+				GET_LEN_BY_WIDTH_MAJOR(snr[pointid].width_major, &snr[pointid].area_len);
+				TPD_DEBUG("[snr-ft] id:%d: [%d,%d] {%d %d} len %d\n", pointid, snr[pointid].x, snr[pointid].y, snr[pointid].channel_x, snr[pointid].channel_y,
+					snr[pointid].area_len);
+			}
 		}
 
 		points[pointid].status = 0;
@@ -1784,14 +2016,14 @@ static int fts_get_touch_points(void *chip_data, struct point_info *points,
 
 			if (point_num == 0) {
 				TPD_INFO("abnormal touch data from fw");
-				return -EIO;
+				return -EINVAL;
 			}
 		}
 	}
 
 	if (touch_point == 0) {
 		TPD_INFO("no touch point information");
-		return -EIO;
+		return -EINVAL;
 	}
 
 	return obj_attention;
@@ -1804,6 +2036,16 @@ static void fts_health_report(void *chip_data, struct monitor_data *mon_data)
 
 	ret = touch_i2c_read_byte(ts_data->client, 0x01);
 	TPD_INFO("Health register(0x01):0x%x", ret);
+	if(ret != 0xff) {
+		if ((ret & 0x40) && (ts_data->glove_mode_flag == 0)) {
+			TPD_INFO("Health register(0x01):Enter glove mode");
+			ts_data->glove_mode_flag = 1;
+		}
+		if ((!(ret & 0x40)) && (ts_data->glove_mode_flag == 1)) {
+			TPD_INFO("Health register(0x01):Quit glove mode");
+			ts_data->glove_mode_flag = 0;
+		}
+	}
 	ret = touch_i2c_read_byte(ts_data->client, FTS_REG_HEALTH_1);
 	TPD_INFO("Health register(0xFD):0x%x", ret);
 	ret = touch_i2c_read_byte(ts_data->client, FTS_REG_HEALTH_2);
@@ -2118,6 +2360,25 @@ static int fts_set_high_frame_rate(void *chip_data, int level, int time)
 	return ret;
 }
 
+static int fts_send_temperature(void *chip_data, int temp, bool normal_mode)
+{
+        struct chip_data_ft3518 *ts_data = (struct chip_data_ft3518 *)chip_data;
+        int ret = 0;
+
+        ts_data->tp_temperature = temp;
+        TPD_INFO("%s:temperature:%d!\n", __func__, ts_data->tp_temperature);
+
+        if (!!normal_mode) {
+		ret = touch_i2c_write_byte(ts_data->client, FTS_REG_TEMPERATURE, ts_data->tp_temperature&0xFF);
+                if (ret < 0) {
+                        TPD_INFO("%s:fts send temperature fail", __func__);
+                }
+                TPD_INFO("%s:fts send temperature:%d suc!", __func__, ts_data->tp_temperature);
+        }
+
+        return 0;
+}
+
 static void fts_set_gesture_state(void *chip_data, int state)
 {
 	struct chip_data_ft3518 *ts_data = (struct chip_data_ft3518 *)chip_data;
@@ -2223,7 +2484,6 @@ static struct oplus_touchpanel_operations fts_ops = {
 	.reset                      = fts_reset,
 	.reset_gpio_control         = fts_reset_gpio_control,
 	.fw_update                  = fts_fw_update,
-	/*    .trigger_reason             = fts_trigger_reason,*/
 	.trigger_reason             = fts_u32_trigger_reason,
 	.get_touch_points           = fts_get_touch_points,
 	.health_report              = fts_health_report,
@@ -2239,8 +2499,9 @@ static struct oplus_touchpanel_operations fts_ops = {
 	.smooth_lv_set              = fts_smooth_lv_set,
 	.sensitive_lv_set           = fts_sensitive_lv_set,
 	.enable_gesture_mask        = fts_enable_gesture_mask,
-        .set_high_frame_rate        = fts_set_high_frame_rate,
+	.set_high_frame_rate        = fts_set_high_frame_rate,
 	.set_gesture_state          = fts_set_gesture_state,
+	.send_temperature           = fts_send_temperature,
 	/*todo
 	        .get_vendor                 = synaptics_get_vendor,
 	        .get_keycode                = synaptics_get_keycode,
@@ -2279,12 +2540,13 @@ static struct engineer_test_operations ft3518_engineer_test_ops = {
 };
 
 static struct debug_info_proc_operations fts_debug_info_proc_ops = {
-	.delta_read        = fts_delta_read,
-	.key_trigger_delta_read = fts_key_trigger_delta_read,
-	.baseline_read = fts_baseline_read,
-        .baseline_blackscreen_read = fts_baseline_read,
-	.main_register_read = fts_main_register_read,
-	.self_delta_read   = fts_self_delta_read,
+	.delta_read                = fts_delta_read,
+	.key_trigger_delta_read    = fts_key_trigger_delta_read,
+	.baseline_read             = fts_baseline_read,
+	.baseline_blackscreen_read = fts_baseline_read,
+	.main_register_read        = fts_main_register_read,
+	.self_delta_read           = fts_self_delta_read,
+	.delta_snr_read            = fts_delta_snr_read,
 };
 
 static struct focal_debug_func focal_debug_ops = {
@@ -2357,7 +2619,10 @@ static int fts_tp_probe(struct i2c_client *client,
 		goto err_register_driver;
 	}
 	ts_data->black_gesture_indep = ts->black_gesture_indep_support;
+	ts_data->ft3518_grip_v2_support = ts->kernel_grip_support;
 	ts_data->monitor_data = &ts->monitor_data;
+	ts_data->snr_read_support = ts->snr_read_support;
+	ts_data->chip_resolution_info = &ts->resolution_info;
 	/*step6:create synaptics related proc files*/
 	fts_create_proc(ts, ts_data->syna_ops);
 
@@ -2387,14 +2652,29 @@ ts_malloc_failed:
 	return ret;
 }
 
+static void fts_tp_shutdown(struct i2c_client *client)
+{
+	struct touchpanel_data *ts = i2c_get_clientdata(client);
+
+	TPD_INFO("%s is called\n", __func__);
+	tp_shutdown(ts);
+}
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
+static void fts_tp_remove(struct i2c_client *client)
+#else
 static int fts_tp_remove(struct i2c_client *client)
+#endif
 {
 	struct touchpanel_data *ts = i2c_get_clientdata(client);
 
 	TPD_INFO("%s is called\n", __func__);
 	kfree(ts);
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
+#else
 	return 0;
+#endif
 }
 
 static int fts_i2c_suspend(struct device *dev)
@@ -2437,7 +2717,8 @@ static const struct dev_pm_ops tp_pm_ops = {
 static struct i2c_driver tp_i2c_driver = {
 	.probe          = fts_tp_probe,
 	.remove         = fts_tp_remove,
-	.id_table   = tp_id,
+	.id_table       = tp_id,
+	.shutdown       = fts_tp_shutdown,
 	.driver         = {
 		.name   = TPD_DEVICE,
 		.of_match_table =  tp_match_table,

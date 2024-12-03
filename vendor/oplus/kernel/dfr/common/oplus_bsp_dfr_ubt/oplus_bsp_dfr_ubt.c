@@ -44,6 +44,26 @@ enum anon_name_type {
 	ANON_NAME_VDSO
 };
 
+static void ubt_mmput_fn(struct work_struct *work)
+{
+	struct mm_struct *mm = container_of(work, struct mm_struct, async_put_work);
+
+	mmput(mm);
+}
+
+/* When only ubt hold task mm resource, call worker to asynchronously release mm.
+*  This can avoid crash because of sched debug enabled and preempt disabled.
+*/
+static void ubt_mmput(struct mm_struct *mm)
+{
+	if (atomic_read(&mm->mm_users) == 1) {
+		INIT_WORK(&mm->async_put_work, ubt_mmput_fn);
+		schedule_work(&mm->async_put_work);
+	} else {
+		atomic_dec(&mm->mm_users);
+	}
+}
+
 static int __access_remote_vm_no_lock(struct mm_struct *mm, unsigned long addr,
 				void *buf, int len, unsigned int gup_flags)
 {
@@ -109,19 +129,10 @@ static int __access_remote_vm_no_lock(struct mm_struct *mm, unsigned long addr,
 	return buf - old_buf;
 }
 
-static int access_process_vm_ubt(struct task_struct *tsk, unsigned long addr,
+static int access_process_vm_ubt(struct mm_struct *mm, unsigned long addr,
 				void *buf, int len, unsigned int gup_flags)
 {
-	struct mm_struct *mm;
-	int ret;
-
-	mm = get_task_mm(tsk);
-	if (!mm)
-		return 0;
-
-	ret = __access_remote_vm_no_lock(mm, addr, buf, len, gup_flags);
-	mmput(mm);
-	return ret;
+	return __access_remote_vm_no_lock(mm, addr, buf, len, gup_flags);
 }
 
 static void dump_frames(unsigned long *stack_frames, int frames,
@@ -258,7 +269,7 @@ static int get_stack_frames(struct task_struct *task,
 
 	/* get frames */
 	while (tmp_fp < stack_end && tmp_fp > stack_start && index < max_frames - 1) {
-		copied = access_process_vm_ubt(task, tmp_fp, &tmp_fp_next,
+		copied = access_process_vm_ubt(task->mm, tmp_fp, &tmp_fp_next,
 					   sizeof(tmp_fp_next), 0);
 
 		if (copied != sizeof(tmp_fp_next)) {
@@ -266,7 +277,7 @@ static int get_stack_frames(struct task_struct *task,
 			return -EFAULT;
 		}
 
-		copied = access_process_vm_ubt(task, tmp_fp + 0x08, &tmp_lr,
+		copied = access_process_vm_ubt(task->mm, tmp_fp + 0x08, &tmp_lr,
 						sizeof(tmp_lr), 0);
 
 		if (copied != sizeof(tmp_lr)) {
@@ -294,7 +305,7 @@ static void show_user_backtrace(struct task_struct *task)
 	}
 
 	if (unlikely(!mmap_read_trylock(task->mm))) {
-		mmput(task->mm);
+		ubt_mmput(task->mm);
 		return;
 	}
 	frames = get_stack_frames(task, stack_frames, OPLUS_BT_MAX_DEPTH);
@@ -306,7 +317,7 @@ static void show_user_backtrace(struct task_struct *task)
 	dump_frames(stack_frames, frames, task, path_name, sizeof(path_name));
 exit:
 	mmap_read_unlock(task->mm);
-	mmput(task->mm);
+	ubt_mmput(task->mm);
 }
 
 

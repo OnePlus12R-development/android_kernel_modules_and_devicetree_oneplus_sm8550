@@ -248,7 +248,7 @@ static const struct proc_ops proc_normalize_real_time_operations = {
 
 static int proc_max_rt_runtime_show(struct seq_file *m, void *v)
 {
-	int im_flag = IM_FLAG_NONE;
+	unsigned long im_flag = IM_FLAG_NONE;
 
 	if (!rt_task_info.duration) {
 		seq_printf(m, "rt task duration is 0\n");
@@ -257,7 +257,7 @@ static int proc_max_rt_runtime_show(struct seq_file *m, void *v)
 	seq_printf(m, "%s, %d, %lu\n", rt_task_info.comm, rt_task_info.pid, rt_task_info.duration);
 	if (current->group_leader)
 		im_flag = oplus_get_im_flag(current->group_leader);
-	if (im_flag == IM_FLAG_MIDASD) {
+	if (test_bit(IM_FLAG_MIDASD, &im_flag)) {
 		rt_task_info.duration = 0;
 		rt_task_info.pid = 0;
 		memset(rt_task_info.comm, 0, TASK_COMM_LEN);

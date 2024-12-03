@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -177,8 +177,6 @@ struct csr_scanstruct {
 	struct csr_channel base_channels;  /* The channel base to work on */
 	tDblLinkList channelPowerInfoList24;
 	tDblLinkList channelPowerInfoList5G;
-	uint8_t countryCodeDefault[REG_ALPHA2_LEN + 1];
-	uint8_t countryCodeCurrent[REG_ALPHA2_LEN + 1];
 	/*
 	 * Customer wants to optimize the scan time. Avoiding scans(passive)
 	 * on DFS channels while swipping through both bands can save some time
@@ -453,7 +451,7 @@ QDF_STATUS csr_change_default_config_param(struct mac_context *mac,
 		struct csr_config_params *pParam);
 QDF_STATUS csr_msg_processor(struct mac_context *mac, void *msg_buf);
 QDF_STATUS csr_open(struct mac_context *mac);
-QDF_STATUS csr_init_chan_list(struct mac_context *mac, uint8_t *alpha2);
+QDF_STATUS csr_init_chan_list(struct mac_context *mac);
 QDF_STATUS csr_close(struct mac_context *mac);
 QDF_STATUS csr_start(struct mac_context *mac);
 QDF_STATUS csr_stop(struct mac_context *mac);
@@ -499,7 +497,6 @@ bool csr_roam_is11r_assoc(struct mac_context *mac, uint8_t sessionId);
 #ifdef FEATURE_WLAN_ESE
 /* Returns whether the current association is a ESE assoc or not */
 bool csr_roam_is_ese_assoc(struct mac_context *mac, uint32_t sessionId);
-bool csr_roam_is_ese_ini_feature_enabled(struct mac_context *mac);
 QDF_STATUS csr_get_tsm_stats(struct mac_context *mac,
 		tCsrTsmStatsCallback callback,
 		struct qdf_mac_addr bssId,
@@ -598,16 +595,19 @@ bool csr_is_mcc_channel(struct mac_context *mac_ctx, uint32_t chan_freq);
  * @mac_ctx: Global mac context pointer
  * @vdev_id: Vdev id
  * @bssid: candidate AP bssid
+ * @akm: candidate AKM
  */
 QDF_STATUS
 csr_roam_auth_offload_callback(struct mac_context *mac_ctx,
 			       uint8_t vdev_id,
-			       struct qdf_mac_addr bssid);
+			       struct qdf_mac_addr bssid,
+			       uint32_t akm);
 #else
 static inline QDF_STATUS
 csr_roam_auth_offload_callback(struct mac_context *mac_ctx,
 			       uint8_t vdev_id,
-			       struct qdf_mac_addr bssid)
+			       struct qdf_mac_addr bssid,
+			       uint32_t akm)
 {
 	return QDF_STATUS_E_NOSUPPORT;
 }

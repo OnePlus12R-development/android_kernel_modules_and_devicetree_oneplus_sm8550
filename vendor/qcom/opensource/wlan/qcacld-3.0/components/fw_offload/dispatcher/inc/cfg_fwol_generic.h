@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -414,7 +414,7 @@
 	0, \
 	FW_MODULE_LOG_LEVEL_STRING_LENGTH, \
 	"1,1,2,1,3,1,4,1,5,1,11,1,9,1,13,1,14,1,17,1,18,1,19,1,22,1,26,1,28,1,"\
-	"29,1,31,1,36,1,38,1,46,1,47,1,50,1,52,1,53,1,56,1,60,1,61,1", \
+	"29,1,31,1,36,1,38,1,46,1,47,1,50,1,52,1,53,1,56,1,60,1,61,1,113,1", \
 	"Set modulized firmware debug log level")
 
 /*
@@ -591,6 +591,7 @@
  * CFG_SET_TSF_PTP_OPT_RAW                   (0x4)
  * CFG_SET_TSF_DBG_FS                        (0x8)
  * CFG_SET_TSF_PTP_OPT_TSF64_TX              (0x10)
+ * CFG_SET_TSF_PTP_SYNC_PERIOD               (0x20)
  *
  * Related: None
  *
@@ -603,12 +604,13 @@
 #define CFG_SET_TSF_PTP_OPT_RAW                   (0x4)
 #define CFG_SET_TSF_DBG_FS                        (0x8)
 #define CFG_SET_TSF_PTP_OPT_TSF64_TX              (0x10)
+#define CFG_SET_TSF_PTP_SYNC_PERIOD               (0x20)
 
 #define CFG_SET_TSF_PTP_OPT CFG_INI_UINT( \
 		"gtsf_ptp_options", \
 		0, \
 		0xff, \
-		0xf, \
+		0x2f, \
 		CFG_VALUE_OR_DEFAULT, \
 		"TSF Plus feature options")
 
@@ -929,6 +931,33 @@
 		1, \
 		"enable pci gen")
 
+/*
+ * <ini>
+ * pcie_config - Ini to control pcie gen and lane params
+ * @Min: 0
+ * @Max: 1
+ * @Default: 0
+ *
+ * This ini is used to control to pcie gen and lane params
+ * 0 - FW controlled
+ * 1 - Force PCIe Gen and lane to max supported value
+ *
+ * Related: g_enable_pci_gen
+ *
+ * Supported Feature: PCI
+ *
+ * Usage: External
+ *
+ * </ini>
+ */
+#define CFG_PCIE_CONFIG CFG_INI_UINT( \
+				"pcie_config", \
+				0, \
+				1, \
+				0, \
+				CFG_VALUE_OR_DEFAULT, \
+				"to control pcie gen and lane")
+
 #define CFG_FWOL_GENERIC_ALL \
 	CFG_FWOL_DHCP \
 	CFG(CFG_ENABLE_ANI) \
@@ -961,6 +990,7 @@
 	CFG(CFG_SAP_SHO_CONFIG) \
 	CFG(CFG_DISABLE_HW_ASSIST) \
 	CFG(CFG_ENABLE_PCI_GEN) \
+	CFG(CFG_PCIE_CONFIG) \
 	ENABLE_OFDM_SCRAMBLER_SEED
 
 #endif

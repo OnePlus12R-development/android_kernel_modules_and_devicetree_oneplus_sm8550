@@ -13,9 +13,7 @@
 #include "../sched_assist/sa_common.h"
 #include "osi_tasktrack.h"
 #include "osi_topology.h"
-#if IS_ENABLED(CONFIG_JANK_CPUSET)
-#include "osi_cpuset.h"
-#endif
+#include "osi_healthinfo.h"
 
 static struct hrtimer tasktrack_timer;
 static struct task_track_info *trace_info;
@@ -352,9 +350,6 @@ void update_tasktrack_time_win(void)
 		jank_dbg("m6: winidx=%d, dbg_delta=%llu(%llu)\n",
 				winidx, dbg_delta/1000/1000, dbg_delta);
 	}
-#if IS_ENABLED(CONFIG_JANK_CPUSET)
-	jank_cpuset_adjust(trace_info);
-#endif
 }
 
 static enum hrtimer_restart tasktrack_timer_handler(
@@ -367,11 +362,15 @@ static enum hrtimer_restart tasktrack_timer_handler(
 }
 
 static void jankinfo_update_task_status_cb(struct task_struct *p,
-			unsigned long type)
+			unsigned long type, int flags)
 {
 	u32 idx;
 	unsigned long nowtype;
 	unsigned long tmptype;
+
+	if (TRACE_RUNNABLE == type) {
+		update_block_state(p, flags);
+	}
 
 	if (!trace_info || !p || !is_task_traced(p, &idx))
 		return;

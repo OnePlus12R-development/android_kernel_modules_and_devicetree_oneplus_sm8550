@@ -20,14 +20,14 @@
 #define AUDIO_TASK_IDLE_EXIT_LATENCY 60
 
 int sa_audio_perf_enable = 1;
-int sa_audio_perf_status = 0;
-int sa_audio_debug_enable = 0;
+int sa_audio_perf_status;
+int sa_audio_debug_enable;
 int sa_audio_threshold_util = 51;
 
 u64 perf_timer_slack_ns = 50000;
 struct proc_dir_entry *audio_dir;
 struct proc_dir_entry *audio_dir_parent;
-struct list_head *debug_pids = NULL;
+struct list_head *debug_pids;
 DEFINE_MUTEX(debug_pids_mutex);
 
 static void debug_systrace_c(u64 value, const char *tag)
@@ -41,10 +41,10 @@ static void debug_systrace_c(u64 value, const char *tag)
 static void debug_trace_printk(struct task_struct *task, u64 value, const char *tag)
 {
 	struct oplus_task_struct *ots = get_oplus_task_struct(task);
-	int im_flag = oplus_get_im_flag(task);
+	unsigned long im_flag = oplus_get_im_flag(task);
 
 	if (!IS_ERR_OR_NULL(ots))
-		trace_printk("Ux_audio %s, comm=%-12s pid=%d ux_state=%d lm_flag=%d %s=%llu\n",
+		trace_printk("Ux_audio %s, comm=%-12s pid=%d ux_state=%d lm_flag=0x%08lx %s=%llu\n",
 			tag, task->comm, task->pid, ots->ux_state, im_flag, tag, value);
 }
 
@@ -78,11 +78,13 @@ static bool is_audio_perf_status_on(void)
 
 static bool is_audio_task(struct task_struct *t)
 {
+	unsigned long im_flag;
+
 	if (!t)
 		return false;
-	if (oplus_get_im_flag(t) != IM_FLAG_AUDIO)
+	im_flag = oplus_get_im_flag(t);
+	if (!test_bit(IM_FLAG_AUDIO, &im_flag))
 		return false;
-
 	return true;
 }
 
@@ -436,6 +438,10 @@ static void set_sched_boost(struct task_struct *p, bool enable)
 	int ux_state = oplus_get_ux_state(p);
 
 	if (enable) {
+		if (oplus_get_inherit_ux(p)) {
+			clear_all_inherit_type(p);
+			ux_state = 0;
+		}
 		oplus_set_ux_state_lock(p, (ux_state | UX_PRIORITY_AUDIO | SA_TYPE_SWIFT), true);
 	} else {
 		oplus_set_ux_state_lock(p, (ux_state & ~(SCHED_ASSIST_UX_PRIORITY_MASK | SA_TYPE_SWIFT)), true);
@@ -476,9 +482,9 @@ void oplus_sched_assist_audio_perf_addIm(struct task_struct *task, int im_flag)
 	if (!is_audio_perf_enable())
 		return;
 
-	if (is_audio_task(task) && im_flag == IM_FLAG_NONE)
+	if (is_audio_task(task) && im_flag == (IM_FLAG_AUDIO + IM_FLAG_CLEAR))
 		set_sched_boost(task, false);
-	else if (im_flag == IM_FLAG_AUDIO && !test_task_ux(task)) /* if the task is already a ux task, we can't set it to audio task */
+	else if (im_flag == IM_FLAG_AUDIO) /* if the task is already a ux task, we can't set it to audio task */
 		set_sched_boost(task, true);
 }
 

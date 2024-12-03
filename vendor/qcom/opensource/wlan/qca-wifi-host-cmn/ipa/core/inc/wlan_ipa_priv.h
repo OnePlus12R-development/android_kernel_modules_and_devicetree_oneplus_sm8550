@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -25,8 +25,6 @@
 #ifndef _WLAN_IPA_PRIV_STRUCT_H_
 #define _WLAN_IPA_PRIV_STRUCT_H_
 
-#ifdef IPA_OFFLOAD
-
 #include <linux/version.h>
 #include <linux/kernel.h>
 
@@ -44,7 +42,11 @@
 #include "qdf_delayed_work.h"
 #include <qdf_event.h>
 #include "wlan_ipa_public_struct.h"
+#ifdef IPA_OPT_WIFI_DP
+#include "cdp_txrx_ipa.h"
+#endif
 
+#ifdef IPA_OFFLOAD
 #define WLAN_IPA_RX_INACTIVITY_MSEC_DELAY   1000
 #define WLAN_IPA_UC_WLAN_8023_HDR_SIZE      14
 
@@ -82,6 +84,7 @@
 #define WLAN_IPA_UC_ENABLE_MASK             BIT(5)
 #define WLAN_IPA_UC_STA_ENABLE_MASK         BIT(6)
 #define WLAN_IPA_REAL_TIME_DEBUGGING        BIT(8)
+#define WLAN_IPA_OPT_WIFI_DP                BIT(9)
 
 #ifdef QCA_IPA_LL_TX_FLOW_CONTROL
 #define WLAN_IPA_MAX_BANDWIDTH              4800
@@ -108,6 +111,10 @@
  * @WLAN_IPA_UC_OPCODE_QUOTA_RSP: IPA UC quota response
  * @WLAN_IPA_UC_OPCODE_QUOTA_IND: IPA UC quota indication
  * @WLAN_IPA_UC_OPCODE_UC_READY: IPA UC ready indication
+ * @WLAN_IPA_FILTER_RSV_NOTIFY: OPT WIFI DP filter reserve notification
+ * @WLAN_IPA_FILTER_REL_NOTIFY: OPT WIFI DP filter release notification
+ * @WLAN_IPA_SMMU_MAP: IPA SMMU map call
+ * @WLAN_IPA_SMMU_UNMAP: IPA SMMU unmap call
  * @WLAN_IPA_UC_OPCODE_MAX: IPA UC max operation code
  */
 enum wlan_ipa_uc_op_code {
@@ -122,6 +129,10 @@ enum wlan_ipa_uc_op_code {
 	WLAN_IPA_UC_OPCODE_QUOTA_IND = 7,
 #endif
 	WLAN_IPA_UC_OPCODE_UC_READY = 8,
+	WLAN_IPA_FILTER_RSV_NOTIFY = 9,
+	WLAN_IPA_FILTER_REL_NOTIFY = 10,
+	WLAN_IPA_SMMU_MAP = 11,
+	WLAN_IPA_SMMU_UNMAP = 12,
 	/* keep this last */
 	WLAN_IPA_UC_OPCODE_MAX
 };
@@ -742,12 +753,19 @@ struct wlan_ipa_priv {
 
 	uint32_t wdi_version;
 	bool is_smmu_enabled;	/* IPA caps returned from ipa_wdi_init */
+	/* Flag to notify whether optional wifi dp feature is enabled or not */
+	bool opt_wifi_datapath;
 	qdf_atomic_t stats_quota;
 	uint8_t curr_bw_level;
 	qdf_atomic_t deinit_in_prog;
 	uint8_t instance_id;
 	bool handle_initialized;
 	qdf_ipa_wdi_hdl_t hdl;
+#ifdef IPA_OPT_WIFI_DP
+	struct wifi_dp_flt_setup dp_cce_super_rule_flt_param;
+	qdf_event_t ipa_flt_evnt;
+	qdf_wake_lock_t opt_dp_wake_lock;
+#endif
 };
 
 #define WLAN_IPA_WLAN_FRAG_HEADER        sizeof(struct frag_header)

@@ -278,11 +278,11 @@ int ft3681_fts_write(u8 *writebuf, u32 writelen)
 			 writebuf[0], rxbuf[3], ret);
 	}
 	if (ts_data->monitor_data && ts_data->monitor_data->health_monitor_support
-			   && (ret < 0 || ts_data->monitor_data->health_simulate_trigger)) {
+			   && (ret < 0 || CHK_BIT_NUM(ts_data->monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_BUS))) {
 		ts_data->monitor_data->bus_buf = writebuf;
 		ts_data->monitor_data->bus_len = writelen;
 		tp_healthinfo_report(ts_data->monitor_data, HEALTH_BUS,
-			   ts_data->monitor_data->health_simulate_trigger ? &ret_err : &ret);
+			   CHK_BIT_NUM(ts_data->monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_BUS) ? &ret_err : &ret);
 	}
 
 err_write:
@@ -408,11 +408,11 @@ int ft3681_fts_read(u8 *cmd, u32 cmdlen, u8 *data, u32 datalen)
 	}
 
 	if (ts_data->monitor_data && ts_data->monitor_data->health_monitor_support
-			   && (ret < 0 || ts_data->monitor_data->health_simulate_trigger)) {
+			   && (ret < 0 || CHK_BIT_NUM(ts_data->monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_BUS))) {
 		ts_data->monitor_data->bus_buf = cmd;
 		ts_data->monitor_data->bus_len = cmdlen;
 		tp_healthinfo_report(ts_data->monitor_data, HEALTH_BUS,
-			   ts_data->monitor_data->health_simulate_trigger ? &ret_err : &ret);
+			   CHK_BIT_NUM(ts_data->monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_BUS) ? &ret_err : &ret);
 	}
 
 err_read:
@@ -776,11 +776,11 @@ static bool fts_fwupg_check_flash_status(struct chip_data_ft3681 *ts_data,
 /*upgrade function*/
 
 static u8 pb_file_ft3681[] = {
-	#include "./FT3681_Pramboot_V1.3_20211109.i"
+	#include "./FT3681_Pramboot_V1.3_20211109.h"
 };
 
 static u8 pb_cal_file_ft3681[] = {
-#include "./FT3681_Cal_Test_app.i"
+#include "./FT3681_Cal_Test_app.h"
 };
 
 static int ft3681_fwupg_get_boot_state(enum FW_STATUS *fw_sts)
@@ -1488,10 +1488,10 @@ static int fts_upgrade(struct chip_data_ft3681 *ts_data, u8 *buf, u32 len)
 	/* enter into upgrade environment */
 	ret = fts_fwupg_enter_into_boot(ts_data);
 
-	if (ret < 0 || (monitor_data && monitor_data->health_simulate_trigger)) {
+	if (ret < 0 || (monitor_data && CHK_BIT_NUM(monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_FW_UPDATE))) {
 		tp_healthinfo_report(monitor_data, HEALTH_FW_UPDATE, "Enter pramboot/bootloader failed");
 		TPD_INFO("enter into pramboot/bootloader fail,ret=%d", ret);
-		if (!monitor_data || !monitor_data->health_simulate_trigger) {
+		if (!monitor_data || !CHK_BIT_NUM(monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_FW_UPDATE)) {
 			goto fw_reset;
 		}
 	}
@@ -1502,10 +1502,10 @@ static int fts_upgrade(struct chip_data_ft3681 *ts_data, u8 *buf, u32 len)
 	cmd[3] = (len) & 0xFF;
 	ret = ft3681_fts_write(&cmd[0], 4);
 
-	if (ret < 0 || (monitor_data && monitor_data->health_simulate_trigger)) {
+	if (ret < 0 || (monitor_data && CHK_BIT_NUM(monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_FW_UPDATE))) {
 		tp_healthinfo_report(monitor_data, HEALTH_FW_UPDATE, "FTS_CMD_DATA_LEN failed");
 		TPD_INFO("data len cmd write fail");
-		if (!monitor_data || !monitor_data->health_simulate_trigger) {
+		if (!monitor_data || !CHK_BIT_NUM(monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_FW_UPDATE)) {
 			goto fw_reset;
 		}
 	}
@@ -1513,10 +1513,10 @@ static int fts_upgrade(struct chip_data_ft3681 *ts_data, u8 *buf, u32 len)
 	/*erase*/
 	ret = fts_fwupg_erase(ts_data, FTS_REASE_APP_DELAY);
 
-	if (ret < 0 || (monitor_data && monitor_data->health_simulate_trigger)) {
+	if (ret < 0 || (monitor_data && CHK_BIT_NUM(monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_FW_UPDATE))) {
 		tp_healthinfo_report(monitor_data, HEALTH_FW_UPDATE, "FTS_REASE_APP_DELAY failed");
 		TPD_INFO("erase cmd write fail");
-		if (!monitor_data || !monitor_data->health_simulate_trigger) {
+		if (!monitor_data || !CHK_BIT_NUM(monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_FW_UPDATE)) {
 			goto fw_reset;
 		}
 	}
@@ -1525,10 +1525,10 @@ static int fts_upgrade(struct chip_data_ft3681 *ts_data, u8 *buf, u32 len)
 	start_addr = 0;
 	ret = fts_flash_write_buf(ts_data, start_addr, buf, len, 1);
 
-	if (ret < 0 || (monitor_data && monitor_data->health_simulate_trigger)) {
+	if (ret < 0 || (monitor_data && CHK_BIT_NUM(monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_FW_UPDATE))) {
 		tp_healthinfo_report(monitor_data, HEALTH_FW_UPDATE, "Flash Write failed");
 		TPD_INFO("flash write fail");
-		if (!monitor_data || !monitor_data->health_simulate_trigger) {
+		if (!monitor_data || !CHK_BIT_NUM(monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_FW_UPDATE)) {
 			goto fw_reset;
 		}
 	}
@@ -1536,20 +1536,20 @@ static int fts_upgrade(struct chip_data_ft3681 *ts_data, u8 *buf, u32 len)
 	ecc_in_host = fts_fwupg_ecc_cal_host(buf, len);
 	ecc_in_tp = fts_fwupg_ecc_cal_tp(ts_data, start_addr, len);
 
-	if (ecc_in_tp < 0 || (monitor_data && monitor_data->health_simulate_trigger)) {
+	if (ecc_in_tp < 0 || (monitor_data && CHK_BIT_NUM(monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_FW_UPDATE))) {
 		tp_healthinfo_report(monitor_data, HEALTH_FW_UPDATE, "ECC Read failed");
 		TPD_INFO("ecc read fail");
-		if (!monitor_data || !monitor_data->health_simulate_trigger) {
+		if (!monitor_data || !CHK_BIT_NUM(monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_FW_UPDATE)) {
 			goto fw_reset;
 		}
 	}
 
 	TPD_INFO("ecc in tp:%x, host:%x", ecc_in_tp, ecc_in_host);
 
-	if (ecc_in_tp != ecc_in_host || (monitor_data && monitor_data->health_simulate_trigger)) {
+	if (ecc_in_tp != ecc_in_host || (monitor_data && CHK_BIT_NUM(monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_FW_UPDATE))) {
 		tp_healthinfo_report(monitor_data, HEALTH_FW_UPDATE, "ECC Check failed");
 		TPD_INFO("ecc check fail");
-		if (!monitor_data || !monitor_data->health_simulate_trigger) {
+		if (!monitor_data || !CHK_BIT_NUM(monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_FW_UPDATE)) {
 			goto fw_reset;
 		}
 	}
@@ -1558,7 +1558,7 @@ static int fts_upgrade(struct chip_data_ft3681 *ts_data, u8 *buf, u32 len)
 	cmd[0] = FTS_CMD_RESET;
 	ret = ft3681_fts_write(&cmd[0], 1);
 
-	if (ret < 0 || (monitor_data && monitor_data->health_simulate_trigger)) {
+	if (ret < 0 || (monitor_data && CHK_BIT_NUM(monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_FW_UPDATE))) {
 		tp_healthinfo_report(monitor_data, HEALTH_FW_UPDATE, "FTS_CMD_RESET failed");
 		TPD_INFO("reset to normal boot fail");
 	}
@@ -1571,7 +1571,7 @@ fw_reset:
 	cmd[0] = FTS_CMD_RESET;
 	ret = ft3681_fts_write(&cmd[0], 1);
 
-	if (ret < 0 || (monitor_data && monitor_data->health_simulate_trigger)) {
+	if (ret < 0 || (monitor_data && CHK_BIT_NUM(monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_FW_UPDATE))) {
 		tp_healthinfo_report(monitor_data, HEALTH_FW_UPDATE, "FTS_CMD_RESET failed");
 		TPD_INFO("reset to normal boot fail");
 	}
@@ -2327,6 +2327,7 @@ static int get_now_temp(struct chip_data_ft3681 *ts_data)
 		TPD_INFO("%s Can't get shell_back\n", __func__);
 		ts->oplus_shell_themal = NULL;
 		ret = -1;
+		return ret;
 	}
 
 	TPD_DEBUG("%s get shell_back ret:%d\n", __func__, ret);
@@ -2707,6 +2708,12 @@ static u32 fts_u32_trigger_reason(void *chip_data, int gesture_enable,
 	/*ret = ft3681_fts_read_reg(FTS_REG_POINTS, &val);*/
 	val = touch_buf[0];
 
+	/*clear water_mode_flag*/
+	if (((val | 0xFE) == 0xFE) && (ts_data->water_mode_flag == 1)) {
+		ts_data->water_mode_flag = 0;
+		TPD_INFO("water_mode_flag = %d\n", ts_data->water_mode_flag);
+	}
+
 	if (val && val != 0xFB && val != 0xFF) {
 		SET_BIT(result_event, IRQ_FW_HEALTH);
 	}
@@ -3002,30 +3009,36 @@ static void fts_health_report(void *chip_data, struct monitor_data *mon_data)
 
 	/*ret = ft3681_fts_read_reg(0x01, &val);*/
 	val = ts_data->touch_buf[0];
+	if (val & 0x01) {
+		ts_data->water_mode_flag = 1;
+	}
+	else {
+		ts_data->water_mode_flag = 0;
+	}
 	TPD_INFO("Health register(0x01):0x%x", val);
 	if (((val & 0x01) && !ts_data->is_in_water)
-	    || ts_data->monitor_data->health_simulate_trigger) {
+	    || CHK_BIT_NUM(ts_data->monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_IC_HEALTHINFO)) {
 		TPD_DETAIL("Health register(0x01):Water Shield");
 		tp_healthinfo_report(mon_data, HEALTH_REPORT, HEALTH_REPORT_SHIELD_WATER);
 		ts_data->is_in_water = true;
 	}
 	if ((val & 0x02)
-	    || ts_data->monitor_data->health_simulate_trigger) {
+	    || CHK_BIT_NUM(ts_data->monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_IC_HEALTHINFO)) {
 		TPD_DETAIL("Health register(0x01):Palm Shield");
 		tp_healthinfo_report(mon_data, HEALTH_REPORT, HEALTH_REPORT_SHIELD_PALM);
 	}
 	if ((val & 0x04)
-	    || ts_data->monitor_data->health_simulate_trigger) {
+	    || CHK_BIT_NUM(ts_data->monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_IC_HEALTHINFO)) {
 		TPD_DETAIL("Health register(0x01):Freq Hopping");
 		tp_healthinfo_report(mon_data, HEALTH_REPORT, HEALTH_REPORT_HOPPING);
 	}
 	if ((val & 0x08)
-	    || ts_data->monitor_data->health_simulate_trigger) {
+	    || CHK_BIT_NUM(ts_data->monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_IC_HEALTHINFO)) {
 		TPD_DETAIL("Health register(0x01):Base Refresh");
 		tp_healthinfo_report(mon_data, HEALTH_REPORT, HEALTH_REPORT_BASELINE_ERR);
 	}
 	if ((val & 0x10)
-	    || ts_data->monitor_data->health_simulate_trigger) {
+	    || CHK_BIT_NUM(ts_data->monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_IC_HEALTHINFO)) {
 		if (ts_data->charger_connected) {
 			TPD_DETAIL("Health register(0x01):Big Noise in Charge");
 			tp_healthinfo_report(mon_data, HEALTH_REPORT, HEALTH_REPORT_NOISE_CHARGE);
@@ -3035,17 +3048,17 @@ static void fts_health_report(void *chip_data, struct monitor_data *mon_data)
 		}
 	}
 	if ((val & 0x20)
-	    || ts_data->monitor_data->health_simulate_trigger) {
+	    || CHK_BIT_NUM(ts_data->monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_IC_HEALTHINFO)) {
 		TPD_DETAIL("Health register(0x01):Temperature");
 		tp_healthinfo_report(mon_data, HEALTH_REPORT, HEALTH_REPORT_TEMP_DRIFT);
 	}
 	if ((val & 0x40)
-	    || ts_data->monitor_data->health_simulate_trigger) {
+	    || CHK_BIT_NUM(ts_data->monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_IC_HEALTHINFO)) {
 		TPD_DETAIL("Health register(0x01):Chanel Fill");
 		tp_healthinfo_report(mon_data, HEALTH_REPORT, HEALTH_REPORT_CHANEL_FILL);
 	}
 	if ((val & 0x80)
-	    || ts_data->monitor_data->health_simulate_trigger) {
+	    || CHK_BIT_NUM(ts_data->monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_IC_HEALTHINFO)) {
 		if (!ts_data->fod_trigger) {
 			TPD_DETAIL("Health register(0x01):FOD");
 			ts_data->fod_trigger = TYPE_SMALL_FOD_TRIGGER;
@@ -3061,7 +3074,7 @@ static void fts_health_report(void *chip_data, struct monitor_data *mon_data)
 	ret = ft3681_fts_read_reg(FTS_REG_HEALTH_2, &val);
 	TPD_INFO("Health register(0xFE):0x%x(work-freq:%u)", val, val);
 	if ((mon_data->work_freq && mon_data->work_freq != val)
-	    || ts_data->monitor_data->health_simulate_trigger) {
+	    || CHK_BIT_NUM(ts_data->monitor_data->health_simulate_trigger, HEALTH_SIMULATE_BIT_IC_HEALTHINFO)) {
 		freq_str = kzalloc(10, GFP_KERNEL);
 		if (!freq_str) {
 			TPD_INFO("freq_str kzalloc failed.\n");
@@ -3321,6 +3334,65 @@ static void fts_screenon_fingerprint_info(void *chip_data,
 	TPD_INFO("FOD Info:touch_state:%d,area_rate:%d,x:%d,y:%d[fp_down:%d]",
 		 fp_tpinfo->touch_state, fp_tpinfo->area_rate, fp_tpinfo->x,
 		 fp_tpinfo->y, ts_data->fod_info.fp_down);
+}
+
+static void fts_fod_fingerprint_health_info(void *chip_data)
+{
+	int ret = 0;
+	u8 cmd = FTS_RES_FOD_HEALTH_STATUS;
+	struct chip_data_ft3681 *ts_data = (struct chip_data_ft3681 *)chip_data;
+	u8 buf[12] = {0};
+
+	if (ts_data->is_power_down) {
+		fts_power_control(chip_data, true);
+		ts_data->is_ic_sleep = false;
+	}
+
+	ret = ft3681_fts_read(&cmd, 1, buf, 11);
+	TPD_INFO("%s:%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x \n",
+		__func__, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10]);
+
+	switch (buf[6]) {
+	case FOD_ENABLE:
+			ts_data->monitor_data->p_finger_health_info->fp_enble_count++;
+			TPD_INFO("0xCF FOD switch effect\n");
+		break;
+	case FOD_FARAWAY:
+			ts_data->monitor_data->p_finger_health_info->faraway_pressed_fod_count++;
+			TPD_INFO("0xE0 pressed far away,do not trriger the FOD highligh\n");
+		break;
+	case FOD_NOT_IN_AREA:
+			ts_data->monitor_data->p_finger_health_info->pressed_not_in_area_count++;
+			TPD_INFO("0xE0 pressed area not in FOD area\n");
+		break;
+	case FOD_IN_AREA:
+			ts_data->monitor_data->p_finger_health_info->pressed_in_area_count++;
+			TPD_INFO("0xE0 pressed area in FOD area\n");
+		break;
+	case FOD_IN_AREA_V2:
+			ts_data->monitor_data->p_finger_health_info->pressed_in_area_count++;
+			TPD_INFO("0xE0 pressed area in FOD area\n");
+		break;
+	case FOD_FIRST_EFFETIVE_PRESS:
+			ts_data->monitor_data->p_finger_health_info->first_detected_effetive_fod_count++;
+			TPD_INFO("0xE0 efective area touch detected for the first time\n");
+		break;
+	case FOD_SMALL_TOUCH:
+			ts_data->monitor_data->p_finger_health_info->small_touch_fod_invail_count++;
+			TPD_INFO("0xE0 small touch area invalid touch\n");
+		break;
+	case FOD_DETECT_EFFETIVE_AREA:
+			ts_data->monitor_data->p_finger_health_info->detect_effetive_area_count++;
+			TPD_INFO("0xE0 detected effect area touch\n");
+		break;
+	case FOD_DETECT_ID_REPORRE:
+			ts_data->monitor_data->p_finger_health_info->detect_fod_id_pass_count++;
+			TPD_INFO("0xE0 identify FOD touch,report id\n");
+		break;
+	default:
+		TPD_INFO("all status is ok\n");
+		break;
+	}
 }
 
 static void fts_register_info_read(void *chip_data, uint16_t register_addr,
@@ -4066,6 +4138,18 @@ int fts_set_spi_max_speed(u32 speed, u8 mode)
 	return rc;
 }
 
+static void fts_get_water_flag(void *chip_data)
+{
+	struct chip_data_ft3681 *ts_data = (struct chip_data_ft3681 *)chip_data;
+	struct touchpanel_data *ts = spi_get_drvdata(ts_data->ft_spi);
+	TPD_INFO("%s: water flag %d!\n", __func__, ts_data->water_mode_flag);
+	if (ts_data->water_mode_flag == 1) {
+		ts->water_mode = 1;
+	} else {
+		ts->water_mode = 0;
+	}
+}
+
 static struct oplus_touchpanel_operations fts_ops = {
 	.power_control              = fts_power_control,
 	.get_vendor                 = fts_get_vendor,
@@ -4097,6 +4181,8 @@ static struct oplus_touchpanel_operations fts_ops = {
 	.freq_hop_trigger           = fts_freq_hop_trigger,
 	.force_water_mode           = fts_force_water_mode,
 	.rate_white_list_ctrl       = fts_rate_white_list_ctrl,
+	.fingerprint_health_info    = fts_fod_fingerprint_health_info,
+	.get_water_mode             = fts_get_water_flag,
 };
 
 static struct focal_auto_test_operations ft3681_test_ops = {
@@ -4299,14 +4385,21 @@ static void fts_spi_tp_shutdown(struct spi_device *spi)
 	tp_shutdown(ts);
 }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
+static void fts_tp_remove(struct spi_device *spi)
+#else
 static int fts_tp_remove(struct spi_device *spi)
+#endif
 {
 	struct touchpanel_data *ts = spi_get_drvdata(spi);
 	struct chip_data_ft3681 *ts_data = NULL;
 
 	if (!ts) {
 		TPD_INFO("%s spi_get_drvdata(s_client) is null.\n", __func__);
-		return -EINVAL;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
+#else
+		return 0;
+#endif
 	}
 
 	ts_data = ts->chip_data;
@@ -4322,7 +4415,10 @@ static int fts_tp_remove(struct spi_device *spi)
 
 	TPD_INFO("%s is called\n", __func__);
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
+#else
 	return 0;
+#endif
 }
 
 static int fts_spi_suspend(struct device *dev)
@@ -4349,17 +4445,13 @@ static int fts_spi_resume(struct device *dev)
 
 static const struct spi_device_id tp_id[] = {
         { TPD_DEVICE, 0},
-#ifdef CONFIG_TOUCHPANEL_MTK_PLATFORM
         { "oplus,tp_noflash", 0 },
-#endif
         { }
 };
 
 static struct of_device_id tp_match_table[] = {
         { .compatible = TPD_DEVICE, },
-#ifdef CONFIG_TOUCHPANEL_MTK_PLATFORM
         { .compatible = "oplus,tp_noflash", },
-#endif
         { }
 };
 

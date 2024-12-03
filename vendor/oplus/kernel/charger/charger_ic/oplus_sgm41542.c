@@ -838,9 +838,20 @@ bool sgm41542_get_power_gd(void)
 	return power_gd;
 }
 
+#define OTG_COMPLETELY_READY_FLAG	3
 static bool sgm41542_chg_is_usb_present(void)
 {
-	if (oplus_get_otg_online_status()) {
+	struct oplus_chg_chip *g_oplus_chip = oplus_chg_get_chg_struct();
+
+	if (!g_oplus_chip) {
+		chg_err("[OPLUS_CHG][%s]: oplus_chip not ready!\n", __func__);
+		return false;
+	}
+
+	if ((gpio_is_valid(g_oplus_chip->chgic_mtk.oplus_info->ccdetect_gpio) == true
+			&& oplus_get_otg_online_status() == OTG_COMPLETELY_READY_FLAG)
+			|| (gpio_is_valid(g_oplus_chip->chgic_mtk.oplus_info->ccdetect_gpio) == false
+			&& oplus_get_otg_online_status())) {
 		chg_err("otg,return false");
 		return false;
 	}
@@ -1142,7 +1153,7 @@ int sgm41542_unsuspend_charger(void)
 	struct chip_sgm41542 *chip = charger_ic;
 	struct oplus_chg_chip *g_oplus_chip = oplus_chg_get_chg_struct();
 
-	if (!chip)
+	if (!chip || !g_oplus_chip)
 		return 0;
 
 	if (atomic_read(&chip->charger_suspended) == 1)
@@ -1582,7 +1593,7 @@ bool sgm41542_get_deivce_online(void)
 		}
 	}
 
-	part_id = (reg_val & REG0B_SGM41542_PN_MASK);
+	part_id = (reg_val & REG0B_SGM41542_PN_MASK) >> SGM41542_DEVID_SHIFT;
 	chg_err("sgm41542 part_id=0x%02X\n", part_id);
 
 	if (part_id == 0x0c || part_id == 0x0d) /*part id 1100=SGM41541; 1101=SGM41542*/
@@ -1703,6 +1714,7 @@ static int sgm41542_parse_dt(struct chip_sgm41542 *chip)
 	}
 	chip->use_voocphy = of_property_read_bool(chip->client->dev.of_node, "qcom,use_voocphy");
 	chg_err("use_voocphy=%d\n", chip->use_voocphy);
+
 	return ret;
 }
 
@@ -1914,10 +1926,12 @@ static void sgm41542_qc_detect_work(struct work_struct *work)
 
 static void sgm41542_start_qc_detect(struct chip_sgm41542 *chip)
 {
-	if (!chip)
+	struct oplus_chg_chip *g_oplus_chip = oplus_chg_get_chg_struct();
+
+	if (!chip || !g_oplus_chip)
 		return;
 
-	if (chip->is_sgm41542)
+	if (chip->is_sgm41542 && !g_oplus_chip->chgic_mtk.oplus_info->hvdcp_disabled)
 		schedule_delayed_work(&chip->qc_detect_work, round_jiffies_relative(msecs_to_jiffies(100)));
 }
 
@@ -1937,14 +1951,17 @@ int sgm41542_get_charger_subtype(void)
 }
 static int sgm41542_request_dpdm(struct chip_sgm41542 *chip, bool enable)
 {
+	int boot_mode = get_boot_mode();
+
 	if (!chip)
 		return 0;
 
-	if(enable)
-		Charger_Detect_Init();
-	else
+	if (enable) {
+		if (boot_mode != META_BOOT)
+			Charger_Detect_Init();
+	} else {
 		Charger_Detect_Release();
-
+	}
 	chg_err("sgm41542_request_dpdm enable = %d\n", enable);
 
 	return 0;
@@ -2131,10 +2148,13 @@ static irqreturn_t sgm41542_irq_handler(int irq, void *data)
 	int reg_val = 0;
 	int ret = 0;
 
-	if (!chip)
+	if (!chip || !g_oplus_chip)
 		return IRQ_HANDLED;
 
-	if (oplus_get_otg_online_status()) {
+	if ((gpio_is_valid(g_oplus_chip->chgic_mtk.oplus_info->ccdetect_gpio) == true
+			&& oplus_get_otg_online_status() == OTG_COMPLETELY_READY_FLAG)
+			|| (gpio_is_valid(g_oplus_chip->chgic_mtk.oplus_info->ccdetect_gpio) == false
+			&& oplus_get_otg_online_status())) {
 		chg_err("otg,ignore\n");
 		oplus_keep_resume_wakelock(chip, false);
 		chip->oplus_charger_type = POWER_SUPPLY_TYPE_UNKNOWN;
@@ -2524,7 +2544,10 @@ static int sgm41542_set_otg(struct charger_device *chg_dev, bool en)
 	else
 		ret = sgm41542_otg_disable();
 
-	power_supply_changed(g_oplus_chip->usb_psy);
+	if (g_oplus_chip && g_oplus_chip->usb_psy)
+		power_supply_changed(g_oplus_chip->usb_psy);
+	else
+		chg_err("g_oplus_chip->usb_psy is null notify usb failed\n");
 	return ret;
 }
 
@@ -2869,7 +2892,7 @@ static int sgm41542_charger_probe(struct i2c_client *client,
 	chip->is_hvdcp = false;
 	btb_detect_over = false;
 	ret = sgm41542_get_deivce_online();
-	if (ret < 0) {
+	if (!ret) {
 		chg_err("!!!sgm41542 is not detected\n");
 		goto err_nodev;
 	}

@@ -67,9 +67,9 @@ void send_signal_catcher(void *ignore, int sig, struct task_struct *src, struct 
 	} else if ((sig == 33 || sig == SIGQUIT || sig == SIGKILL || sig == SIGABRT || sig == SIGHUP
 		|| sig == SIGSTOP || sig == SIGTERM || sig == SIGPIPE || sig == SIGCONT)
 		&& is_key_process(dst)) {
-		printk("<critical>Some other process %d:%s(ppid %d:%s) want to send sig:%d to pid:%d tgid:%d comm:%s\n",
-			src->pid, src->comm, src->parent != NULL ? src->parent->pid : -1, src->parent != NULL ? src->parent->comm : "null",
-			sig, dst->pid, dst->tgid, dst->comm);
+		printk("<critical>Some other process %d:%d:%s (uid:%d ppid %d:%s) wants to send sig:%d to process %d:%d:%s\n",
+			src->tgid, src->pid, src->comm, task_uid(src).val, src->parent != NULL ? src->parent->pid : -1,
+			src->parent != NULL ? src->parent->comm : "null", sig, dst->tgid, dst->pid, dst->comm);
 	}
 }
 

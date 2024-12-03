@@ -27,6 +27,37 @@
 #include "sched_assist_locking.h"
 #endif
 
+#define HI_MASK		0xFF00000000000000UL
+#define HI_FLAG		0xAB00000000000000UL
+
+static void set_ux_to_task(struct task_struct *new) {
+        struct pt_regs *childregs = task_pt_regs(new);
+	unsigned long newsp;
+	unsigned long fn_addr;
+	void __user *user_sp_ptr;
+
+	if (is_compat_thread(task_thread_info(new)))
+		newsp = childregs->compat_sp;
+	else
+		newsp = childregs->sp;
+
+	if ((void *)newsp == NULL)
+		return;
+
+	user_sp_ptr = (void __user *)(uintptr_t)(newsp);
+	if (0 != copy_from_user(&fn_addr, user_sp_ptr, sizeof(unsigned long)))
+		return;
+
+	if ((fn_addr & HI_MASK) != HI_FLAG)
+		return;
+
+	oplus_set_ux_state_lock(new, oplus_get_ux_state(current->group_leader), true);
+}
+
+static void android_rvh_wake_up_new_task_handler(void *unused, struct task_struct *new) {
+	set_ux_to_task(new);
+}
+
 static int register_scheduler_vendor_hooks(void)
 {
 	int ret;
@@ -75,6 +106,8 @@ static int register_scheduler_vendor_hooks(void)
 	REGISTER_TRACE_VH(android_vh_exit_signal, android_vh_exit_signal_handler);
 
 	REGISTER_TRACE_VH(sched_stat_runtime, android_vh_sched_stat_runtime_handler);
+
+	REGISTER_TRACE_VH(android_rvh_wake_up_new_task, android_rvh_wake_up_new_task_handler);
 
 #ifdef CONFIG_LOCKING_PROTECT
 	sched_assist_locking_init();

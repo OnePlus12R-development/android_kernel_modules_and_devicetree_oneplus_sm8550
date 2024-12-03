@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2020-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -138,7 +138,7 @@ void dp_rx_refill_buff_pool_enqueue(struct dp_soc *soc)
 	if (tail > head)
 		total_num_refill = (tail - head - 1);
 	else
-		total_num_refill = (DP_RX_REFILL_BUFF_POOL_SIZE - head +
+		total_num_refill = (buff_pool->max_bufq_len - head +
 				    tail - 1);
 
 	while (total_num_refill) {
@@ -164,8 +164,14 @@ void dp_rx_refill_buff_pool_enqueue(struct dp_soc *soc)
 				continue;
 			}
 
+			dp_audio_smmu_map(dev,
+					  qdf_mem_paddr_from_dmaaddr(dev,
+								     QDF_NBUF_CB_PADDR(nbuf)),
+					  QDF_NBUF_CB_PADDR(nbuf),
+					  rx_desc_pool->buf_size);
+
 			buff_pool->buf_elem[head++] = nbuf;
-			head &= (DP_RX_REFILL_BUFF_POOL_SIZE - 1);
+			head &= (buff_pool->max_bufq_len - 1);
 			count++;
 		}
 
@@ -194,7 +200,7 @@ static inline qdf_nbuf_t dp_rx_refill_buff_pool_dequeue_nbuf(struct dp_soc *soc)
 		return NULL;
 
 	nbuf = buff_pool->buf_elem[tail++];
-	tail &= (DP_RX_REFILL_BUFF_POOL_SIZE - 1);
+	tail &= (buff_pool->max_bufq_len - 1);
 	buff_pool->tail = tail;
 
 	return nbuf;
@@ -257,11 +263,19 @@ dp_rx_buffer_pool_nbuf_map(struct dp_soc *soc,
 {
 	QDF_STATUS ret = QDF_STATUS_SUCCESS;
 
-	if (!QDF_NBUF_CB_PADDR((nbuf_frag_info_t->virt_addr).nbuf))
+	if (!QDF_NBUF_CB_PADDR((nbuf_frag_info_t->virt_addr).nbuf)) {
 		ret = qdf_nbuf_map_nbytes_single(soc->osdev,
 						 (nbuf_frag_info_t->virt_addr).nbuf,
 						 QDF_DMA_FROM_DEVICE,
 						 rx_desc_pool->buf_size);
+		if (QDF_IS_STATUS_SUCCESS(ret))
+			dp_audio_smmu_map(soc->osdev,
+					  qdf_mem_paddr_from_dmaaddr(soc->osdev,
+								     QDF_NBUF_CB_PADDR((nbuf_frag_info_t->virt_addr).nbuf)),
+					  QDF_NBUF_CB_PADDR((nbuf_frag_info_t->virt_addr).nbuf),
+					  rx_desc_pool->buf_size);
+	}
+
 
 	return ret;
 }
@@ -281,7 +295,8 @@ static void dp_rx_refill_buff_pool_init(struct dp_soc *soc, u8 mac_id)
 		return;
 	}
 
-	buff_pool->max_bufq_len = DP_RX_REFILL_BUFF_POOL_SIZE;
+	buff_pool->max_bufq_len =
+		wlan_cfg_get_rx_refill_buf_pool_size(soc->wlan_cfg_ctx);
 	buff_pool->dp_pdev = dp_get_pdev_for_lmac_id(soc, 0);
 	buff_pool->tail = 0;
 
@@ -299,6 +314,12 @@ static void dp_rx_refill_buff_pool_init(struct dp_soc *soc, u8 mac_id)
 			qdf_nbuf_free(nbuf);
 			continue;
 		}
+
+		dp_audio_smmu_map(soc->osdev,
+				  qdf_mem_paddr_from_dmaaddr(soc->osdev,
+							     QDF_NBUF_CB_PADDR(nbuf)),
+				  QDF_NBUF_CB_PADDR(nbuf),
+				  rx_desc_pool->buf_size);
 
 		buff_pool->buf_elem[head] = nbuf;
 		head++;
@@ -361,6 +382,9 @@ static void dp_rx_refill_buff_pool_deinit(struct dp_soc *soc, u8 mac_id)
 		return;
 
 	while ((nbuf = dp_rx_refill_buff_pool_dequeue_nbuf(soc))) {
+		dp_audio_smmu_unmap(soc->osdev,
+				    QDF_NBUF_CB_PADDR(nbuf),
+				    rx_desc_pool->buf_size);
 		qdf_nbuf_unmap_nbytes_single(soc->osdev, nbuf,
 					     QDF_DMA_BIDIRECTIONAL,
 					     rx_desc_pool->buf_size);

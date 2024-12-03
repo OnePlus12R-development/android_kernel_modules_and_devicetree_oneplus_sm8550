@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -3020,6 +3020,7 @@ int hif_ce_msi_configure_irq_by_ceid(struct hif_softc *scn, int ce_id)
 	struct HIF_CE_state *ce_sc = HIF_GET_CE_STATE(scn);
 	struct hif_pci_softc *pci_sc = HIF_GET_PCI_SOFTC(scn);
 	int pci_slot;
+	unsigned long irq_flags;
 
 	if (ce_id >= CE_COUNT_MAX)
 		return -EINVAL;
@@ -3041,8 +3042,12 @@ int hif_ce_msi_configure_irq_by_ceid(struct hif_softc *scn, int ce_id)
 	pci_slot = hif_get_pci_slot(scn);
 	msi_data = irq_id + msi_irq_start;
 	irq = pld_get_msi_irq(scn->qdf_dev->dev, msi_data);
-	hif_debug("%s: (ce_id %d, irq_id %d, msi_data %d, irq %d tasklet %pK)",
-		  __func__, ce_id, irq_id, msi_data, irq,
+	if (pld_is_one_msi(scn->qdf_dev->dev))
+		irq_flags = IRQF_SHARED | IRQF_NOBALANCING;
+	else
+		irq_flags = IRQF_SHARED;
+	hif_debug("%s: (ce_id %d, irq_id %d, msi_data %d, irq %d flag 0x%lx tasklet %pK)",
+		  __func__, ce_id, irq_id, msi_data, irq, irq_flags,
 		  &ce_sc->tasklets[ce_id]);
 
 	/* implies the ce is also initialized */
@@ -3056,7 +3061,7 @@ int hif_ce_msi_configure_irq_by_ceid(struct hif_softc *scn, int ce_id)
 		      pci_slot, ce_id);
 
 	ret = pfrm_request_irq(scn->qdf_dev->dev,
-			       irq, hif_ce_interrupt_handler, IRQF_SHARED,
+			       irq, hif_ce_interrupt_handler, irq_flags,
 			       ce_irqname[pci_slot][ce_id],
 			       &ce_sc->tasklets[ce_id]);
 	if (ret)
@@ -3076,7 +3081,7 @@ static int hif_ce_msi_configure_irq(struct hif_softc *scn)
 	struct HIF_CE_state *ce_sc = HIF_GET_CE_STATE(scn);
 	struct CE_attr *host_ce_conf = ce_sc->host_ce_config;
 
-	if (!scn->disable_wake_irq) {
+	if (!scn->ini_cfg.disable_wake_irq) {
 		/* do wake irq assignment */
 		ret = pld_get_user_msi_assignment(scn->qdf_dev->dev, "WAKE",
 						  &msi_data_count,
@@ -3144,7 +3149,7 @@ free_irq:
 	}
 
 free_wake_irq:
-	if (!scn->disable_wake_irq) {
+	if (!scn->ini_cfg.disable_wake_irq) {
 		pfrm_free_irq(scn->qdf_dev->dev,
 			      scn->wake_irq, scn->qdf_dev->dev);
 		scn->wake_irq = 0;
@@ -3430,6 +3435,7 @@ int hif_pci_configure_grp_irq(struct hif_softc *scn,
 	int irq = 0;
 	int j;
 	int pci_slot;
+	unsigned long irq_flags;
 
 	if (pld_get_enable_intx(scn->qdf_dev->dev))
 		return hif_grp_configure_legacyirq(scn, hif_ext_group);
@@ -3446,8 +3452,12 @@ int hif_pci_configure_grp_irq(struct hif_softc *scn,
 			qdf_dev_set_irq_status_flags(irq,
 						     QDF_IRQ_DISABLE_UNLAZY);
 
-		hif_debug("request_irq = %d for grp %d",
-			  irq, hif_ext_group->grp_id);
+		if (pld_is_one_msi(scn->qdf_dev->dev))
+			irq_flags = IRQF_SHARED | IRQF_NOBALANCING;
+		else
+			irq_flags = IRQF_SHARED | IRQF_NO_SUSPEND;
+		hif_debug("request_irq = %d for grp %d irq_flags 0x%lx",
+			  irq, hif_ext_group->grp_id, irq_flags);
 
 		qdf_scnprintf(dp_irqname[pci_slot][hif_ext_group->grp_id],
 			      DP_IRQ_NAME_LEN, "pci%u_wlan_grp_dp_%u",
@@ -3455,7 +3465,7 @@ int hif_pci_configure_grp_irq(struct hif_softc *scn,
 		ret = pfrm_request_irq(
 				scn->qdf_dev->dev, irq,
 				hif_ext_group_interrupt_handler,
-				IRQF_SHARED | IRQF_NO_SUSPEND,
+				irq_flags,
 				dp_irqname[pci_slot][hif_ext_group->grp_id],
 				hif_ext_group);
 		if (ret) {
@@ -4091,7 +4101,7 @@ release_rtpm_ref:
 
 int hif_force_wake_release(struct hif_opaque_softc *hif_handle)
 {
-	int ret;
+	int ret, status;
 	struct hif_softc *scn = (struct hif_softc *)hif_handle;
 	struct hif_pci_softc *pci_scn = HIF_GET_PCI_SOFTC(scn);
 
@@ -4103,19 +4113,19 @@ int hif_force_wake_release(struct hif_opaque_softc *hif_handle)
 	if (ret) {
 		hif_err("pld force wake release failure");
 		HIF_STATS_INC(pci_scn, mhi_force_wake_release_failure, 1);
-		return ret;
+		goto release_rtpm_ref;
 	}
 	HIF_STATS_INC(pci_scn, mhi_force_wake_release_success, 1);
-
-	/* Release runtime PM force wake */
-	ret = hif_rtpm_put(HIF_RTPM_PUT_ASYNC, HIF_RTPM_ID_FORCE_WAKE);
-	if (ret) {
-		hif_err("runtime pm put failure");
-		return ret;
-	}
-
 	HIF_STATS_INC(pci_scn, soc_force_wake_release_success, 1);
-	return 0;
+
+release_rtpm_ref:
+	/* Release runtime PM force wake */
+	status = hif_rtpm_put(HIF_RTPM_PUT_ASYNC, HIF_RTPM_ID_FORCE_WAKE);
+	if (status) {
+		hif_err("runtime pm put failure: %d", status);
+		return status;
+	}
+	return ret;
 }
 
 #else /* DEVICE_FORCE_WAKE_ENABLE */
@@ -4208,5 +4218,43 @@ int hif_prevent_link_low_power_states(struct hif_opaque_softc *hif)
 void hif_allow_link_low_power_states(struct hif_opaque_softc *hif)
 {
 	pld_allow_l1(HIF_GET_SOFTC(hif)->qdf_dev->dev);
+}
+#endif
+
+#ifdef IPA_OPT_WIFI_DP
+int hif_prevent_l1(struct hif_opaque_softc *hif)
+{
+	struct hif_softc *hif_softc = (struct hif_softc *)hif;
+	int status;
+
+	status = hif_force_wake_request(hif);
+	if (status) {
+		hif_err("Force wake request error");
+		return status;
+	}
+
+	qdf_atomic_inc(&hif_softc->opt_wifi_dp_rtpm_cnt);
+	hif_info("opt_dp: pcie link up count %d",
+		 qdf_atomic_read(&hif_softc->opt_wifi_dp_rtpm_cnt));
+	return status;
+}
+
+void hif_allow_l1(struct hif_opaque_softc *hif)
+{
+	struct hif_softc *hif_softc = (struct hif_softc *)hif;
+	int status;
+
+	if (qdf_atomic_read(&hif_softc->opt_wifi_dp_rtpm_cnt) > 0) {
+
+		status = hif_force_wake_release(hif);
+		if (status) {
+			hif_err("Force wake release error");
+			return;
+		}
+
+		qdf_atomic_dec(&hif_softc->opt_wifi_dp_rtpm_cnt);
+		hif_info("opt_dp: pcie link down count %d",
+			 qdf_atomic_read(&hif_softc->opt_wifi_dp_rtpm_cnt));
+	}
 }
 #endif

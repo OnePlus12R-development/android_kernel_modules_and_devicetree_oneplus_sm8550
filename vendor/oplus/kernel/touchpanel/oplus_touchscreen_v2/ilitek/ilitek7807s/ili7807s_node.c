@@ -882,6 +882,7 @@ static ssize_t ilitek_proc_get_debug_mode_data_read(struct file *filp,
 {
 	int ret;
 	struct file_buffer csv;
+	u8 differ_mode_cmd[4] = {P5_X_MODE_CONTROL, P5_X_FW_RAW_DATA_MODE};
 
 	if (*pos != 0) {
 		return 0;
@@ -942,7 +943,15 @@ static ssize_t ilitek_proc_get_debug_mode_data_read(struct file *filp,
 	}
 
 	/* change to demo mode */
-	if (ili_set_tp_data_len(DATA_FORMAT_DEMO, false, NULL) < 0) {
+	if (ilits->differ_mode) {
+		if (ili_set_tp_data_len(DATA_FORMAT_DEBUG, false, NULL) < 0) {
+			ILI_ERR("Failed to switch debug mode\n");
+		}
+		if (ilits->wrapper(differ_mode_cmd, 2, NULL, 0, ON, OFF) < 0) {
+			ILI_ERR("switch ilitek diff mode fail\n");
+		}
+	} else {
+		if (ili_set_tp_data_len(DATA_FORMAT_DEMO, false, NULL) < 0)
 		ILI_ERR("Failed to set tp data length\n");
 	}
 
@@ -1399,6 +1408,7 @@ void ili_gesture_fail_reason(bool enable)
 int ili_tp_data_mode_ctrl(u8 *cmd)
 {
 	int ret = 0;
+	u8 differ_mode_cmd[4] = {P5_X_MODE_CONTROL, P5_X_FW_RAW_DATA_MODE};
 
 	switch (cmd[0]) {
 	case AP_MODE:
@@ -1419,10 +1429,21 @@ int ili_tp_data_mode_ctrl(u8 *cmd)
 			} else {
 				if (ili_set_tp_data_len(DATA_FORMAT_DEMO, false, NULL) < 0) {
 					ILI_ERR("Failed to switch demo mode do reset\n");
-
-					if (ili_switch_tp_mode(P5_X_FW_AP_MODE) < 0) {
-						ILI_ERR("Failed to switch demo mode\n");
-						ret = -ENOTTY;
+					if (ilits->differ_mode) {
+						if (ili_set_tp_data_len(DATA_FORMAT_DEBUG, false, NULL) < 0) {
+							ILI_ERR("Failed to switch debug mode\n");
+						}
+					if (ilits->wrapper(differ_mode_cmd, 2, NULL, 0, ON, OFF) < 0) {
+						ILI_ERR("switch ilitek diff mode fail\n");
+					}
+					} else {
+						if (ili_set_tp_data_len(DATA_FORMAT_DEMO, false, NULL) < 0) {
+							ILI_ERR("Failed to switch demo mode do reset\n");
+							if (ili_switch_tp_mode(P5_X_FW_AP_MODE) < 0) {
+								ILI_ERR("Failed to switch demo mode\n");
+								ret = -ENOTTY;
+							}
+						}
 					}
 				}
 			}
@@ -1875,6 +1896,38 @@ static ssize_t ilitek_node_ioctl_write(struct file *filp, const char *buff,
 	} else if (strncmp(cmd, "position_resolution", strlen(cmd)) == 0) {
 		ilits->position_high_resolution = !ilits->position_high_resolution;
 		ILI_INFO("Position Resolution = %s\n", (ilits->position_high_resolution ? "High" : "Low"));
+	} else if (strncmp(cmd, "glove", strlen(cmd)) == 0) {
+		ili_ic_func_ctrl("glove", data[1]);
+		ILI_INFO("switch glove = %d\n", data[1]);
+	} else if (strncmp(cmd, "differ_mode", strlen(cmd)) == 0) {
+		u8 differ_mode_cmd[4] = {P5_X_MODE_CONTROL, P5_X_FW_RAW_DATA_MODE};
+		if ((ilits->rib.nReportResolutionMode == POSITION_DIFFER_HIGH_RESOLUTION)
+			|| (ilits->rib.nReportResolutionMode == POSITION_DIFFER_LOW_RESOLUTION)) {
+			if (data[1]) {
+				ret = ili_set_tp_data_len(DATA_FORMAT_DEBUG, false, NULL);
+				if (ret < 0) {
+					ILI_ERR("Failed to switch debug mode\n");
+				}
+				ILI_INFO("debug cmd 0x%X, 0x%X\n", differ_mode_cmd[0], differ_mode_cmd[1]);
+				ret = ilits->wrapper(differ_mode_cmd, 2, NULL, 0, ON, OFF);
+				if (ret < 0) {
+					ILI_ERR("switch ilitek diff mode fail\n");
+				}
+				ilits->differ_mode = true;
+				ILI_INFO("open ilitek diff\n");
+			} else {
+				ret = ili_set_tp_data_len(DATA_FORMAT_DEMO, false, NULL);
+				if (ret < 0) {
+					ILI_ERR("Failed to set tp data length\n");
+					ILI_ERR("close ilitek diff fail\n");
+				}
+				ilits->differ_mode = false;
+				ILI_INFO("close ilitek diff\n");
+			}
+			ILI_INFO("differ_mode %s\n", (data[1] ? "open" : "close"));
+		} else {
+			ILI_INFO("new firmware not support differ_mode\n");
+		}
 	}  else {
 		ILI_ERR("Unknown command\n");
 		size = -1;
@@ -2574,46 +2627,55 @@ typedef struct {
 #if LINUX_VERSION_CODE>= KERNEL_VERSION(5, 10, 0)
 static struct proc_ops proc_ver_info_fops = {
 	.proc_read = ilitek_node_ver_info_read,
+	.proc_lseek = default_llseek,
 };
 #else
 static struct file_operations proc_ver_info_fops = {
 	.read = ilitek_node_ver_info_read,
+	.llseek = default_llseek,
 };
 #endif
 
 #if LINUX_VERSION_CODE>= KERNEL_VERSION(5, 10, 0)
 static struct proc_ops proc_change_list_fops = {
 	.proc_read = ilitek_node_change_list_read,
+	.proc_lseek = default_llseek,
 };
 #else
 static struct file_operations proc_change_list_fops = {
 	.read = ilitek_node_change_list_read,
+	.llseek = default_llseek,
 };
 #endif
 
 #if LINUX_VERSION_CODE>= KERNEL_VERSION(5, 10, 0)
 static struct proc_ops proc_debug_message_fops = {
 	.proc_read = ilitek_proc_debug_message_read,
+	.proc_lseek = default_llseek,
 };
 #else
 static struct file_operations proc_debug_message_fops = {
 	.read = ilitek_proc_debug_message_read,
+	.llseek = default_llseek,
 };
 #endif
 
 #if LINUX_VERSION_CODE>= KERNEL_VERSION(5, 10, 0)
 static struct proc_ops proc_debug_message_switch_fops = {
 	.proc_read = ilitek_proc_debug_switch_read,
+	.proc_lseek = default_llseek,
 };
 #else
 static struct file_operations proc_debug_message_switch_fops = {
 	.read = ilitek_proc_debug_switch_read,
+	.llseek = default_llseek,
 };
 #endif
 
 #if LINUX_VERSION_CODE>= KERNEL_VERSION(5, 10, 0)
 static struct proc_ops proc_ioctl_fops = {
 	.proc_ioctl = ilitek_node_ioctl,
+	.proc_lseek = default_llseek,
 #ifdef CONFIG_COMPAT
 	.proc_compat_ioctl = ilitek_node_compat_ioctl,
 #endif
@@ -2622,6 +2684,7 @@ static struct proc_ops proc_ioctl_fops = {
 #else
 static struct file_operations proc_ioctl_fops = {
 	.unlocked_ioctl = ilitek_node_ioctl,
+	.llseek = default_llseek,
 #ifdef CONFIG_COMPAT
 	.compat_ioctl = ilitek_node_compat_ioctl,
 #endif
@@ -2632,40 +2695,48 @@ static struct file_operations proc_ioctl_fops = {
 #if LINUX_VERSION_CODE>= KERNEL_VERSION(5, 10, 0)
 static struct proc_ops proc_fw_upgrade_fops = {
 	.proc_read = ilitek_node_fw_upgrade_read,
+	.proc_lseek = default_llseek,
 };
 #else
 static struct file_operations proc_fw_upgrade_fops = {
 	.read = ilitek_node_fw_upgrade_read,
+	.llseek = default_llseek,
 };
 #endif
 
 #if LINUX_VERSION_CODE>= KERNEL_VERSION(5, 10, 0)
 static struct proc_ops proc_fw_process_fops = {
 	.proc_read = ilitek_proc_fw_process_read,
+	.proc_lseek = default_llseek,
 };
 #else
 static struct file_operations proc_fw_process_fops = {
 	.read = ilitek_proc_fw_process_read,
+	.llseek = default_llseek,
 };
 #endif
 
 #if LINUX_VERSION_CODE>= KERNEL_VERSION(5, 10, 0)
 static struct proc_ops proc_get_delta_data_fops = {
 	.proc_read = ilitek_proc_get_delta_data_read,
+	.proc_lseek = default_llseek,
 };
 #else
 static struct file_operations proc_get_delta_data_fops = {
 	.read = ilitek_proc_get_delta_data_read,
+	.llseek = default_llseek,
 };
 #endif
 
 #if LINUX_VERSION_CODE>= KERNEL_VERSION(5, 10, 0)
 static struct proc_ops proc_get_raw_data_fops = {
 	.proc_read = ilitek_proc_fw_get_raw_data_read,
+	.proc_lseek = default_llseek,
 };
 #else
 static struct file_operations proc_get_raw_data_fops = {
 	.read = ilitek_proc_fw_get_raw_data_read,
+	.llseek = default_llseek,
 };
 #endif
 
@@ -2673,21 +2744,25 @@ static struct file_operations proc_get_raw_data_fops = {
 static struct proc_ops proc_rw_tp_reg_fops = {
 	.proc_read = ilitek_proc_rw_tp_reg_read,
 	.proc_write = ilitek_proc_rw_tp_reg_write,
+	.proc_lseek = default_llseek,
 };
 #else
 static struct file_operations proc_rw_tp_reg_fops = {
 	.read = ilitek_proc_rw_tp_reg_read,
 	.write = ilitek_proc_rw_tp_reg_write,
+	.llseek = default_llseek,
 };
 #endif
 
 #if LINUX_VERSION_CODE>= KERNEL_VERSION(5, 10, 0)
 static struct proc_ops proc_fw_pc_counter_fops = {
 	.proc_read = ilitek_proc_fw_pc_counter_read,
+	.proc_lseek = default_llseek,
 };
 #else
 static struct file_operations proc_fw_pc_counter_fops = {
 	.read = ilitek_proc_fw_pc_counter_read,
+	.llseek = default_llseek,
 };
 #endif
 
@@ -2695,21 +2770,25 @@ static struct file_operations proc_fw_pc_counter_fops = {
 static struct proc_ops proc_get_debug_mode_data_fops = {
 	.proc_read = ilitek_proc_get_debug_mode_data_read,
 	.proc_write = ilitek_proc_get_debug_mode_data_write,
+	.proc_lseek = default_llseek,
 };
 #else
 static struct file_operations proc_get_debug_mode_data_fops = {
 	.read = ilitek_proc_get_debug_mode_data_read,
 	.write = ilitek_proc_get_debug_mode_data_write,
+	.llseek = default_llseek,
 };
 #endif
 
 #if LINUX_VERSION_CODE>= KERNEL_VERSION(5, 10, 0)
 static struct proc_ops proc_debug_level_fops = {
 	.proc_read = ilitek_proc_debug_level_read,
+	.proc_lseek = default_llseek,
 };
 #else
 static struct file_operations proc_debug_level_fops = {
 	.read = ilitek_proc_debug_level_read,
+	.llseek = default_llseek,
 };
 #endif
 proc_node iliproc[] = {

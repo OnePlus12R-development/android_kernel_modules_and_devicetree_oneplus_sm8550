@@ -3,3 +3,9 @@ config OPLUS_FEATURE_MM_OSVELTE
 	default n
 	help
 	  This driver used for memory debugging.
+
+config OPLUS_FEATURE_MM_OSVELTE_DBG
+	tristate "osvelte driver"
+	default n
+	help
+	  This driver used for memory debugging.

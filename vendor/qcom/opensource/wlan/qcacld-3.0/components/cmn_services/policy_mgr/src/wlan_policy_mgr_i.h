@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -42,6 +42,11 @@
 #define PM_5_GHZ_CH_FREQ_36   (5180)
 #define CHANNEL_SWITCH_COMPLETE_TIMEOUT   (2000)
 #define MAX_NOA_TIME (3000)
+
+/* Defer SAP force SCC check by 2000ms due to another SAP/GO start AP in
+ * progress
+ */
+#define SAP_CONC_CHECK_DEFER_TIMEOUT_MS (2000)
 
 /**
  * Policy Mgr hardware mode list bit-mask definitions.
@@ -363,6 +368,8 @@ struct policy_mgr_cfg {
  * @dynamic_dfs_master_disabled: current state of dynamic dfs master
  * @set_link_in_progress: To track if set link is in progress
  * @set_link_update_done_evt: qdf event to synchronize set link
+ * @active_vdev_bitmap: Active vdev id bitmap
+ * @inactive_vdev_bitmap: Inactive vdev id bitmap
  */
 struct policy_mgr_psoc_priv_obj {
 	struct wlan_objmgr_psoc *psoc;
@@ -410,6 +417,8 @@ struct policy_mgr_psoc_priv_obj {
 	bool set_link_in_progress;
 	qdf_event_t set_link_update_done_evt;
 #endif
+	uint32_t active_vdev_bitmap;
+	uint32_t inactive_vdev_bitmap;
 #ifdef FEATURE_WLAN_CH_AVOID_EXT
 	uint32_t restriction_mask;
 #endif
@@ -432,7 +441,6 @@ struct policy_mgr_mac_ss_bw_info {
 	bool support_6ghz_band;
 };
 
-#ifdef WLAN_FEATURE_11BE_MLO
 /**
  * union conc_ext_flag - extended flags for concurrency check
  *
@@ -449,7 +457,6 @@ union conc_ext_flag {
 
 	uint32_t value;
 };
-#endif
 
 #ifdef WLAN_FEATURE_SR
 /**
@@ -642,20 +649,6 @@ policy_mgr_dump_disabled_ml_links(struct policy_mgr_psoc_priv_obj *pm_ctx) {}
 #endif
 
 void policy_mgr_dump_current_concurrency(struct wlan_objmgr_psoc *psoc);
-
-/**
- * policy_mgr_pdev_get_pcl() - GET PCL channel list
- * @psoc: PSOC object information
- * @mode: Adapter mode
- * @pcl: the pointer of pcl list
- *
- * Fetches the PCL.
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS policy_mgr_pdev_get_pcl(struct wlan_objmgr_psoc *psoc,
-				   enum QDF_OPMODE mode,
-				   struct policy_mgr_pcl_list *pcl);
 void pm_dbs_opportunistic_timer_handler(void *data);
 enum policy_mgr_con_mode policy_mgr_get_mode(uint8_t type,
 		uint8_t subtype);
@@ -687,6 +680,7 @@ QDF_STATUS policy_mgr_get_channel_list(struct wlan_objmgr_psoc *psoc,
  * @ch_freq: channel frequency on which new connection is coming up
  * @num_connections: number of current connections
  * @is_dfs_ch: DFS channel or not
+ * @ext_flags: extended flags for concurrency check
  *
  * When a new connection is about to come up check if current
  * concurrency combination including the new connection is
@@ -696,7 +690,8 @@ QDF_STATUS policy_mgr_get_channel_list(struct wlan_objmgr_psoc *psoc,
  */
 bool policy_mgr_allow_new_home_channel(
 	struct wlan_objmgr_psoc *psoc, enum policy_mgr_con_mode mode,
-	uint32_t ch_freq, uint32_t num_connections, bool is_dfs_ch);
+	uint32_t ch_freq, uint32_t num_connections, bool is_dfs_ch,
+	uint32_t ext_flags);
 
 /**
  * policy_mgr_is_5g_channel_allowed() - check if 5g channel is allowed
@@ -886,6 +881,7 @@ QDF_STATUS policy_mgr_nss_update(struct wlan_objmgr_psoc *psoc,
  * @ch_freq: channel frequency on which new connection is coming up
  * @bw: Bandwidth requested by the connection (optional)
  * @ext_flags: extended flags for concurrency check (union conc_ext_flag)
+ * @pcl: Optional PCL for new connection
  *
  * When a new connection is about to come up check if current
  * concurrency combination including the new connection is
@@ -898,7 +894,8 @@ bool policy_mgr_is_concurrency_allowed(struct wlan_objmgr_psoc *psoc,
 				       enum policy_mgr_con_mode mode,
 				       uint32_t ch_freq,
 				       enum hw_mode_bandwidth bw,
-				       uint32_t ext_flags);
+				       uint32_t ext_flags,
+				       struct policy_mgr_pcl_list *pcl);
 
 /**
  * policy_mgr_can_2ghz_share_low_high_5ghz_sbs() - if SBS mode is dynamic where

@@ -36,6 +36,12 @@
 #endif
 #define PF_SHRINK_ANON		PF__HOLE__02000000
 
+/* use a reserved bit of task->flags to mark if need to bypass shrink_slab */
+#ifndef PF__HOLE__20000000
+#define PF__HOLE__20000000 0x20000000
+#endif
+#define PF_BYPASS_SHRINK_SLAB PF__HOLE__20000000
+
 enum {
 	HS_LOG_ERR = 0,
 	HS_LOG_WARN,
@@ -342,7 +348,6 @@ typedef struct mem_cgroup_hybridswap {
 	struct zram *zram;
 	struct mem_cgroup *memcg;
 	refcount_t usage;
-	bool abort_shrink;
 #endif
 #ifdef CONFIG_HYBRIDSWAP_SWAPD
 	atomic_t ub_mem2zram_ratio;
@@ -582,6 +587,9 @@ struct hybridswapd_operations {
 	void (*vh_alloc_pages_slowpath)(void *data, gfp_t gfp_flags,
 				unsigned int order, unsigned long delta);
 	void (*vh_tune_scan_type)(void *data, char *scan_balance);
+	void (*vh_shrink_slab_bypass)(void *data, gfp_t gfp_mask, int nid,
+				      struct mem_cgroup *memcg, int priority,
+				      bool *bypass);
 };
 extern struct hybridswapd_operations *hybridswapd_ops;
 
@@ -590,5 +598,8 @@ extern void hybridswapd_chp_ops_init(struct hybridswapd_operations *ops);
 #else
 static inline bool hybridswap_swapd_enabled(void) { return false; }
 #endif
+
+extern void should_shrink_async(void *data, gfp_t gfp_mask, int nid,
+			struct mem_cgroup *memcg, int priority, bool *bypass);
 
 #endif /* end of HYBRIDSWAP_INTERNAL_H */

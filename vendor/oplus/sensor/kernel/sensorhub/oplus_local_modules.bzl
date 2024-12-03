@@ -38,6 +38,9 @@ def define_oplus_local_modules():
         ]),
         includes = [],
         local_defines = ["CFG_OPLUS_ARCH_IS_MTK"],
+        conditional_build = {
+            "OPLUS_FEATURE_BSP_DRV_INJECT_TEST": "1",
+        },
     )
 
     ddk_copy_to_dist_dir(
@@ -47,4 +50,9 @@ def define_oplus_local_modules():
             "oplus_sensor_kookong_ir_pwm",
             "pseudo_sensor",
         ],
+        conditional_builds = {
+            "pseudo_sensor": {
+                "OPLUS_FEATURE_BSP_DRV_INJECT_TEST": "1",
+            },
+        },
     )

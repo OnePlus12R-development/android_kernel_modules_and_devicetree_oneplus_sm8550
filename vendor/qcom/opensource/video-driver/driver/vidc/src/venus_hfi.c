@@ -2,7 +2,7 @@
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
  */
-/* Copyright (c) 2022. Qualcomm Innovation Center, Inc. All rights reserved. */
+/* Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved. */
 
 #include <linux/iommu.h>
 #include <linux/qcom_scm.h>
@@ -641,7 +641,7 @@ static int __tzbsp_set_video_state(enum tzbsp_video_state state)
 int __set_clk_rate(struct msm_vidc_core *core,
 		struct clock_info *cl, u64 rate)
 {
-	int rc = 0;
+	int rc = 0, src_clk_scale_ratio = 1;
 	struct mmrm_client_data client_data;
 	struct mmrm_client *client;
 
@@ -662,7 +662,8 @@ int __set_clk_rate(struct msm_vidc_core *core,
 	 * and used for scaling.
 	 * TODO: Remove this scaling if using source clock instead of branch clock.
 	 */
-	rate = rate * MSM_VIDC_CLOCK_SOURCE_SCALING_RATIO;
+	src_clk_scale_ratio = msm_vidc_get_src_clk_scaling_ratio(core);
+	rate = rate * src_clk_scale_ratio;
 
 	/* bail early if requested clk rate is not changed */
 	if (rate == cl->prev)
@@ -3702,6 +3703,7 @@ int venus_hfi_queue_buffer(struct msm_vidc_inst *inst,
 	int rc = 0;
 	struct msm_vidc_core *core;
 	struct hfi_buffer hfi_buffer;
+	enum hfi_packet_payload_info payload_type;
 
 	if (!inst || !inst->core || !inst->packet || !inst->capabilities) {
 		d_vpr_e("%s: invalid params\n", __func__);
@@ -3755,22 +3757,26 @@ int venus_hfi_queue_buffer(struct msm_vidc_inst *inst,
 
 	if (is_meta_rx_inp_enabled(inst, META_OUTBUF_FENCE) &&
 		is_output_buffer(buffer->type)) {
-		if (!buffer->fence_id) {
-			i_vpr_e(inst, "%s: fence id cannot be 0\n", __func__);
+		payload_type = buffer->fence_count == 1 ? HFI_PAYLOAD_U64 : HFI_PAYLOAD_U64_ARRAY;
+		if (buffer->fence_count > MAX_FENCE_COUNT) {
+			i_vpr_e(inst, "%s: invalid fence count %d\n",
+				__func__, buffer->fence_count);
 			rc = -EINVAL;
 			goto unlock;
 		}
+
 		rc = hfi_create_packet(inst->packet,
 			inst->packet_size,
 			HFI_PROP_FENCE,
 			0,
-			HFI_PAYLOAD_U64,
+			payload_type,
 			HFI_PORT_RAW,
 			core->packet_id++,
-			&buffer->fence_id,
-			sizeof(u64));
+			&buffer->fence_id[0],
+			buffer->fence_count * sizeof(u64));
 		if (rc)
 			goto unlock;
+
 	}
 
 	rc = venus_hfi_add_pending_packets(inst);

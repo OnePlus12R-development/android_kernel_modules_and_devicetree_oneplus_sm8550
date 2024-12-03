@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2018-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -34,6 +34,15 @@
 #include "wlan_connectivity_logging.h"
 
 #define MAC_MAX_ADD_IE_LENGTH       2048
+/* Join probe request Retry  timer default (200)ms */
+#define JOIN_PROBE_REQ_TIMER_MS              200
+#define MAX_JOIN_PROBE_REQ                   5
+
+/* If AP reported link delete timer less than such value,
+ * host will do link removel directly without wait for the
+ * timer timeout.
+ */
+#define LINK_REMOVAL_MIN_TIMEOUT_MS 1000
 
 /*
  * Following time is used to program WOW_TIMER_PATTERN to FW so that FW will
@@ -114,6 +123,7 @@ struct peer_disconnect_stats_param {
  * @rso_rx_ops: Roam Rx ops to receive roam offload events from firmware
  * @wfa_testcmd: WFA config tx ops to send to FW
  * @disconnect_stats_param: Peer disconnect stats related params for SAP case
+ * @scan_requester_id: mlme scan requester id
  */
 struct wlan_mlme_psoc_ext_obj {
 	struct wlan_mlme_cfg cfg;
@@ -121,6 +131,7 @@ struct wlan_mlme_psoc_ext_obj {
 	struct wlan_cm_roam_rx_ops rso_rx_ops;
 	struct wlan_mlme_wfa_cmd wfa_testcmd;
 	struct peer_disconnect_stats_param disconnect_stats_param;
+	wlan_scan_requester scan_requester_id;
 };
 
 /**
@@ -160,6 +171,7 @@ struct sae_auth_retry {
  * @peer_set_key_wakelock: wakelock to protect peer set key op with firmware
  * @peer_set_key_runtime_wakelock: runtime pm wakelock for set key
  * @is_key_wakelock_set: flag to check if key wakelock is pending to release
+ * @assoc_rsp: assoc rsp IE received during connection
  */
 struct peer_mlme_priv_obj {
 	uint8_t last_pn_valid;
@@ -178,6 +190,7 @@ struct peer_mlme_priv_obj {
 	qdf_wake_lock_t peer_set_key_wakelock;
 	qdf_runtime_lock_t peer_set_key_runtime_wakelock;
 	bool is_key_wakelock_set;
+	struct element_info assoc_rsp;
 };
 
 /**
@@ -224,6 +237,7 @@ struct wlan_mlme_roaming_config {
  * @sae_single_pmk: Details for sae roaming using single pmk
  * @set_pmk_pending: RSO update status of PMK from set_key
  * @sae_auth_ta: SAE pre-auth tx address
+ * @sae_auth_pending:  Roaming SAE auth pending
  */
 struct wlan_mlme_roam {
 	struct wlan_mlme_roam_state_info roam_sm;
@@ -233,6 +247,7 @@ struct wlan_mlme_roam {
 #endif
 	bool set_pmk_pending;
 	struct qdf_mac_addr sae_auth_ta;
+	uint8_t sae_auth_pending;
 };
 
 #ifdef WLAN_FEATURE_MSCS
@@ -352,6 +367,16 @@ struct ft_context {
 };
 
 /**
+ * struct connect_chan_info - store channel info at the time of association
+ * @ch_width_orig: channel width at the time of initial connection
+ * @sec_2g_freq: secondary 2 GHz freq
+ */
+struct connect_chan_info {
+	enum phy_ch_width ch_width_orig;
+	qdf_freq_t sec_2g_freq;
+};
+
+/**
  * struct mlme_connect_info - mlme connect information
  * @timing_meas_cap: Timing meas cap
  * @chan_info: oem channel info
@@ -369,6 +394,8 @@ struct ft_context {
  * @cckm_ie_len: cckm_ie len
  * @ese_tspec_info: ese tspec info
  * @ext_cap_ie: Ext CAP IE
+ * @assoc_btm_cap: BSS transition management cap used in (re)assoc req
+ * @chan_info_orig: store channel info at the time of association
  */
 struct mlme_connect_info {
 	uint8_t timing_meas_cap;
@@ -393,6 +420,8 @@ struct mlme_connect_info {
 #endif
 #endif
 	uint8_t ext_cap_ie[DOT11F_IE_EXTCAP_MAX_LEN + 2];
+	bool assoc_btm_cap;
+	struct connect_chan_info chan_info_orig;
 };
 
 /** struct wait_for_key_timer - wait for key timer object
@@ -456,6 +485,7 @@ struct mlme_ap_config {
  * @connect_info: mlme connect information
  * @wait_key_timer: wait key timer
  * @eht_config: Eht capability configuration
+ * @is_mlo_sta_link_removed: link on vdev has been removed by AP
  * @last_delba_sent_time: Last delba sent time to handle back to back delba
  *			  requests from some IOT APs
  * @ba_2k_jump_iot_ap: This is set to true if connected to the ba 2k jump IOT AP
@@ -511,6 +541,9 @@ struct mlme_legacy_priv {
 #ifdef WLAN_FEATURE_11BE
 	tDot11fIEeht_cap eht_config;
 #endif
+#if defined(WLAN_FEATURE_11BE_MLO)
+	bool is_mlo_sta_link_removed;
+#endif
 	qdf_time_t last_delba_sent_time;
 	bool ba_2k_jump_iot_ap;
 	bool is_usr_ps_enabled;
@@ -543,6 +576,15 @@ struct del_bss_resp {
  * Return: Success or Failure status
  */
 QDF_STATUS mlme_init_rate_config(struct vdev_mlme_obj *vdev_mlme);
+
+/**
+ * mlme_init_connect_chan_info_config() - initialize channel info for a
+ * connection
+ * @vdev_mlme: pointer to vdev mlme object
+ *
+ * Return: Success or Failure status
+ */
+QDF_STATUS mlme_init_connect_chan_info_config(struct vdev_mlme_obj *vdev_mlme);
 
 /**
  * mlme_get_peer_mic_len() - get mic hdr len and mic length for peer
@@ -612,6 +654,17 @@ struct wlan_mlme_nss_chains *mlme_get_dynamic_vdev_config(
  * Return: HE ops IE
  */
 uint32_t mlme_get_vdev_he_ops(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id);
+
+/**
+ * mlme_connected_chan_stats_request() - process connected channel stats
+ * request
+ * @psoc: pointer to psoc object
+ * @vdev_id: Vdev id
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS mlme_connected_chan_stats_request(struct wlan_objmgr_psoc *psoc,
+					     uint8_t vdev_id);
 
 /**
  * mlme_get_ini_vdev_config() - get the vdev ini config params
@@ -754,6 +807,25 @@ bool mlme_get_reconn_after_assoc_timeout_flag(struct wlan_objmgr_psoc *psoc,
  * Return: Returns a pointer to the peer disconnect IEs present in vdev object
  */
 struct element_info *mlme_get_peer_disconnect_ies(struct wlan_objmgr_vdev *vdev);
+
+/**
+ * mlme_free_peer_assoc_rsp_ie() - Free the peer Assoc resp IE
+ * @peer_priv: Peer priv object
+ *
+ * Return: None
+ */
+void mlme_free_peer_assoc_rsp_ie(struct peer_mlme_priv_obj *peer_priv);
+
+/**
+ * mlme_set_peer_assoc_rsp_ie() - Cache Assoc resp IE send to peer
+ * @psoc: soc object
+ * @peer_addr: Mac address of requesting peer
+ * @ie: pointer for assoc resp IEs
+ *
+ * Return: None
+ */
+void mlme_set_peer_assoc_rsp_ie(struct wlan_objmgr_psoc *psoc,
+				uint8_t *peer_addr, struct element_info *ie);
 
 /**
  * mlme_set_peer_pmf_status() - set pmf status of peer
@@ -1208,6 +1280,76 @@ QDF_STATUS
 wlan_set_sap_user_config_freq(struct wlan_objmgr_vdev *vdev,
 			      qdf_freq_t freq);
 
+#if defined(WLAN_FEATURE_11BE_MLO)
+/**
+ * wlan_clear_mlo_sta_link_removed_flag() - Clear link removal flag on all
+ * vdev of same ml dev
+ * @vdev: pointer to vdev
+ *
+ * Return: void
+ */
+void wlan_clear_mlo_sta_link_removed_flag(struct wlan_objmgr_vdev *vdev);
+
+/**
+ * wlan_set_vdev_link_removed_flag_by_vdev_id() - Set link removal flag
+ * on vdev
+ * @psoc: psoc object
+ * @vdev_id: vdev id
+ * @removed: link removal flag
+ *
+ * Return: QDF_STATUS_SUCCESS if success, otherwise error code
+ */
+QDF_STATUS
+wlan_set_vdev_link_removed_flag_by_vdev_id(struct wlan_objmgr_psoc *psoc,
+					   uint8_t vdev_id, bool removed);
+
+/**
+ * wlan_get_vdev_link_removed_flag_by_vdev_id() - Get link removal flag
+ * of vdev
+ * @psoc: psoc object
+ * @vdev_id: vdev id
+ *
+ * Return: true if link is removed on vdev, otherwise false.
+ */
+bool
+wlan_get_vdev_link_removed_flag_by_vdev_id(struct wlan_objmgr_psoc *psoc,
+					   uint8_t vdev_id);
+
+/**
+ * wlan_drop_mgmt_frame_on_link_removal() - Check mgmt frame
+ * allow dropped due to link removal
+ * @vdev: pointer to vdev
+ *
+ * Return: true if frame can be dropped.
+ */
+bool wlan_drop_mgmt_frame_on_link_removal(struct wlan_objmgr_vdev *vdev);
+#else
+static inline void
+wlan_clear_mlo_sta_link_removed_flag(struct wlan_objmgr_vdev *vdev)
+{
+}
+
+static inline QDF_STATUS
+wlan_set_vdev_link_removed_flag_by_vdev_id(struct wlan_objmgr_psoc *psoc,
+					   uint8_t vdev_id, bool removed)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+static inline bool
+wlan_get_vdev_link_removed_flag_by_vdev_id(struct wlan_objmgr_psoc *psoc,
+					   uint8_t vdev_id)
+{
+	return false;
+}
+
+static inline bool
+wlan_drop_mgmt_frame_on_link_removal(struct wlan_objmgr_vdev *vdev)
+{
+	return false;
+}
+#endif
+
 #ifdef CONFIG_BAND_6GHZ
 /**
  * wlan_get_tpc_update_required_for_sta() - Get the tpc update required config
@@ -1293,4 +1435,17 @@ wlan_mlme_is_pmk_set_deferred(struct wlan_objmgr_psoc *psoc,
  */
 bool wlan_vdev_is_sae_auth_type(struct wlan_objmgr_vdev *vdev);
 #endif /* WLAN_FEATURE_SAE */
+
+/**
+ * wlan_get_rand_from_lst_for_freq()- Get random channel from a given channel
+ * list.
+ * @freq_lst: Frequency list
+ * @num_chan: number of channels
+ *
+ * Get random channel from given channel list.
+ *
+ * Return: channel frequency.
+ */
+uint16_t wlan_get_rand_from_lst_for_freq(uint16_t *freq_lst,
+					 uint8_t num_chan);
 #endif

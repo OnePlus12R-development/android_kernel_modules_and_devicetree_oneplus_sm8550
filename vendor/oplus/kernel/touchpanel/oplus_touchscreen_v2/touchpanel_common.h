@@ -97,6 +97,7 @@
 #define SET_BIT(data, flag) ((data) |= (flag))
 #define CLR_BIT(data, flag) ((data) &= ~(flag))
 #define CHK_BIT(data, flag) ((data) & (flag))
+#define CHK_BIT_NUM(data, flag) ((data) & (1 << (flag)))
 #define VK_TAB {KEY_MENU, KEY_HOMEPAGE, KEY_BACK, KEY_SEARCH}
 
 #define SET_GESTURE_BIT(state, state_flag, config, config_flag)\
@@ -157,15 +158,20 @@
 #define SYNAPTICS    0x0901
 #define S3910        0x0901
 #define S3908        0x0902
+#define S3910_SECOND 0x0903
 
 #define GOODIX       0x0902
 #define GT9966       0x0901
 #define GT9916       0x0902
+#define GT9966_SECOND 0x0903
+#define GT9916_SECOND 0x0904
 
 #define ABS_TOUCH_COST_TIME_KERNEL  0x21
 #define ABS_TOUCH_COST_TIME_ALGO    0x22
 #define ABS_TOUCH_COST_TIME_DAEMON  0x23
 #define MAX_TOUCH_COST_TIME         1000 * 1000
+
+#define NOTIFY_TIME_OUT             60
 
 #define MAX_TEMPERATURE             70
 #define MIN_TEMPERATURE             -40
@@ -198,6 +204,8 @@ typedef enum {
 	MODE_PEN_SCAN,
 	MODE_PEN_CTL,
 	MODE_PALM_TO_SLEEP,
+	MODE_WATERPROOF,
+	MODE_LEATHER_COVER,
 } work_mode;
 
 typedef enum {
@@ -227,6 +235,17 @@ typedef enum {
 struct firmware_headfile {
 	const uint8_t *firmware_data;
 	size_t firmware_size;
+};
+
+struct finger_health_info {
+	u32 fp_enble_count;
+	u32 faraway_pressed_fod_count;
+	u32 pressed_not_in_area_count;
+	u32 pressed_in_area_count;
+	u32 first_detected_effetive_fod_count;
+	u32 small_touch_fod_invail_count;
+	u32 detect_effetive_area_count;
+	u32 detect_fod_id_pass_count;
 };
 
 /******For IRQ area********/
@@ -261,6 +280,14 @@ typedef enum {
 	TP_SPEEDUP_RESUME_COMPLETE,
 } suspend_resume_state;
 
+typedef enum {
+	NOTIFY_DEFAULT = 0,
+	NOTIFY_BLANK_EARLY_ENTER,
+	NOTIFY_BLANK_EARLY_EXIT,
+	NOTIFY_BLANK_ENTER,
+	NOTIFY_BLANK_EXIT,
+} notify_state;
+
 typedef enum switch_mode_type {
 	SEQUENCE,
 	SINGLE,
@@ -293,6 +320,8 @@ typedef enum lcd_event_type {
 	LCD_CTL_TP_FPS240,
 	LCD_CTL_CS_ON,
 	LCD_CTL_CS_OFF,
+	LCD_CTL_IRQ_ON,
+	LCD_CTL_IRQ_OFF,
 } lcd_event_type;
 
 typedef enum {
@@ -575,7 +604,19 @@ typedef enum {
 typedef enum {
 	TYPE_PENCIL_HAVON = 1,
 	TYPE_PENCIL_MAXEYE = 2,
+	TYPE_PENCIL_MAXEYE_2ND = 3,
+	TYPE_PENCIL_SUNWODA = 4,
 } pencil_type;
+
+typedef enum {
+	HEALTH_SIMULATE_BIT_IRQ_GPIO = 0,
+	HEALTH_SIMULATE_BIT_AVDD_VDDI,
+	HEALTH_SIMULATE_BIT_ESD,
+	HEALTH_SIMULATE_BIT_MODE_SWITCH,
+	HEALTH_SIMULATE_BIT_BUS,
+	HEALTH_SIMULATE_BIT_IC_HEALTHINFO = 5,
+	HEALTH_SIMULATE_BIT_FW_UPDATE,
+} health_simulate_bit;
 
 struct point_state_monitor {
 	u64 time_counter;
@@ -607,10 +648,39 @@ struct swipes_record {
 	struct Coordinate end_points[RECORD_POINTS_COUNT];
 };
 
+struct irq_type_count{
+	u64 in_suspend_irq_ignore_cnt;
+	u64 in_resume_irq_ignore_cnt;
+	u64 in_resume_irq_touch_cnt;
+	u64 in_suspend_irq_gesture_cnt;
+	u64 in_suspend_irq_btn_key_cnt;
+	u64 in_resume_irq_btn_key_cnt;
+	u64 in_suspend_irq_exception_cnt;
+	u64 in_resume_irq_exception_cnt;
+	u64 in_suspend_irq_fw_config_cnt;
+	u64 in_resume_irq_fw_config_cnt;
+	u64 in_resume_irq_fw_health_cnt;
+	u64 in_suspend_irq_fw_auto_reset_cnt;
+	u64 in_resume_irq_fw_auto_reset_cnt;
+	u64 in_resume_irq_face_state_cnt;
+	u64 in_suspend_irq_fingerprint_cnt;
+	u64 in_resume_irq_fingerprint_cnt;
+	u64 in_suspend_irq_pen_cnt;
+	u64 in_resume_irq_pen_cnt;
+	u64 in_resume_irq_palm_cnt;
+	u64 in_suspend_irq_pen_report_cnt;
+	u64 in_resume_irq_pen_report_cnt;
+	u64 abnormal_in_suspend_irq_palm_cnt;
+	u64 abnormal_in_suspend_irq_touch_cnt;
+	u64 abnormal_in_suspend_irq_fw_health_cnt;
+	u64 abnormal_in_suspend_irq_face_state_cnt;
+	u64 abnormal_in_resume_irq_gesture_cnt;
+};
+
 struct monitor_data {
 	void  *chip_data; /*debug info data*/
 	struct debug_info_proc_operations  *debug_info_ops; /*debug info data*/
-	bool health_simulate_trigger;
+	uint32_t health_simulate_trigger;
 
 	u64 boot_time;
 	u64 stat_time;
@@ -691,6 +761,7 @@ struct monitor_data {
 	u64 grip_start_time_no_touch;
 	grip_time_record_type grip_time_record_flag;
 	struct grip_monitor_data  *p_grip_moni_data;
+	struct irq_type_count  *p_irq_type_count;
 
 	u32 edge_tx_ewr_zero_count;
 	u32 edge_rx_ewr_zero_count;
@@ -742,7 +813,6 @@ struct monitor_data {
 
 	int avdd;
 	int vddi;
-	u64 abnormal_temperature_count;
 	u64 pm_resume_count;
 	u64 pm_suspend_count;
 	u64 force_bus_ready_count;
@@ -752,11 +822,17 @@ struct monitor_data {
 	u64 bus_not_ready_off_early_event_count;
 	u64 bus_not_ready_off_event_count;
 	u64 bus_not_ready_tp_suspend_count;
+	u64 bus_not_ready_gesture_write_count;
+	u64 bus_not_ready_temperature_work_count;
+	u64 wait_for_notify_suspend_count;
+	u64 abnormal_temperature_count;
 	/*max count*/
 	u64 irq_need_dev_resume_max_count;
 	/*all count*/
 	u64 irq_need_dev_resume_all_count;
 	u64 irq_bus_not_ready_count;
+
+	struct finger_health_info *p_finger_health_info;
 };
 #define MAX_BUS_ERROR_COUNT 30
 struct exception_data {
@@ -865,6 +941,8 @@ struct touchpanel_data {
 	/******For feature area********/
 	bool register_is_16bit;                             /*register is 16bit*/
 	bool glove_mode_support;                            /*glove_mode support feature*/
+	bool glove_mode_v2_support;                         /*glove_mode support feature*/
+	bool leather_cover_mode_support;                    /*leather_cover support feature*/
 	bool black_gesture_support;                         /*black_gesture support feature*/
 	bool black_gesture_indep_support;                   /*black_gesture indep control support feature*/
 	bool charger_pump_support;                          /*charger_pump support feature*/
@@ -907,6 +985,7 @@ struct touchpanel_data {
 	bool tp_data_record_support;                        /*feature used to data record when get tp log*/
 	bool suspend_work_support;                          /*feature used to support suspend work queue*/
 	int glove_enable;                                   /*control state of glove gesture*/
+	int leather_cover_enable;                           /*control state of leather_cover gesture*/
 	bool force_bus_ready_support;                       /*force bus ready to true afer notify*/
 	bool skip_reinit_device_support;                    /*spi need skip complete_all, prevent error in access reg*/
 	bool edge_pull_out_support;                         /*feature used to edge coordinates pull out*/
@@ -960,7 +1039,6 @@ struct touchpanel_data {
 	int fp_quick_start_data;                            /*for fingerprint quick start featrue*/
 	int fp_disable_after_resume;
 	struct fp_underscreen_info fp_info;	/*tp info used for underscreen fingerprint*/
-
 	struct thermal_zone_device *oplus_shell_themal;
 
 	/******For pm suspend and resume area********/
@@ -986,6 +1064,7 @@ struct touchpanel_data {
 	struct esd_information  esd_info;                    /*debug info esd check*/
 	struct freq_hop_info    freq_hop_info;                /*debug info freq_hop*/
 	bool in_force_water_mode;                /*debug info force_water_mode*/
+	unsigned short water_mode;                /*debug info force_water_mode*/
 	/*struct proc_dir_entry of "/proc/touchpanel"*/
 	struct proc_dir_entry *prEntry_tp;
 	/*struct proc_dir_entry of "/proc/touchpanel/debug_info"*/
@@ -1048,6 +1127,9 @@ struct touchpanel_data {
 
 	int palm_to_sleep_enable;                            /*detect palm need to sleep when device in Screen lock*/
 
+	int waterproof_support;
+	int waterproof;
+
 	bool report_rate_white_list_support;
 
 	bool hall_status;                                   /*control state of hall status*/
@@ -1086,7 +1168,8 @@ struct touchpanel_data {
 #elif IS_ENABLED(CONFIG_DRM_MSM) || IS_ENABLED(CONFIG_DRM_OPLUS_NOTIFY) || IS_ENABLED(CONFIG_FB)
 	struct notifier_block fb_notif;	/*register to control suspend/resume*/
 #endif
-
+	notify_state notify_state;	/*detail notify state*/
+	wait_queue_head_t notify_wait; /*notify wait*/
 
 	/******For usb or headset notify area********/
 	bool is_headset_checked;                            /*state of headset for usb*/
@@ -1244,9 +1327,11 @@ struct oplus_touchpanel_operations {
 	/*get gesture info of fingerprint underscreen when screen on*/
 	void (*screenon_fingerprint_info)(void *chip_data,
 					  struct fp_underscreen_info *fp_tpinfo);
+	void (*fingerprint_health_info)(void *chip_data);
 
 	void (*freq_hop_trigger)(void *chip_data); /*trigger frequency-hopping*/
 	void (*force_water_mode)(void *chip_data, bool enable); /*force enter water mode*/
+	void (*get_water_mode)(void *chip_data); /*force enter water mode*/
 	void (*set_noise_modetest)(void *chip_data, bool enable);
 	uint8_t (*get_noise_modetest)(void *chip_data);
 	/*If the tp ic need do something, use this!*/

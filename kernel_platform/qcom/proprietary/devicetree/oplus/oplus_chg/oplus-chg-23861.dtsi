@@ -373,6 +373,15 @@
 		track,gauge_status_ctrl;
 		track,external_gauge_num = <1>;
 	};
+
+	oplus_cpa: oplus,cpa {
+		compatible = "oplus,cpa";
+		oplus,protocol_list =		<CHG_PROTOCOL_PD 18
+						CHG_PROTOCOL_VOOC 100
+						CHG_PROTOCOL_QC 18>;
+		oplus,default_protocol_list =	<CHG_PROTOCOL_PD
+						CHG_PROTOCOL_VOOC>;
+	};
 };
 
 &battery_charger {
@@ -820,8 +829,8 @@
 		oplus_spec,svooc_cool_down_current_limit = <100 15 15 20 25 30 35 40 45 50 55 60 63 65 70 75 80 85 100>;
 		oplus_spec,vooc_cool_down_current_limit = <60 20 20 20 30 40 50 60>;
 
-		oplus_spec,vooc_little_cold_full_voltage = <4540>;
-		oplus_spec,vooc_cool_full_voltage = <4540>;
+		oplus_spec,vooc_little_cold_full_voltage = <4470>;
+		oplus_spec,vooc_cool_full_voltage = <4470>;
 		oplus_spec,vooc_warm_full_voltage = <4130>;
 		oplus_spec,vooc_1time_full_voltage = <4550>;
 		oplus_spec,vooc_ntime_full_voltage = <4540>;
@@ -890,14 +899,14 @@
 				strategy_temp_little_cold =	<4150 30 0 0 0
 								4350 25 0 0 0
 								4350 20 0 0 0
-								4534 15 0 0 0
-								4540 10 1 0 0>;
+								4460 15 0 0 0
+								4470 10 1 0 0>;
 				strategy_temp_cool =		<4150 35 0 0 0
 								4350 30 0 0 0
 								4350 25 0 0 0
 								4350 20 0 0 0
-								4534 15 0 0 0
-								4540 10 1 0 0>;
+								4460 15 0 0 0
+								4470 10 1 0 0>;
 				strategy_temp_little_cool =	<4150 73 0 600 0
 								4150 70 0 600 0
 								4150 65 0 600 0
@@ -951,13 +960,13 @@
 			strategy_soc_50_to_75 {
 				strategy_temp_little_cold =	<4350 25 0 0 0
 								4350 20 0 0 0
-								4534 15 0 0 0
-								4540 10 1 0 0>;
+								4460 15 0 0 0
+								4470 10 1 0 0>;
 				strategy_temp_cool =		<4350 30 0 0 0
 								4350 25 0 0 0
 								4350 20 0 0 0
-								4534 15 0 0 0
-								4540 10 1 0 0>;
+								4460 15 0 0 0
+								4470 10 1 0 0>;
 				strategy_temp_little_cool =	<4480 50 0 0 0
 								4480 45 0 0 0
 								4480 40 0 0 0
@@ -994,10 +1003,10 @@
 			};
 
 			strategy_soc_75_to_85 {
-				strategy_temp_little_cold =	<4534 15 0 0 0
-								4540 10 1 0 0>;
-				strategy_temp_cool =		<4534 15 0 0 0
-								4540 10 1 0 0>;
+				strategy_temp_little_cold =	<4460 15 0 0 0
+								4470 10 1 0 0>;
+				strategy_temp_cool =		<4460 15 0 0 0
+								4470 10 1 0 0>;
 				strategy_temp_little_cool =	<4534 35 0 0 0
 								4534 30 0 0 0
 								4534 25 0 0 0
@@ -1025,10 +1034,10 @@
 			};
 
 			strategy_soc_85_to_90 {
-				strategy_temp_little_cold =	<4534 15 0 0 0
-								4540 10 1 0 0>;
-				strategy_temp_cool =		<4534 15 0 0 0
-								4540 10 1 0 0>;
+				strategy_temp_little_cold =	<4460 15 0 0 0
+								4470 10 1 0 0>;
+				strategy_temp_cool =		<4460 15 0 0 0
+								4470 10 1 0 0>;
 				strategy_temp_little_cool =	<4534 35 0 0 0
 								4534 30 0 0 0
 								4534 25 0 0 0
@@ -1097,6 +1106,10 @@
 				strategy_temp_normal_high =	<4480 20 1 0 0>;
 				strategy_temp_warm =		<4130 24 1 0 0>;
 			};
+		};
+		oplus_sc8517_cp: oplus,sc8517_cp {
+			oplus,ic_type = <OPLUS_CHG_IC_CP>;
+			oplus,ic_index = <0>;
 		};
 	};
 };

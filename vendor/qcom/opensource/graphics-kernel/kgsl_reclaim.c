@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/kthread.h>
@@ -258,6 +258,13 @@ static u32 kgsl_reclaim_process(struct kgsl_process_private *process,
 			continue;
 		}
 
+		/* Do not reclaim pages mapped into a VBO */
+		if (atomic_read(&valid_entry->vbo_count)) {
+			kgsl_mem_entry_put(entry);
+			next++;
+			continue;
+		}
+
 		if ((atomic_read(&process->unpinned_page_count) +
 			memdesc->page_count) > kgsl_reclaim_max_page_limit) {
 			kgsl_mem_entry_put(entry);
@@ -359,6 +366,9 @@ kgsl_reclaim_shrink_count_objects(struct shrinker *shrinker,
 	struct kgsl_process_private *process;
 	unsigned long count_reclaimable = 0;
 
+	if (!current_is_kswapd())
+		return 0;
+
 	read_lock(&kgsl_driver.proclist_lock);
 	list_for_each_entry(process, &kgsl_driver.process_list, list) {
 		if (!test_bit(KGSL_PROC_STATE, &process->state))
@@ -367,7 +377,7 @@ kgsl_reclaim_shrink_count_objects(struct shrinker *shrinker,
 	}
 	read_unlock(&kgsl_driver.proclist_lock);
 
-	return (count_reclaimable << PAGE_SHIFT);
+	return count_reclaimable;
 }
 
 /* Shrinker callback data*/

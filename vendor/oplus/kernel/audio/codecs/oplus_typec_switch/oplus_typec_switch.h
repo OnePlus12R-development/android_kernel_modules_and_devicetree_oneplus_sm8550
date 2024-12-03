@@ -51,5 +51,13 @@ enum typec_switch_vendor {
 	WAS4783,
 	DIO_MAX
 };
+int typec_switch_event(struct device_node *node,
+			 enum typec_switch_function event);
+
+int typec_switch_reg_notifier(struct notifier_block *nb,
+			 struct device_node *node);
+
+int typec_switch_unreg_notifier(struct notifier_block *nb,
+				struct device_node *node);
 //-----------------------------------------------------------------------------
 #endif

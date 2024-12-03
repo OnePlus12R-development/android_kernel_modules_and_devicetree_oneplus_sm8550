@@ -324,6 +324,14 @@ static int cam_sensor_i2c_component_bind(struct device *dev,
 		goto free_perframe;
 	}
 
+	s_ctrl->i2c_data.bubble_update =
+		kzalloc(sizeof(struct i2c_settings_array) *
+		MAX_PER_FRAME_ARRAY, GFP_KERNEL);
+	if (s_ctrl->i2c_data.bubble_update == NULL) {
+		rc = -ENOMEM;
+		goto free_frame_skip;
+	}
+
 	INIT_LIST_HEAD(&(s_ctrl->i2c_data.init_settings.list_head));
 	INIT_LIST_HEAD(&(s_ctrl->i2c_data.config_settings.list_head));
 	INIT_LIST_HEAD(&(s_ctrl->i2c_data.streamon_settings.list_head));
@@ -341,6 +349,7 @@ static int cam_sensor_i2c_component_bind(struct device *dev,
 	for (i = 0; i < MAX_PER_FRAME_ARRAY; i++) {
 		INIT_LIST_HEAD(&(s_ctrl->i2c_data.per_frame[i].list_head));
 		INIT_LIST_HEAD(&(s_ctrl->i2c_data.frame_skip[i].list_head));
+		INIT_LIST_HEAD(&(s_ctrl->i2c_data.bubble_update[i].list_head));
 	}
 
 	s_ctrl->bridge_intf.device_hdl = -1;
@@ -355,6 +364,9 @@ static int cam_sensor_i2c_component_bind(struct device *dev,
 	s_ctrl->sensordata->power_info.dev = soc_info->dev;
 
 	return rc;
+
+free_frame_skip:
+	kfree(s_ctrl->i2c_data.frame_skip);
 free_perframe:
 	kfree(s_ctrl->i2c_data.per_frame);
 unreg_subdev:
@@ -393,6 +405,7 @@ static void cam_sensor_i2c_component_unbind(struct device *dev,
 
 	kfree(s_ctrl->i2c_data.per_frame);
 	kfree(s_ctrl->i2c_data.frame_skip);
+	kfree(s_ctrl->i2c_data.bubble_update);
 	v4l2_set_subdevdata(&(s_ctrl->v4l2_dev_str.sd), NULL);
 	kfree(s_ctrl);
 }
@@ -503,6 +516,14 @@ static int cam_sensor_component_bind(struct device *dev,
 		goto free_perframe;
 	}
 
+	s_ctrl->i2c_data.bubble_update =
+		kzalloc(sizeof(struct i2c_settings_array) *
+		MAX_PER_FRAME_ARRAY, GFP_KERNEL);
+	if (s_ctrl->i2c_data.bubble_update == NULL) {
+		rc = -ENOMEM;
+		goto free_frame_skip;
+	}
+
 	INIT_LIST_HEAD(&(s_ctrl->i2c_data.init_settings.list_head));
 	INIT_LIST_HEAD(&(s_ctrl->i2c_data.config_settings.list_head));
 	INIT_LIST_HEAD(&(s_ctrl->i2c_data.streamon_settings.list_head));
@@ -561,6 +582,7 @@ static int cam_sensor_component_bind(struct device *dev,
 	for (i = 0; i < MAX_PER_FRAME_ARRAY; i++) {
 		INIT_LIST_HEAD(&(s_ctrl->i2c_data.per_frame[i].list_head));
 		INIT_LIST_HEAD(&(s_ctrl->i2c_data.frame_skip[i].list_head));
+		INIT_LIST_HEAD(&(s_ctrl->i2c_data.bubble_update[i].list_head));
 	}
 
 	s_ctrl->bridge_intf.device_hdl = -1;
@@ -583,6 +605,8 @@ static int cam_sensor_component_bind(struct device *dev,
 
 	return rc;
 
+free_frame_skip:
+	kfree(s_ctrl->i2c_data.frame_skip);
 free_perframe:
 	kfree(s_ctrl->i2c_data.per_frame);
 unreg_subdev:
@@ -630,6 +654,7 @@ static void cam_sensor_component_unbind(struct device *dev,
 #endif
 	kfree(s_ctrl->i2c_data.per_frame);
 	kfree(s_ctrl->i2c_data.frame_skip);
+	kfree(s_ctrl->i2c_data.bubble_update);
 	platform_set_drvdata(pdev, NULL);
 	v4l2_set_subdevdata(&(s_ctrl->v4l2_dev_str.sd), NULL);
 	devm_kfree(&pdev->dev, s_ctrl);

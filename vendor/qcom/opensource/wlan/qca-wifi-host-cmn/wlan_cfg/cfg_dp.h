@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2018-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -56,22 +56,30 @@
 #define WLAN_CFG_TX_RING_SIZE 1024
 #endif
 
-#define WLAN_CFG_IPA_TX_RING_SIZE_MIN 1024
+#define WLAN_CFG_IPA_TX_RING_SIZE_MIN 512
 #define WLAN_CFG_IPA_TX_RING_SIZE 1024
-#define WLAN_CFG_IPA_TX_RING_SIZE_MAX 8096
+#define WLAN_CFG_IPA_TX_RING_SIZE_MAX 0x80000
 
-#define WLAN_CFG_IPA_TX_COMP_RING_SIZE_MIN 1024
+#define WLAN_CFG_IPA_TX_COMP_RING_SIZE_MIN 512
 #define WLAN_CFG_IPA_TX_COMP_RING_SIZE 1024
-#define WLAN_CFG_IPA_TX_COMP_RING_SIZE_MAX 8096
+#define WLAN_CFG_IPA_TX_COMP_RING_SIZE_MAX 0x80000
 
 #ifdef IPA_WDI3_TX_TWO_PIPES
-#define WLAN_CFG_IPA_TX_ALT_RING_SIZE_MIN 1024
+#ifdef WLAN_MEMORY_OPT
+#define WLAN_CFG_IPA_TX_ALT_RING_SIZE_MIN 128
+#else
+#define WLAN_CFG_IPA_TX_ALT_RING_SIZE_MIN 512
+#endif
 #define WLAN_CFG_IPA_TX_ALT_RING_SIZE 1024
-#define WLAN_CFG_IPA_TX_ALT_RING_SIZE_MAX 8096
+#define WLAN_CFG_IPA_TX_ALT_RING_SIZE_MAX 0x80000
 
-#define WLAN_CFG_IPA_TX_ALT_COMP_RING_SIZE_MIN 1024
+#ifdef WLAN_MEMORY_OPT
+#define WLAN_CFG_IPA_TX_ALT_COMP_RING_SIZE_MIN 128
+#else
+#define WLAN_CFG_IPA_TX_ALT_COMP_RING_SIZE_MIN 512
+#endif
 #define WLAN_CFG_IPA_TX_ALT_COMP_RING_SIZE 1024
-#define WLAN_CFG_IPA_TX_ALT_COMP_RING_SIZE_MAX 8096
+#define WLAN_CFG_IPA_TX_ALT_COMP_RING_SIZE_MAX 0x80000
 #endif
 
 #define WLAN_CFG_PER_PDEV_TX_RING 0
@@ -135,6 +143,9 @@
 #endif
 #endif /* WLAN_MAX_PDEVS */
 
+#define WLAN_CFG_INT_BATCH_THRESHOLD_PPE2TCL 0
+#define WLAN_CFG_INT_TIMER_THRESHOLD_PPE2TCL 30
+
 #ifdef NBUF_MEMORY_DEBUG
 #define WLAN_CFG_RX_PENDING_THRESHOLD_DEFAULT 0xFFFF
 #else
@@ -179,6 +190,9 @@
 #define WLAN_CFG_INT_BATCH_THRESHOLD_TX_MIN 1
 #define WLAN_CFG_INT_BATCH_THRESHOLD_TX_MAX 256
 
+#define WLAN_CFG_INT_BATCH_THRESHOLD_PPE2TCL_MIN 0
+#define WLAN_CFG_INT_BATCH_THRESHOLD_PPE2TCL_MAX 1024
+
 #define WLAN_CFG_INT_BATCH_THRESHOLD_RX_MIN 0
 #define WLAN_CFG_INT_BATCH_THRESHOLD_RX_MAX 128
 
@@ -193,6 +207,9 @@
 
 #define WLAN_CFG_INT_TIMER_THRESHOLD_TX_MIN 8
 #define WLAN_CFG_INT_TIMER_THRESHOLD_TX_MAX 1000
+
+#define WLAN_CFG_INT_TIMER_THRESHOLD_PPE2TCL_MIN 8
+#define WLAN_CFG_INT_TIMER_THRESHOLD_PPE2TCL_MAX 1000
 
 #define WLAN_CFG_INT_TIMER_THRESHOLD_RX_MIN 8
 #define WLAN_CFG_INT_TIMER_THRESHOLD_RX_MAX 500
@@ -316,7 +333,11 @@
 #define WLAN_CFG_REO_STATUS_RING_SIZE_MAX 2048
 
 #define WLAN_CFG_RXDMA_BUF_RING_SIZE 1024
+#ifdef WLAN_MEMORY_OPT
+#define WLAN_CFG_RXDMA_BUF_RING_SIZE_MIN 128
+#else
 #define WLAN_CFG_RXDMA_BUF_RING_SIZE_MIN 1024
+#endif
 #define WLAN_CFG_RXDMA_BUF_RING_SIZE_MAX 4096
 
 #define WLAN_CFG_RXDMA_REFILL_RING_SIZE 4096
@@ -375,7 +396,7 @@
 #define WLAN_CFG_RXDMA_MONITOR_RX_DROP_THRESH_SIZE_MIN 0
 #define WLAN_CFG_RXDMA_MONITOR_RX_DROP_THRESH_SIZE_MAX 256
 
-/**
+/*
  * Allocate as many RX descriptors as buffers in the SW2RXDMA
  * ring. This value may need to be tuned later.
  */
@@ -387,7 +408,7 @@
 #define WLAN_CFG_RX_SW_DESC_NUM_SIZE_MIN 1024
 #define WLAN_CFG_RX_SW_DESC_NUM_SIZE_MAX 16384
 
-/**
+/*
  * For low memory AP cases using 1 will reduce the rx descriptors memory req
  */
 #elif defined(QCA_LOWMEM_CONFIG) || defined(QCA_512M_CONFIG)
@@ -398,7 +419,7 @@
 #define WLAN_CFG_RX_SW_DESC_NUM_SIZE_MIN 1024
 #define WLAN_CFG_RX_SW_DESC_NUM_SIZE_MAX 16384
 
-/**
+/*
  * AP use cases need to allocate more RX Descriptors than the number of
  * entries available in the SW2RXDMA buffer replenish ring. This is to account
  * for frames sitting in REO queues, HW-HW DMA rings etc. Hence using a
@@ -446,9 +467,9 @@
 #define WLAN_CFG_REO2PPE_RING_SIZE_MIN 64
 #define WLAN_CFG_REO2PPE_RING_SIZE_MAX 16384
 
-#define WLAN_CFG_PPE2TCL_RING_SIZE 1024
+#define WLAN_CFG_PPE2TCL_RING_SIZE 2048
 #define WLAN_CFG_PPE2TCL_RING_SIZE_MIN 64
-#define WLAN_CFG_PPE2TCL_RING_SIZE_MAX 1024
+#define WLAN_CFG_PPE2TCL_RING_SIZE_MAX 32768
 
 #define WLAN_CFG_PPE_RELEASE_RING_SIZE 1024
 #define WLAN_CFG_PPE_RELEASE_RING_SIZE_MIN 64
@@ -527,6 +548,20 @@
 		WLAN_CFG_INT_BATCH_THRESHOLD_TX_MAX, \
 		WLAN_CFG_INT_BATCH_THRESHOLD_TX, \
 		CFG_VALUE_OR_DEFAULT, "DP INT threshold Tx")
+
+#define CFG_DP_INT_BATCH_THRESHOLD_PPE2TCL \
+		CFG_INI_UINT("dp_int_batch_threshold_ppe2tcl", \
+		WLAN_CFG_INT_BATCH_THRESHOLD_PPE2TCL_MIN, \
+		WLAN_CFG_INT_BATCH_THRESHOLD_PPE2TCL_MAX, \
+		WLAN_CFG_INT_BATCH_THRESHOLD_PPE2TCL, \
+		CFG_VALUE_OR_DEFAULT, "DP INT batch threshold ppe2tcl")
+
+#define CFG_DP_INT_TIMER_THRESHOLD_PPE2TCL \
+		CFG_INI_UINT("dp_int_timer_threshold_ppe2tcl", \
+		WLAN_CFG_INT_TIMER_THRESHOLD_PPE2TCL_MIN, \
+		WLAN_CFG_INT_TIMER_THRESHOLD_PPE2TCL_MAX, \
+		WLAN_CFG_INT_TIMER_THRESHOLD_PPE2TCL, \
+		CFG_VALUE_OR_DEFAULT, "DP INT timer threshold ppe2tcl")
 
 #define CFG_DP_INT_TIMER_THRESHOLD_OTHER \
 		CFG_INI_UINT("dp_int_timer_threshold_other", \
@@ -1267,6 +1302,20 @@
 	CFG_INI_BOOL("dp_handle_invalid_decap_type_disable", false, \
 		     "Enable/Disable DP TLV out of order WAR")
 
+#define CFG_DP_TXMON_SW_PEER_FILTERING \
+	CFG_INI_BOOL("tx_litemon_sw_peer_filtering", false, \
+		     "Enable SW based tx monitor peer fitlering")
+
+#define CFG_DP_POINTER_TIMER_THRESHOLD_RX \
+	CFG_INI_UINT("dp_rx_ptr_timer_threshold", \
+	0, 0xFFFF, 0, \
+	CFG_VALUE_OR_DEFAULT, "RX pointer update timer threshold")
+
+#define CFG_DP_POINTER_NUM_THRESHOLD_RX \
+	CFG_INI_UINT("dp_rx_ptr_num_threshold", \
+	0, 63, 0, \
+	CFG_VALUE_OR_DEFAULT, "RX pointer update entries number threshold")
+
 /*
  * <ini>
  * dp_rx_fisa_enable - Control Rx datapath FISA
@@ -1612,6 +1661,10 @@
 #define WLAN_CFG_NUM_PPEDS_TX_DESC_MAX 0x8000
 #define WLAN_CFG_NUM_PPEDS_TX_DESC 0x8000
 
+#define WLAN_CFG_NUM_PPEDS_TX_CMP_NAPI_MIN 8
+#define WLAN_CFG_NUM_PPEDS_TX_CMP_NAPI_MAX 256
+#define WLAN_CFG_NUM_PPEDS_TX_CMP_NAPI 64
+
 #define CFG_DP_PPEDS_TX_DESC \
 		CFG_INI_UINT("dp_ppeds_tx_desc", \
 		WLAN_CFG_NUM_PPEDS_TX_DESC_MIN, \
@@ -1619,8 +1672,15 @@
 		WLAN_CFG_NUM_PPEDS_TX_DESC, \
 		CFG_VALUE_OR_DEFAULT, "DP PPEDS Tx Descriptors")
 
-#define CFG_DP_PPE_ENABLE \
-	CFG_INI_BOOL("ppe_enable", false, \
+#define CFG_DP_PPEDS_TX_CMP_NAPI_BUDGET \
+		CFG_INI_UINT("dp_ppeds_tx_cmp_napi_budget", \
+		WLAN_CFG_NUM_PPEDS_TX_CMP_NAPI_MIN, \
+		WLAN_CFG_NUM_PPEDS_TX_CMP_NAPI_MAX, \
+		WLAN_CFG_NUM_PPEDS_TX_CMP_NAPI, \
+		CFG_VALUE_OR_DEFAULT, "DP PPEDS Tx Comp handler napi budget")
+
+#define CFG_DP_PPEDS_ENABLE \
+	CFG_INI_BOOL("ppe_ds_enable", true, \
 	"DP ppe enable flag")
 
 #define CFG_DP_REO2PPE_RING \
@@ -1637,23 +1697,20 @@
 		WLAN_CFG_PPE2TCL_RING_SIZE, \
 		CFG_VALUE_OR_DEFAULT, "DP PPE2TCL rings")
 
-#define CFG_DP_PPE_RELEASE_RING \
-		CFG_INI_UINT("dp_ppe_release_ring", \
-		WLAN_CFG_PPE_RELEASE_RING_SIZE_MIN, \
-		WLAN_CFG_PPE_RELEASE_RING_SIZE_MAX, \
-		WLAN_CFG_PPE_RELEASE_RING_SIZE, \
-		CFG_VALUE_OR_DEFAULT, "DP PPE Release Ring")
-
-#define CFG_DP_PPE_CONFIG \
+#define CFG_DP_PPEDS_CONFIG \
+		CFG(CFG_DP_PPEDS_TX_CMP_NAPI_BUDGET) \
 		CFG(CFG_DP_PPEDS_TX_DESC) \
-		CFG(CFG_DP_PPE_ENABLE) \
+		CFG(CFG_DP_PPEDS_ENABLE) \
 		CFG(CFG_DP_REO2PPE_RING) \
-		CFG(CFG_DP_PPE2TCL_RING) \
-		CFG(CFG_DP_PPE_RELEASE_RING)
+		CFG(CFG_DP_PPE2TCL_RING)
 #else
-#define CFG_DP_PPE_CONFIG
+#define CFG_DP_PPEDS_CONFIG
 #define WLAN_CFG_NUM_PPEDS_TX_DESC_MAX 0
 #endif
+
+#define WLAN_CFG_SPECIAL_MSK_MIN 0
+#define WLAN_CFG_SPECIAL_MSK_MAX 0xFFFFFFFF
+#define WLAN_CFG_SPECIAL_MSK 0xF
 
 #if defined(WLAN_FEATURE_11BE_MLO) && defined(WLAN_MLO_MULTI_CHIP)
 /*
@@ -1748,11 +1805,55 @@
 	CFG_INI_BOOL("host_ast_db_enable", false, \
 	"Host AST entries database Enable/Disable")
 
+#ifdef DP_TX_PACKET_INSPECT_FOR_ILP
+/*
+ * <ini>
+ * TX packet inspect for ILP - Enable/Disable
+ *
+ * @Default: true
+ *
+ * This ini enable/disables TX packet inspection for ILP feature
+ *
+ * Usage: Internal
+ *
+ * </ini>
+ */
+#define CFG_TX_PKT_INSPECT_FOR_ILP \
+	CFG_INI_BOOL("tx_pkt_inspect_for_ilp", true, \
+	"TX packet inspect for ILP")
+#define CFG_TX_PKT_INSPECT_FOR_ILP_CFG CFG(CFG_TX_PKT_INSPECT_FOR_ILP)
+#else
+#define CFG_TX_PKT_INSPECT_FOR_ILP_CFG
+#endif
+
+/*
+ * <ini>
+ * special_frame_msk - frame mask to mark special frame type
+ * @Min: 0
+ * @Max: 0xFFFFFFFF
+ * @Default: 15
+ *
+ * This ini entry is used to set frame types to deliver to stack
+ * in error receive path
+ *
+ * Usage: External
+ *
+ * </ini>
+ */
+#define CFG_SPECIAL_FRAME_MSK \
+		CFG_INI_UINT("special_frame_msk", \
+		WLAN_CFG_SPECIAL_MSK_MIN, \
+		WLAN_CFG_SPECIAL_MSK_MAX, \
+		WLAN_CFG_SPECIAL_MSK, \
+		CFG_VALUE_OR_DEFAULT, "special frame to deliver to stack")
+
 #define CFG_DP \
 		CFG(CFG_DP_HTT_PACKET_TYPE) \
 		CFG(CFG_DP_INT_BATCH_THRESHOLD_OTHER) \
+		CFG(CFG_DP_INT_BATCH_THRESHOLD_PPE2TCL) \
 		CFG(CFG_DP_INT_BATCH_THRESHOLD_RX) \
 		CFG(CFG_DP_INT_BATCH_THRESHOLD_TX) \
+		CFG(CFG_DP_INT_TIMER_THRESHOLD_PPE2TCL) \
 		CFG(CFG_DP_INT_TIMER_THRESHOLD_OTHER) \
 		CFG(CFG_DP_INT_TIMER_THRESHOLD_RX) \
 		CFG(CFG_DP_INT_TIMER_THRESHOLD_TX) \
@@ -1855,7 +1956,7 @@
 		CFG(CFG_DP_MPDU_RETRY_THRESHOLD_1) \
 		CFG(CFG_DP_MPDU_RETRY_THRESHOLD_2) \
 		CFG_DP_IPA_TX_RING_CFG \
-		CFG_DP_PPE_CONFIG \
+		CFG_DP_PPEDS_CONFIG \
 		CFG_DP_IPA_TX_ALT_RING_CFG \
 		CFG_DP_MLO_CONFIG \
 		CFG_DP_INI_SECTION_PARAMS \
@@ -1864,5 +1965,10 @@
 		CFG(CFG_DP_NAPI_SCALE_FACTOR) \
 		CFG(CFG_DP_HOST_AST_DB_ENABLE) \
 		CFG_DP_SAWF_STATS_CONFIG \
-		CFG(CFG_DP_HANDLE_INVALID_DECAP_TYPE_DISABLE)
+		CFG(CFG_DP_HANDLE_INVALID_DECAP_TYPE_DISABLE) \
+		CFG(CFG_DP_TXMON_SW_PEER_FILTERING) \
+		CFG_TX_PKT_INSPECT_FOR_ILP_CFG \
+		CFG(CFG_DP_POINTER_TIMER_THRESHOLD_RX) \
+		CFG(CFG_DP_POINTER_NUM_THRESHOLD_RX) \
+		CFG(CFG_SPECIAL_FRAME_MSK)
 #endif /* _CFG_DP_H_ */

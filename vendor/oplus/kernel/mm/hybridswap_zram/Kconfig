@@ -47,6 +47,13 @@ config HYBRID_ZSMALLOC
 	  returned by an alloc().  This handle must be mapped in order to
 	  access the allocated space.
 
+config CRYPTO_LZ4K
+	tristate "Lz4k compression algorithm"
+	select CRYPTO_ALGAPI
+	select CRYPTO_ACOMP2
+	help
+	  This is the lz4k algorithm.
+
 config HYBRIDSWAP_ZRAM_MEMORY_TRACKING
 	bool "Track zRam block status"
 	depends on HYBRIDSWAP_ZRAM && DEBUG_FS

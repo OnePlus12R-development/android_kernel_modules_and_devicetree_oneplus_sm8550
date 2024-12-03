@@ -81,7 +81,9 @@ static void mutex_set_inherit_ux(struct mutex *lock, struct task_struct *task)
 		return;
 
 	is_ux = test_set_inherit_ux(task);
+#ifdef CONFIG_OPLUS_SYSTEM_KERNEL_QCOM
 	is_rt = rt_prio(task->prio);
+#endif
 
 	owner = __mutex_owner(lock);
 
@@ -94,7 +96,7 @@ static void mutex_set_inherit_ux(struct mutex *lock, struct task_struct *task)
 			if(is_ux)
 				set_inherit_ux(owner, INHERIT_UX_MUTEX, oplus_get_ux_depth(task), oplus_get_ux_state(task));
 			if(is_rt) {
-				set_inherit_ux(owner, INHERIT_UX_MUTEX, oplus_get_ux_depth(task), oplus_get_ux_state(owner) > 0 ? oplus_get_ux_state(owner) : SA_TYPE_LIGHT);
+				set_inherit_ux(owner, INHERIT_UX_MUTEX, oplus_get_ux_depth(task), oplus_get_ux_state(owner) > 0 ? oplus_get_ux_state(task) : SA_TYPE_LIGHT);
 			}
 		}
 	}
