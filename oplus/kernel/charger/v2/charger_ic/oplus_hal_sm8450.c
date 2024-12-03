@@ -3737,6 +3737,7 @@ static int oplus_chg_parse_custom_dt(struct battery_chg_dev *bcdev)
 		bcdev->otg_real_soc_min = USB_OTG_REAL_SOC_MIN;
 	}
 
+	bcdev->ufcs_run_check_support = of_property_read_bool(node, "oplus,ufcs_run_check_support");
 	return 0;
 }
 #endif /*OPLUS_FEATURE_CHG_BASIC*/
@@ -7414,12 +7415,44 @@ static int oplus_chg_adsp_ufcs_config_wd(struct oplus_chg_ic_dev *ic_dev, u16 ti
 	return rc;
 }
 
+static int oplus_chg_adsp_ufcs_running_state(struct oplus_chg_ic_dev *ic_dev, bool *state)
+{
+	int rc = 0;
+	struct battery_chg_dev *bcdev;
+	struct psy_state *pst = NULL;
+
+	if (ic_dev == NULL) {
+		chg_err("ic_dev is NULL");
+		return -ENODEV;
+	}
+
+	bcdev = oplus_chg_ic_get_drvdata(ic_dev);
+	if (!bcdev) {
+		chg_err("bcdev is NULL");
+		return -ENODEV;
+	}
+
+	pst = &bcdev->psy_list[PSY_TYPE_BATTERY];
+	rc = read_property_id(bcdev, pst, BATT_GET_UFCS_RUNNING_STATE);
+	if (rc < 0) {
+		chg_err("rc is %d read failed!", rc);
+	} else {
+		*state = pst->prop[BATT_GET_UFCS_RUNNING_STATE];
+		rc = 0;
+	}
+
+	return rc;
+}
+
+#define OPLUS_UFCS_WAIT_EXIT_MAX_RETRY		30
 static int oplus_chg_adsp_ufcs_exit_ufcs_mode(struct oplus_chg_ic_dev *ic_dev)
 {
 	int rc = 0;
 	struct psy_state *pst = NULL;
 	struct battery_chg_dev *bcdev;
 	int exit = 1;
+	bool state = true;
+	int retry_count = 0; /* wait at most 600ms */
 
 	if (ic_dev == NULL) {
 		chg_err("oplus_chg_ic_dev is NULL");
@@ -7432,6 +7465,27 @@ static int oplus_chg_adsp_ufcs_exit_ufcs_mode(struct oplus_chg_ic_dev *ic_dev)
 	if (rc < 0) {
 		chg_err("set ufcs config fail, rc= %d\n", rc);
 		return -1;
+	}
+
+	if (bcdev->ufcs_run_check_support) {
+		/* wait until the ufcs is realy exited to avoid DP/DM access conflict! */
+		while (retry_count < OPLUS_UFCS_WAIT_EXIT_MAX_RETRY) {
+			rc = oplus_chg_adsp_ufcs_running_state(ic_dev, &state);
+			chg_info("retry_count = %d, state = %d, rc = %d", retry_count, state, rc);
+
+			if ((rc < 0) || (state == false)) {
+				chg_info("ufcs is exited now, not wait, retry_count %d\n", retry_count);
+				break;
+			}
+
+			/* when the usb is not connected, no need to wait! */
+			if (!bcdev->cid_status) {
+				chg_info("usb unpluged, not retry.\n");
+				break;
+			}
+			retry_count++;
+			msleep(20);
+		}
 	}
 
 	return rc;

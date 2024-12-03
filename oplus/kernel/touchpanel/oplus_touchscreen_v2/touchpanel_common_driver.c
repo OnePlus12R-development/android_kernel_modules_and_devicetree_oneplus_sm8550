@@ -346,7 +346,7 @@ void operate_mode_switch(struct touchpanel_data *ts)
 		}
 
 		if (ts->waterproof_support) {
-			mode_switch_health(ts, MODE_WATERPROOF, ts->waterproof);
+			mode_switch_health(ts, MODE_WATERPROOF, ts->waterproof & ~(0x1 << WATERPROOF_RUS_BIT));
 		}
 
 		mode_switch_health(ts, MODE_NORMAL, true);

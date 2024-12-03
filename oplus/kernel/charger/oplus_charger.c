@@ -8758,6 +8758,7 @@ bool oplus_chg_stats(void)
 
 	return g_charger_chip->chg_ops->check_chrdet_status();
 }
+EXPORT_SYMBOL(oplus_chg_stats);
 
 static void oplus_chg_ufcs_switch_check(struct oplus_chg_chip *chip)
 {
@@ -9726,6 +9727,29 @@ static void battery_notify_parallel_error_check(struct oplus_chg_chip *chip)
 		chip->notify_code |= 1 << NOTIFY_CURRENT_UNBALANCE;
 }
 
+static void battery_notify_anti_expansion_check(struct oplus_chg_chip *chip)
+{
+	if (chip == NULL)
+		return;
+	if (chip->anti_expansion_warning) {
+		chip->anti_expansion_warning = false;
+		chip->notify_code |= 1 << NOTIFY_ANTI_EXPANSION_WARNING;
+	}
+
+	if (chip->anti_expansion_error)
+		chip->notify_code |= 1 << NOTIFY_ANTI_EXPANSION_ERROR;
+	else
+		chip->notify_code &= ~(1 << NOTIFY_ANTI_EXPANSION_ERROR);
+}
+
+void oplus_comm_set_anti_expansion_status(struct oplus_chg_chip *chip, int val)
+{
+	if (chip == NULL)
+		return;
+	chip->anti_expansion_warning = (val & (1 << NOTIFY_ANTI_EXPANSION_WARNING));
+	chip->anti_expansion_error = (val & (1 << NOTIFY_ANTI_EXPANSION_ERROR));
+}
+
 static void oplus_chg_battery_notify_check(struct oplus_chg_chip *chip)
 {
 	chip->notify_code = 0x0000;
@@ -9739,6 +9763,7 @@ static void oplus_chg_battery_notify_check(struct oplus_chg_chip *chip)
 	battery_notify_charge_terminal_check(chip);
 	battery_notify_gauge_i2c_err_check(chip);
 	battery_notify_parallel_error_check(chip);
+	battery_notify_anti_expansion_check(chip);
 	battery_notify_flag_check(chip);
 }
 
@@ -15594,6 +15619,7 @@ void oplus_chg_check_break(int vbus_rising)
 	}
 	return;
 }
+EXPORT_SYMBOL(oplus_chg_check_break);
 
 int oplus_chg_set_enable_volatile_writes(void)
 {

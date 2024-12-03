@@ -270,6 +270,7 @@ enum battery_property_id {
 	BATT_SET_UI_SOH,
 	BATT_SET_USED_FLAG,
 	BATT_DEEP_DISCHG_LAST_CC,
+	BATT_GET_UFCS_RUNNING_STATE,
 #endif
 	BATT_PROP_MAX,
 };
@@ -657,6 +658,7 @@ struct battery_chg_dev {
 	struct delayed_work 	pd_only_check_work;
 	bool					voocphy_err_check;
 	bool			bypass_vooc_support;
+	bool			ufcs_run_check_support;
 #endif
 #ifdef OPLUS_FEATURE_CHG_BASIC
 	int vchg_trig_irq;
@@ -725,6 +727,7 @@ struct battery_chg_dev {
 	struct delayed_work get_manu_battinfo_work;
 	int read_by_reg;
 	struct delayed_work check_adspfg_status;
+	struct delayed_work hboost_notify_work;
 #endif
 };
 

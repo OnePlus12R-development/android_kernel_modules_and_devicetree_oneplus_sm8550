@@ -87,7 +87,8 @@ enum oplus_chg_track_info_flag {
 	TRACK_NOTIFY_FLAG_FAST_CHARGING_BREAK = TRACK_NOTIFY_FLAG_CHARGING_BREAK_FIRST,
 	TRACK_NOTIFY_FLAG_GENERAL_CHARGING_BREAK,
 	TRACK_NOTIFY_FLAG_WLS_CHARGING_BREAK,
-	TRACK_NOTIFY_FLAG_CHARGING_BREAK_LAST = TRACK_NOTIFY_FLAG_WLS_CHARGING_BREAK,
+	TRACK_NOTIFY_FLAG_WIRED_RETENTION_ONLINE,
+	TRACK_NOTIFY_FLAG_CHARGING_BREAK_LAST = TRACK_NOTIFY_FLAG_WIRED_RETENTION_ONLINE,
 
 	TRACK_NOTIFY_FLAG_DEVICE_ABNORMAL_FIRST,
 	TRACK_NOTIFY_FLAG_WLS_ABNORMAL = TRACK_NOTIFY_FLAG_DEVICE_ABNORMAL_FIRST,
@@ -176,5 +177,6 @@ void oplus_chg_track_update_dischg_profile(struct oplus_monitor *monitor);
 void oplus_chg_track_upload_dischg_profile(struct oplus_monitor *monitor);
 void oplus_chg_track_upload_uisoc_keep_2_err_info(struct oplus_monitor *monitor);
 int oplus_chg_track_upload_rechg_info(struct oplus_monitor *monitor);
+void oplus_chg_track_upload_wired_retention_online_info(struct oplus_monitor *monitor);
 
 #endif /* __OPLUS_CHG_TRACK_H__ */

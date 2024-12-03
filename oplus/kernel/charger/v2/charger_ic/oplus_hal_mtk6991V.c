@@ -39,7 +39,7 @@
 #include <linux/regmap.h>
 #include <linux/of_platform.h>
 #include <linux/rtc.h>
-
+#include "../../../misc/mediatek/typec/tcpc/inc/tcpci.h"
 #include <asm/setup.h>
 
 #include "oplus_hal_mtk6991V.h"
@@ -7122,13 +7122,15 @@ static int oplus_chg_set_pps_config(struct oplus_chg_ic_dev *ic_dev, int vbus_mv
 		return -EINVAL;
 	}
 
-	ret = tcpm_set_apdo_charging_policy(tcpc, DPM_CHARGING_POLICY_PPS, vbus_mv, ibus_ma, NULL);
-	if (ret == TCP_DPM_RET_REJECT) {
-		chg_err("set_apdo_charging_policy reject\n");
-		return 0;
-	} else if (ret != 0) {
-		chg_err("set_apdo_charging_policy error\n");
-		return MTK_ADAPTER_ERROR;
+	if (tcpc->pd_port.dpm_charging_policy != DPM_CHARGING_POLICY_PPS) {
+		ret = tcpm_set_apdo_charging_policy(tcpc, DPM_CHARGING_POLICY_PPS, vbus_mv, ibus_ma, NULL);
+		if (ret == TCP_DPM_RET_REJECT) {
+			chg_err("set_apdo_charging_policy reject\n");
+			return 0;
+		} else if (ret != 0) {
+			chg_err("set_apdo_charging_policy error\n");
+			return MTK_ADAPTER_ERROR;
+		}
 	}
 
 	ret = tcpm_dpm_pd_request(tcpc, vbus_mv, ibus_ma, NULL);

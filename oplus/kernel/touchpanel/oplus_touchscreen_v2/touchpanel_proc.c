@@ -453,6 +453,7 @@ static ssize_t proc_waterproof_write(struct file *file,
 					 const char __user *buffer, size_t count, loff_t *ppos)
 {
 	int tmp = 0;
+	int oldwaterproof = 0;
 	char buf[PALM_BUF_SIZE] = {0};
 	struct touchpanel_data *ts = PDE_DATA(file_inode(file));
 
@@ -472,13 +473,35 @@ static ssize_t proc_waterproof_write(struct file *file,
 		TS_TP_INFO("%s: kstrtoint error,buf:%s\n", __func__, buf);
 		goto OUT;
 	}
+	oldwaterproof = ts->waterproof;
+	if ((ts->waterproof >> WATERPROOF_RUS_BIT) & 0x1) { /* RUS status*/
+		if ((tmp >> WATERPROOF_RUS_BIT) & 0x1) { /* RUS command*/
+			if (tmp & 0x1) {
+				ts->waterproof = tmp & ~(0x1 << WATERPROOF_RUS_BIT);
+				TPD_INFO("%s: exit RUS set WATERPROOF_NODE:%s  waterproof:%d\n",
+				__func__, buf, ts->waterproof);
+			} else {
+				ts->waterproof = tmp;
+			}
+		} else {
+			TPD_INFO("%s: RUS skip to set WATERPROOF_NODE:%s  waterproof:%d\n",
+			__func__, buf, ts->waterproof);
+			goto OUT;
+		}
+	} else {
+		if (((tmp >> WATERPROOF_RUS_BIT) & 0x1) && (tmp & 0x1)) {
+			ts->waterproof = tmp & ~(0x1 << WATERPROOF_RUS_BIT);
+		} else {
+			ts->waterproof = tmp;
+		}
+	}
 
 	if (ts->ts_ops->mode_switch) {
-		if (ts->ts_ops->mode_switch(ts->chip_data, MODE_WATERPROOF, tmp) < 0) {
-			TPD_INFO("%s:set waterproof failed. value = %d.", __func__, tmp);
+		if (ts->ts_ops->mode_switch(ts->chip_data, MODE_WATERPROOF, ts->waterproof & ~(0x1 << WATERPROOF_RUS_BIT)) < 0) {
+			TPD_INFO("%s:set waterproof failed. value = %d.", __func__, ts->waterproof & ~(0x1 << WATERPROOF_RUS_BIT));
+			ts->waterproof = oldwaterproof;
 			return count;
 		}
-		ts->waterproof = tmp;
 	}
 	else {
 		TPD_INFO("%s:waterproof set not support.", __func__);
@@ -3802,8 +3825,11 @@ static ssize_t proc_glove_mode_read(struct file *file, char __user *buffer,
 		return ret;
 	} else {
 		/*support*/
-		snprintf(page, PAGESIZE - 1, "%d\n", ts->glove_enable);
-		TS_TP_INFO("glove mode enable is: %d\n", ts->glove_enable);
+		if (!ts->ts_ops->get_glove_mode) {
+			TS_TP_INFO("not support ts_ops->get_glove_mode\n");
+			return ret;
+		}
+		snprintf(page, PAGESIZE - 1, "%d:%lld\n", ts->glove_enable, ts->monitor_data.glove_enter_count);
 		ret = simple_read_from_buffer(buffer, count, ppos, page, strlen(page));
 		return ret;
 	}

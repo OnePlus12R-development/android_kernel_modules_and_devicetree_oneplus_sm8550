@@ -1446,7 +1446,6 @@ static void android_vh_binder_proc_transaction_finish_handler(void *unused, stru
 		} else if (last_thread) {
 			last_task = last_thread->task;
 			binder_set_inherit_ux(last_task, current, sync, false, t, proc);
-			wake_up_interruptible(&last_thread->wait);
 		} else {
 			binder_set_inherit_ux(binder_th_task, current, sync, false, t, proc);
 		}

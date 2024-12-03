@@ -108,7 +108,9 @@ struct oplus_monitor {
 	struct mms_subscribe *dual_chan_subs;
 	struct mms_subscribe *comm_subs;
 	struct oplus_mms *ufcs_topic;
+	struct oplus_mms *retention_topic;
 	struct mms_subscribe *ufcs_subs;
+	struct mms_subscribe *retention_subs;
 
 	struct oplus_chg_track *track;
 
@@ -226,6 +228,7 @@ struct oplus_monitor {
 	unsigned vooc_sid;
 	unsigned pre_vooc_sid;
 	bool chg_ctrl_by_vooc;
+	int vooc_normal_connect_count_level;
 
 	/* ufcs */
 	bool ufcs_online;
@@ -246,6 +249,11 @@ struct oplus_monitor {
 
 	int rechg_soc_en;
 	int rechg_soc_threshold;
+
+	/* retention */
+	bool retention_state;
+	bool pre_retention_state;
+	int total_disconnect_count;
 };
 
 struct oplus_chg_into_l{

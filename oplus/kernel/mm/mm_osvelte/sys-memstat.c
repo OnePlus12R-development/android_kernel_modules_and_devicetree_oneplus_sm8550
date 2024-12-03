@@ -101,10 +101,12 @@ static void extra_meminfo_proc_show(void *data, struct seq_file *m)
 			read_mtrack_mem_usage(MTRACK_DMABUF, MTRACK_DMABUF_POOL));
 	show_val_kb(m, "IonTotalUsed:   ",
 			read_mtrack_mem_usage(MTRACK_DMABUF, MTRACK_DMABUF_SYSTEM_HEAP));
+#ifndef OPLUS_FEATURE_MEM_4G_DEVICE
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_MM_BOOSTPOOL)
 	show_val_kb(m, "RsvPool:        ",
 			read_mtrack_mem_usage(MTRACK_DMABUF, MTRACK_DMABUF_BOOST_POOL));
 #endif /* CONFIG_OPLUS_FEATURE_MM_BOOSTPOOL */
+#endif
 	show_val_kb(m, "GPUTotalUsed:   ",
 			read_mtrack_mem_usage(MTRACK_GPU, MTRACK_GPU_TOTAL));
 }

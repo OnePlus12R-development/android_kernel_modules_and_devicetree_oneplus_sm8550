@@ -767,6 +767,7 @@ struct sc6607 {
 	int charger_current_pre;
 	bool hvdcp_can_enabled;
 	bool disable_qc;
+	bool support_tsbat;
 	bool pdqc_setup_5v;
 	int  qc_to_9v_count;
 	bool hvdcp_cfg_9v_done;

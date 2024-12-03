@@ -16,6 +16,8 @@ else
 obj-$(CONFIG_TCPC_RT1711H)		+= tcpc_rt1711h.o
 endif
 
+obj-$(CONFIG_TCPC_SGM7220)              += tcpc_sgm7220.o
+
 tcpc_class-y += tcpci_core.o tcpci_typec.o tcpci_timer.o tcpm.o tcpci.o tcpci_alert.o
 ifdef CONFIG_USB_POWER_DELIVERY
 tcpc_class-y += tcpci_event.o pd_core.o pd_policy_engine.o pd_process_evt.o \

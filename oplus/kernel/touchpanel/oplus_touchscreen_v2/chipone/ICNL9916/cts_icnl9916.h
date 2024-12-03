@@ -67,7 +67,7 @@ struct tcs_command TcsCmd[] = {
 	{  2,  7, 1, 1, 0 },	/* TP_STD_CMD_COORD_FLIP_X_EN_RW */
 	{  3,  7, 1, 1, 0 },	/* TP_STD_CMD_COORD_FLIP_Y_EN_RW */
 	{  4,  7, 1, 1, 0 },	/* TP_STD_CMD_COORD_SWAP_AXES_EN_RW */
-	
+	{ 18,  9, 1, 1, 0 },	/* TP_STD_CMD_PARA_WATER_MODE_RW */
 	{ 42,  9, 1, 1, 0 },	/* TP_STD_CMD_PARA_PROXI_EN_RW */
 	
 	{  1, 11, 1, 1, 0 },	/* TP_STD_CMD_OPENSHORT_EN_RW */

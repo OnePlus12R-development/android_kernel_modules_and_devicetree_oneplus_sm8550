@@ -33,6 +33,7 @@ enum oplus_mms_type {
 	OPLUS_MMS_TYPE_PPS,
 	OPLUS_MMS_TYPE_BATT_BAL,
 	OPLUS_MMS_TYPE_LEVEL_SHIFT,
+	OPLUS_MMS_TYPE_RETENTION,
 };
 
 enum mms_msg_type {

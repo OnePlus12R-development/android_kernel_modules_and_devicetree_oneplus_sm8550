@@ -361,7 +361,7 @@ int oplus_chg_get_battery_btb_temp_cal(void)
 		chg_err("discrete_charger not ready!\n");
 		goto done;
 	}
-	if (chip->chg_ops->get_cp_tsbat) {
+	if (chip->chg_ops->get_cp_tsbat && !g_oplus_discrete_charger.support_chan_batbtb) {
 		if (g_oplus_discrete_charger.sc6607_switch_ntc)
 			temp = chip->chg_ops->get_cp_tsbus();
 		else
@@ -402,7 +402,7 @@ int oplus_chg_get_usb_btb_temp_cal(void)
 		goto done;
 	}
 
-	if (charger_ic__det_flag  == (1 << SC6607) && chip->chg_ops->get_cp_tsbus) {
+	if ((charger_ic__det_flag  == (1 << SC6607) && chip->chg_ops->get_cp_tsbus) && !g_oplus_discrete_charger.support_chan_usbbtb) {
 		if (g_oplus_discrete_charger.sc6607_switch_ntc)
 			temp = chip->chg_ops->get_cp_tsbat();
 		else
@@ -1420,6 +1420,8 @@ static int oplus_chg_parse_custom_dt(struct oplus_chg_chip *chip)
 		g_oplus_discrete_charger.sc6607_switch_ntc = of_property_read_bool(node, "qcom,sc6607_switch_ntc");
 		g_oplus_chip->normalchg_gpio.dischg_gpio = of_get_named_gpio(node, "qcom,dischg-gpio", 0);
 		g_oplus_chip->usbtemp_chan_tmp = of_property_read_bool(node, "qcom,usbtemp_chan_tmp");
+		g_oplus_discrete_charger.support_chan_usbbtb = of_property_read_bool(node, "qcom,support_chan_usbbtb");
+		g_oplus_discrete_charger.support_chan_batbtb = of_property_read_bool(node, "qcom,support_chan_batbtb");
 		if (g_oplus_chip->normalchg_gpio.dischg_gpio <= 0) {
 			chg_err("Couldn't read qcom,dischg-gpio rc=%d, qcom,dischg-gpio:%d\n",
 				rc, g_oplus_chip->normalchg_gpio.dischg_gpio);

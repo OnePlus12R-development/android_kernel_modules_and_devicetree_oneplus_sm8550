@@ -169,6 +169,7 @@ struct oplus_mms_wired {
 	enum oplus_usbtemp_timer_stage usbtemp_timer_stage;
 	bool support_usbtemp_protect_v2;
 	bool new_usbtemp_cool_down_support;
+	bool high_temp_scheme;
 	int usbtemp_curr_status;
 	int usbtemp_batt_current;
 	int usbtemp_pre_batt_current;
@@ -2590,7 +2591,7 @@ static bool oplus_usbtemp_temp_rise_fast_with_batt_temp(struct oplus_mms_wired *
 	batt_temp = chip->batt_realy_temp;
 
 	if (chip->usbtemp_curr_status == OPLUS_USBTEMP_LOW_CURR) {
-		if (oplus_is_power_off_charging() && spec->support_hot_enter_kpoc) {
+		if (oplus_is_power_off_charging() && (spec->support_hot_enter_kpoc || chip->high_temp_scheme)) {
 			if (((batt_temp / 10 > spec->usbtemp_batt_temp_low) && (batt_temp / 10 <= spec->usbtemp_batt_temp_over_hot)) &&
 				(((chip->usb_temp_l >= batt_temp / 10 + spec->usbtemp_temp_gap_low_with_batt_temp) &&
 				  (chip->usb_temp_l < USB_100C)) ||
@@ -5464,6 +5465,7 @@ static void oplus_mms_wired_parse_dt(struct oplus_mms_wired *chip)
 		chip->support_usbtemp_protect_v2 ? "true" : "false", chip->support_wlsotg_non_coexistence);
 	if (chip->support_usbtemp_protect_v2)
 		oplus_mms_wired_usbtemp_v2_parse_dt(chip);
+	chip->high_temp_scheme = of_property_read_bool(node, "high-temp-scheme");
 }
 
 static int oplus_wired_otg_disable_vote_callback(struct votable *votable,

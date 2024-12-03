@@ -242,12 +242,20 @@ static int oplus_mt6375_guage_get_batt_num(struct oplus_chg_ic_dev *ic_dev, int 
 static int oplus_mt6375_guage_get_gauge_type(struct oplus_chg_ic_dev *ic_dev, int *gauge_type)
 {
 	struct chip_mt6375_gauge *chip;
+	int rc;
+	int temp;
 
 	if (ic_dev == NULL || gauge_type == NULL) {
 		chg_err("oplus_chg_ic_dev or gauge_type is NULL");
 		return -ENODEV;
 	}
 	chip = oplus_chg_ic_get_drvdata(ic_dev);
+	rc = oplus_mt6375_guage_get_batt_temp(ic_dev, &temp);
+	if (rc < 0 || temp == -400) {
+		*gauge_type = GAUGE_TYPE_UNKNOW;
+		return 0;
+	}
+
 	*gauge_type = GAUGE_TYPE_PLATFORM;
 
 	return 0;

@@ -105,7 +105,7 @@ static int oplus_set_audio_switch_status(int state)
 	struct tcpc_device *tcpc = tcpc_dev_get_by_name("type_c_port0");
 	if (tcpc == NULL) {
 		chg_err("get type_c_port0 fail\n");
-		return -1;
+		return -EFAULT;
 	}
 	switch_cnt = g_audio_switch.audio_switch_cnt;
 	ret = tcpci_notify_switch_set_state(tcpc, state, &oplus_set_audio_switch_callback);
@@ -120,7 +120,7 @@ static int oplus_set_audio_switch_status(int state)
 	}
 
 	if (wait >= OPLUS_AUDIO_SET_MAX_TIME) {
-		ret = -1;
+		ret = -EFAULT;
 		chg_info("wait = %d > MAXT_TIME, time out, set failed!\n", wait);
 	}
 
@@ -150,7 +150,7 @@ static int oplus_get_audio_switch_status(void)
 	struct tcpc_device *tcpc = tcpc_dev_get_by_name("type_c_port0");
 	if (tcpc == NULL) {
 		chg_err("get type_c_port0 fail\n");
-		return -1;
+		return -EFAULT;
 	}
 	switch_cnt = g_audio_switch.audio_switch_ack_cnt;
 	ret = tcpci_notify_switch_get_state(tcpc, &oplus_get_audio_switch_callback);
@@ -167,7 +167,7 @@ static int oplus_get_audio_switch_status(void)
 	}
 
 	if (wait >= OPLUS_AUDIO_GET_MAX_TIME) {
-		ret = -1;
+		ret = -EFAULT;
 		chg_err("wait = %d > MAXT_TIME, time out, get failed!\n", wait);
 	}
 	return ret;

@@ -1436,20 +1436,16 @@ static ssize_t rtp_store(struct device *dev,
 		audio_delay = sih_haptic->rtp.audio_delay;
 	}
 
-	if (!val) {
-		sih_op_clean_status(sih_haptic);
-		sih_haptic->rtp.rtp_file_num = val;
-		sih_haptic->hp_func->stop(sih_haptic);
-		sih_haptic->hp_func->set_rtp_aei(sih_haptic, false);
-		sih_haptic->hp_func->clear_interrupt_state(sih_haptic);
-	}
+	sih_op_clean_status(sih_haptic);
+	sih_haptic->rtp.rtp_file_num = val;
+	sih_haptic->hp_func->stop(sih_haptic);
+	sih_haptic->hp_func->set_rtp_aei(sih_haptic, false);
+	sih_haptic->hp_func->clear_interrupt_state(sih_haptic);
+
 	mutex_unlock(&sih_haptic->lock);
 
-	if (val < NUM_WAVEFORMS) {
-		sih_haptic->rtp.rtp_file_num = val;
-		if (val) {
-			schedule_work(&sih_haptic->rtp.rtp_work);
-		}
+	if (val > 0 && val < NUM_WAVEFORMS) {
+		schedule_work(&sih_haptic->rtp.rtp_work);
 	} else {
 		hp_err("%s: input number err:%d\n", __func__, val);
 	}

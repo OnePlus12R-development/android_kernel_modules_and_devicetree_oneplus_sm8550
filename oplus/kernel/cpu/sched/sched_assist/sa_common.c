@@ -900,18 +900,17 @@ static void dequeue_ux_thread(struct rq *rq, struct task_struct *p)
 	spin_lock_irqsave(orq->ux_list_lock, irqflag);
 	smp_mb__after_spinlock();
 	if (!oplus_rbnode_empty(&ots->ux_entry)) {
-		u64 now = jiffies_to_nsecs(jiffies);
-
 		update_ux_timeline_task_removal(orq, ots);
 
 		/* inherit ux can only keep it's ux state in MAX_INHERIT_GRAN(64 ms) */
-		if (get_ux_state_type(p) == UX_STATE_INHERIT && (now - ots->inherit_ux_start > MAX_INHERIT_GRAN)) {
+		if (get_ux_state_type(p) == UX_STATE_INHERIT &&
+			(p->se.sum_exec_runtime - ots->inherit_ux_start > MAX_INHERIT_GRAN)) {
 			atomic64_set(&ots->inherit_ux, 0);
 			ots->ux_depth = 0;
 			ots->ux_state = 0;
 			if (unlikely(global_debug_enabled & DEBUG_FTRACE))
-				trace_printk("dequeue and unset inherit ux task=%-12s pid=%d tgid=%d now=%llu inherit_start=%llu\n",
-					p->comm, p->pid, p->tgid, now, ots->inherit_ux_start);
+				trace_printk("dequeue inherit task=%-12s pid=%d sum_exec_runtime=%llu inherit_start=%llu\n",
+					p->comm, p->pid, p->se.sum_exec_runtime, ots->inherit_ux_start);
 		}
 
 		if (ots->ux_state & SA_TYPE_ONCE) {
@@ -919,8 +918,8 @@ static void dequeue_ux_thread(struct rq *rq, struct task_struct *p)
 			ots->ux_depth = 0;
 			ots->ux_state = 0;
 			if (unlikely(global_debug_enabled & DEBUG_FTRACE))
-				trace_printk("dequeue and unset once ux task=%-12s pid=%d tgid=%d now=%llu inherit_start=%llu\n",
-					p->comm, p->pid, p->tgid, now, ots->inherit_ux_start);
+				trace_printk("dequeue once task=%-12s pid=%d inherit_start=%llu\n",
+					p->comm, p->pid, ots->inherit_ux_start);
 		}
 		put_task_struct(p);
 	}

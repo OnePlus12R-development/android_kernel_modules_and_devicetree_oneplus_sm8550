@@ -22,6 +22,7 @@
 #include <oplus_mms_wired.h>
 #include <oplus_smart_chg.h>
 #include <oplus_battery_log.h>
+#include <oplus_chg_state_retention.h>
 #include <oplus_parallel.h>
 #include <oplus_chg_exception.h>
 #include <oplus_chg_dual_chan.h>
@@ -44,6 +45,7 @@ struct oplus_configfs_device {
 	struct mms_subscribe *wls_subs;
 	struct mms_subscribe *vooc_subs;
 	struct mms_subscribe *comm_subs;
+	struct mms_subscribe *retention_subs;
 	struct oplus_mms *wired_topic;
 	struct oplus_mms *gauge_topic;
 	struct oplus_mms *wls_topic;
@@ -55,6 +57,7 @@ struct oplus_configfs_device {
 	struct oplus_mms *err_topic;
 	struct oplus_mms *cpa_topic;
 	struct oplus_mms *batt_bal_topic;
+	struct oplus_mms *retention_topic;
 	struct mms_subscribe *ufcs_subs;
 	struct mms_subscribe *pps_subs;
 
@@ -107,6 +110,7 @@ struct oplus_configfs_device {
 
 	bool ship_mode;
 	bool slow_chg_enable;
+	bool retention_state;
 	int slow_chg_pct;
 	int slow_chg_watt;
 	unsigned int notify_code;
@@ -392,6 +396,13 @@ static ssize_t fast_chg_type_show(struct device *dev,
 			if (chip->pps_online || chip->pps_online_keep) {
 				fast_chg_type = CHARGER_SUBTYPE_PPS;
 				break;
+			} else if (is_cpa_topic_available(chip)) {
+				oplus_mms_get_item_data(chip->cpa_topic, CPA_ITEM_ALLOW, &data, false);
+				if (data.intval == CHG_PROTOCOL_PPS) {
+					/* switching pps */
+					pd_use_default = true;
+					break;
+				}
 			}
 			fallthrough;
 		case OPLUS_CHG_USB_TYPE_PD:
@@ -1341,6 +1352,23 @@ static ssize_t ppschg_power_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(ppschg_power);
 
+static ssize_t state_retention_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	bool val;
+	struct oplus_configfs_device *chip = dev->driver_data;
+
+	if (!chip) {
+		chg_err("chip is NULL\n");
+		return -EINVAL;
+	}
+
+	val = chip->retention_state;
+
+	return sprintf(buf, "%d\n", val);
+}
+static DEVICE_ATTR_RO(state_retention);
+
 static ssize_t bcc_exception_store(struct device *dev, struct device_attribute *attr,
 		const char *buf, size_t count)
 {
@@ -2157,6 +2185,7 @@ static struct device_attribute *oplus_battery_attributes[] = {
 #endif
 	&dev_attr_voocchg_ing,
 	&dev_attr_ppschg_ing,
+	&dev_attr_state_retention,
 	&dev_attr_ppschg_power,
 	&dev_attr_bcc_parms,
 	&dev_attr_bcc_current,
@@ -2690,9 +2719,18 @@ static int get_adapter_power(struct oplus_configfs_device *chip)
 		}
 	} else {
 		switch (chip->wired_type) {
+		case OPLUS_CHG_USB_TYPE_PD_PPS:
+			if (is_cpa_topic_available(chip)) {
+				oplus_mms_get_item_data(chip->cpa_topic, CPA_ITEM_ALLOW, &data, false);
+				if (data.intval == CHG_PROTOCOL_PPS) {
+					/* switching pps */
+					power = 10000;
+					break;
+				}
+			}
+			fallthrough;
 		case OPLUS_CHG_USB_TYPE_QC2:
 		case OPLUS_CHG_USB_TYPE_QC3:
-		case OPLUS_CHG_USB_TYPE_PD_PPS:
 		case OPLUS_CHG_USB_TYPE_PD:
 		case OPLUS_CHG_USB_TYPE_PD_DRP:
 			power = 18000;
@@ -2785,6 +2823,13 @@ static ssize_t protocol_type_show(struct device *dev,
 			if (chip->pps_online || chip->pps_online_keep) {
 				fast_chg_type = CHARGER_SUBTYPE_PPS;
 				break;
+			} else if (is_cpa_topic_available(chip)) {
+				oplus_mms_get_item_data(chip->cpa_topic, CPA_ITEM_ALLOW, &data, false);
+				if (data.intval == CHG_PROTOCOL_PPS) {
+					/* switching pps */
+					pd_use_default = true;
+					break;
+				}
 			}
 			fallthrough;
 		case OPLUS_CHG_USB_TYPE_PD:
@@ -4405,6 +4450,48 @@ static void oplus_configfs_subscribe_pps_topic(struct oplus_mms *topic,
 		chip->pps_oplus_adapter = !!data.intval;
 }
 
+static void oplus_configfs_retention_subs_callback(struct mms_subscribe *subs,
+					     enum mms_msg_type type, u32 id, bool sync)
+{
+	struct oplus_configfs_device *chip = subs->priv_data;
+	union mms_msg_data data = { 0 };
+
+	switch (type) {
+	case MSG_TYPE_ITEM:
+		switch (id) {
+		case RETENTION_ITEM_CONNECT_STATUS:
+			oplus_mms_get_item_data(chip->retention_topic, id, &data, false);
+			chip->retention_state = data.intval;
+			break;
+		default:
+			break;
+		}
+		break;
+	default:
+		break;
+	}
+}
+
+static void oplus_configfs_subscribe_retention_topic(struct oplus_mms *topic,
+					     void *prv_data)
+{
+	struct oplus_configfs_device *chip = prv_data;
+	union mms_msg_data data = { 0 };
+	int rc;
+
+	chip->retention_topic = topic;
+	chip->retention_subs = oplus_mms_subscribe(chip->retention_topic, chip,
+		oplus_configfs_retention_subs_callback, "configfs");
+	if (IS_ERR_OR_NULL(chip->retention_subs)) {
+		chg_err("subscribe retention topic error, rc=%ld\n",
+			PTR_ERR(chip->retention_subs));
+		return;
+	}
+	rc = oplus_mms_get_item_data(chip->retention_topic, RETENTION_ITEM_CONNECT_STATUS, &data, true);
+	if (rc >= 0)
+		chip->retention_state = !!data.intval;
+}
+
 static __init int oplus_configfs_init(void)
 {
 	struct oplus_configfs_device *chip;
@@ -4456,6 +4543,7 @@ static __init int oplus_configfs_init(void)
 			     chip);
 	oplus_mms_wait_topic("ufcs", oplus_configfs_subscribe_ufcs_topic, chip);
 	oplus_mms_wait_topic("pps", oplus_configfs_subscribe_pps_topic, chip);
+	oplus_mms_wait_topic("retention", oplus_configfs_subscribe_retention_topic, chip);
 
 	return 0;
 
@@ -4487,6 +4575,8 @@ static __exit void oplus_configfs_exit(void)
 		oplus_mms_unsubscribe(g_cfg_dev->ufcs_subs);
 	if (!IS_ERR_OR_NULL(g_cfg_dev->pps_subs))
 		oplus_mms_unsubscribe(g_cfg_dev->pps_subs);
+	if (!IS_ERR_OR_NULL(g_cfg_dev->retention_subs))
+		oplus_mms_unsubscribe(g_cfg_dev->retention_subs);
 
 	if (!IS_ERR(g_cfg_dev->oplus_chg_class))
 		class_destroy(g_cfg_dev->oplus_chg_class);

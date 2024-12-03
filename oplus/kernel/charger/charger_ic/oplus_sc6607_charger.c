@@ -1213,10 +1213,30 @@ static int sc6607_hk_get_adc(struct sc6607 *chip, enum SC6607_ADC_MODULE id)
 	sc6607_field_read(chip, F_ADC_EN, &adc_open);
 	if (!adc_open) {
 		if (id == SC6607_ADC_TSBAT) {
-				if (chip->platform_data->ntc_suport_1000k)
-					return sc6607_tsbus_tsbat_to_convert(SC6607_ADC_TSBUS_25, SC6607_ADC_TSBAT);
-				else
-					return sc6607_tsbus_tsbat_to_convert(SC6607_ADC_TSBAT_DEFAULT, ADC_TSBUS_TSBAT_DEFAULT);
+			if (chip->platform_data->ntc_suport_1000k) {
+				ret = sc6607_field_write(g_chip, F_ADC_EN, true);
+				if (ret < 0) {
+					pr_err("%s: sc6607_field_write fail ret =%llu\n", __func__, ret);
+					return 0;
+				}
+				mutex_lock(&chip->adc_read_lock);
+				msleep(AICL_DELAY3_MS);
+				sc6607_field_write(chip, F_ADC_FREEZE, 1);
+				ret = sc6607_bulk_read(chip, reg, val, sizeof(val));
+				sc6607_field_write(chip, F_ADC_FREEZE, 0);
+				mutex_unlock(&chip->adc_read_lock);
+				if (ret < 0) {
+					return 0;
+				}
+				ret = val[1] + (val[0] << 8);
+				if (id == SC6607_ADC_TSBAT) {
+					ret = sc6607_tsbus_tsbat_to_convert(ret, SC6607_ADC_TSBAT);
+				}
+				if (!chip->open_adc_by_vbus)
+					sc6607_field_write(g_chip, F_ADC_EN, false);
+				return ret;
+			} else
+				return sc6607_tsbus_tsbat_to_convert(SC6607_ADC_TSBAT_DEFAULT, ADC_TSBUS_TSBAT_DEFAULT);
 		} else if (id == SC6607_ADC_TSBUS) {
 			if (chip->platform_data->ntc_suport_1000k) {
 				ret = sc6607_field_write(g_chip, F_ADC_EN, true);
@@ -2081,6 +2101,9 @@ static struct sc6607_platform_data *sc6607_parse_dt(struct device_node *np, stru
 
 	chip->disable_qc = of_property_read_bool(np, "sc,disable-qc");
 	pr_err("disable_qc:%d\n", chip->disable_qc);
+
+	chip->support_tsbat = of_property_read_bool(np, "sc,support-tsbat-1000k");
+	pr_err("support_tsbat:%d\n", chip->support_tsbat);
 
 	ret = read_signed_data_from_node(np, "oplus,sc6607_ntc_surport_1000k", (s32 *)pst_temp_table_1000k, TEMP_TABLE_100K_SIZE2);
 	if (ret == 0)
@@ -4217,7 +4240,9 @@ static bool oplus_sc6607_check_chrdet_status(void)
 
 static int oplus_sc6607_get_charger_subtype(void)
 {
-	if (!g_chip)
+	struct oplus_chg_chip *chg_chip = oplus_chg_get_chg_struct();
+
+	if (!g_chip || !chg_chip)
 		return 0;
 
 	if (oplus_ufcs_get_fastchg_type() !=  CHARGER_SUBTYPE_DEFAULT)
@@ -4225,8 +4250,12 @@ static int oplus_sc6607_get_charger_subtype(void)
 
 	if (oplus_sc6607_get_pd_type() == PD_PPS_ACTIVE)
 		return CHARGER_SUBTYPE_PPS;
-	else if (oplus_sc6607_get_pd_type() == PD_ACTIVE)
-		return CHARGER_SUBTYPE_PD;
+	else if (oplus_sc6607_get_pd_type() == PD_ACTIVE) {
+		if (chg_chip->pd_svooc || oplus_sc6607_get_charger_type() == POWER_SUPPLY_TYPE_USB_PD_SDP)
+			return CHARGER_SUBTYPE_DEFAULT;
+		else
+			return CHARGER_SUBTYPE_PD;
+	}
 
 	if ((g_chip->hvdcp_can_enabled) && (!g_chip->disable_qc))
 		return CHARGER_SUBTYPE_QC;
@@ -4570,7 +4599,8 @@ int oplus_mtk_pd_setup(void)
 		cap.pwr_limit[i] = 0;
 	}
 
-	pr_info("pd_type: %d\n", g_chip->pd_type);
+	chip->charger_volt = oplus_sc6607_get_vbus();
+	pr_info("pd_type: %d %d\n", g_chip->pd_type, chip->charger_volt);
 	if (!chip->calling_on && !chip->camera_on && chip->charger_volt < 6500 &&
 	     chip->soc < 90 && chip->temperature <= 420 && chip->cool_down_force_5v == false) {
 		if (g_chip->pd_type == PD_CONNECT_PE_READY_SNK_APDO) {
@@ -5882,11 +5912,12 @@ int sc6607_tsbus_tsbat_to_convert(u64 adc_value, int adc_module)
 	}
 
 	if (g_chip->platform_data->ntc_suport_1000k) {
-		if (adc_module == SC6607_ADC_TSBUS) {
+		if (adc_module == SC6607_ADC_TSBUS || (adc_module == SC6607_ADC_TSBAT && g_chip->support_tsbat)) {
 			adc_value = adc_value * sy6607_adc_step[adc_module] / SC6607_ADC_TSBUS_200;
 			adc_value = SC6607_ADC_1000 * SC6607_ADC_1000 * adc_value / (SC6607_ADC_TSBUS_CONVERT - adc_value);
-		} else if (adc_module == SC6607_ADC_TSBAT)
+		} else if (adc_module == SC6607_ADC_TSBAT && !g_chip->support_tsbat) {
 			adc_value = SC6607_ADC_TSBUS_25;
+		}
 	} else if (adc_module == ADC_TSBUS_TSBAT_DEFAULT) {
 		adc_value = adc_value / SC6607_UV_PER_MV;
 	} else if (adc_module == SC6607_ADC_TSBUS || adc_module == SC6607_ADC_TSBAT) {
@@ -5921,6 +5952,10 @@ struct tsbus_charger_temp {
 	struct thermal_zone_device *tzd;
 };
 
+struct tsbat_charger_temp {
+	struct thermal_zone_device *tzd_tsbat;
+};
+
 static int sc6607_voocphy_get_tsbus_temp(struct thermal_zone_device *tz,
 		int *temp)
 {
@@ -5933,8 +5968,24 @@ static int sc6607_voocphy_get_tsbus_temp(struct thermal_zone_device *tz,
 	return 0;
 }
 
+static int sc6607_voocphy_get_tsbat_temp(struct thermal_zone_device *tz,
+		int *temp)
+{
+	struct tsbat_charger_temp *hst;
+	if (!temp || !tz)
+		return -EINVAL;
+	hst = tz->devdata;
+	*temp = sc6607_voocphy_get_tsbat();
+
+	return 0;
+}
+
 static struct thermal_zone_device_ops charger_temp_ops = {
 	.get_temp = sc6607_voocphy_get_tsbus_temp,
+};
+
+static struct thermal_zone_device_ops charger_temp_tsbat_ops = {
+	.get_temp = sc6607_voocphy_get_tsbat_temp,
 };
 
 static int register_charger_thermal(struct sc6607 *info)
@@ -5960,6 +6011,22 @@ static int register_charger_thermal(struct sc6607 *info)
 #endif
 	if (IS_ERR(tz_dev)) {
 		chg_err("charger_temp register fail");
+		ret = -ENODEV;
+	}
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+	ret = thermal_zone_device_enable(tz_dev);
+	if (ret)
+		thermal_zone_device_unregister(tz_dev);
+#endif
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0))
+	tz_dev = thermal_tripless_zone_device_register("charger_temp_tsbat",
+					NULL, &charger_temp_tsbat_ops, NULL);
+#else
+	tz_dev = thermal_zone_device_register("charger_temp_tsbat",
+					0, 0, NULL, &charger_temp_tsbat_ops, NULL, 0, 0);
+#endif
+	if (IS_ERR(tz_dev)) {
+		chg_err("charger_temp_tsbat register fail");
 		ret = -ENODEV;
 	}
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))

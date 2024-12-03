@@ -30,8 +30,11 @@ struct pwrkey_monitor_data g_black_data = {
 	.get_log = 1,
 	.error_count = 0,
 #if IS_ENABLED(CONFIG_DRM_PANEL_NOTIFY) || IS_ENABLED(CONFIG_QCOM_PANEL_EVENT_NOTIFIER)
+	.is_fold_dev = false,
 	.active_panel = NULL,
+	.active_panel_second = NULL,
 	.cookie = NULL,
+	.cookie_second = NULL,
 #endif
 };
 
@@ -45,6 +48,13 @@ static char black_last_skip_block_stages[][64] = {
 static char black_skip_stages[][64] = {
 	{ "CANCELED_" }, /* if CANCELED_ event write in black check stage, skip */
 };
+
+#if IS_ENABLED(CONFIG_DRM_PANEL_NOTIFY) || IS_ENABLED(CONFIG_QCOM_PANEL_EVENT_NOTIFIER) || IS_ENABLED(CONFIG_OPLUS_MTK_DRM_SUB_NOTIFY)
+/* if contain stage in this array, skip */
+static char black_skip_stages_fold[][64] = {
+	{ "POWER_wakeUpInternal" }, /* don't set screenstate in case aod alm: 7925370*/
+};
+#endif
 
 static int bl_start_check_systemid = -1;
 
@@ -213,6 +223,24 @@ static bool is_black_contain_skip_stage(void)
 		}
 	}
 
+#if IS_ENABLED(CONFIG_DRM_PANEL_NOTIFY) || IS_ENABLED(CONFIG_QCOM_PANEL_EVENT_NOTIFIER)
+	if (g_black_data.is_fold_dev) {
+		for (i = 0; i < nArrayLen; i++) {
+			if (strstr(stages, black_skip_stages_fold[i]) != NULL) {
+				BLACK_DEBUG_PRINTK("is_black_contain_skip_stage return true case folding-device in qcom, stages:%s", stages);
+				return true;
+			}
+		}
+	}
+#elif IS_ENABLED(CONFIG_OPLUS_MTK_DRM_SUB_NOTIFY)
+	for (i = 0; i < nArrayLen; i++) {
+		if (strstr(stages, black_skip_stages_fold[i]) != NULL) {
+			BLACK_DEBUG_PRINTK("is_black_contain_skip_stage return true case folding-device in mtk, stages:%s", stages);
+			return true;
+		}
+	}
+#endif
+
 	return false;
 }
 
@@ -356,6 +384,23 @@ static int bl_register_panel_event_notify(void)
 	return 0;
 }
 
+static int bl_register_panel_second_event_notify(void)
+{
+	void *data = NULL;
+	void *cookie = NULL;
+
+	cookie = panel_event_notifier_register(PANEL_EVENT_NOTIFICATION_SECONDARY,
+				PANEL_EVENT_NOTIFIER_CLIENT_SECONDARY_THEIA_BLACK,
+				g_black_data.active_panel_second, black_fb_notifier_callback, data);
+
+	if (!cookie) {
+		BLACK_DEBUG_PRINTK("bl_register_panel_event_notify failed\n");
+		return -1;
+	}
+	g_black_data.cookie_second = cookie;
+	return 0;
+}
+
 static struct drm_panel *theia_check_panel_dt(void)
 {
 	int i;
@@ -395,6 +440,45 @@ fail:
 	return panel;
 }
 
+static struct drm_panel *theia_check_panel_second_dt(void)
+{
+	int i;
+	int count;
+	struct device_node *node = NULL;
+	struct drm_panel *panel = NULL;
+	struct device_node *np = NULL;
+
+	np = of_find_node_by_name(NULL, "oplus,dsi-display-dev");
+	if (!np) {
+		BLACK_DEBUG_PRINTK("Device tree info missing.\n");
+		goto fail;
+	} else {
+		BLACK_DEBUG_PRINTK("Device tree info found.\n");
+	}
+
+	/* for furture mliti-panel extend, need to add code for other panel parse and register */
+	count = of_count_phandle_with_args(np, "oplus,dsi-panel-secondary", NULL);
+	BLACK_DEBUG_PRINTK("Device tree oplus,dsi-panel-secondary count = %d.\n", count);
+	if (count <= 0)
+		goto fail;
+
+	for (i = 0; i < count; i++) {
+		node = of_parse_phandle(np, "oplus,dsi-panel-secondary", i);
+		panel = of_drm_find_panel(node);
+		of_node_put(node);
+		if (!IS_ERR(panel)) {
+			BLACK_DEBUG_PRINTK("Found active secondary panel.\n");
+			break;
+		}
+	}
+
+	if (IS_ERR(panel))
+		panel = NULL;
+
+fail:
+	return panel;
+}
+
 static struct drm_panel *theia_get_active_panel(void)
 {
 	return theia_check_panel_dt();
@@ -404,6 +488,7 @@ static int register_panel_event(void)
 {
 	int ret = -1;
 	struct drm_panel *panel = NULL;
+	struct drm_panel *panel_second = NULL;
 
 	panel = theia_get_active_panel();
 	if (panel) {
@@ -414,6 +499,19 @@ static int register_panel_event(void)
 	} else {
 		BLACK_DEBUG_PRINTK("theia_check_panel_dt failed, get no active panel\n");
 	}
+
+	if (g_black_data.is_fold_dev) {
+		panel_second = theia_check_panel_second_dt();
+		if (panel_second) {
+			g_black_data.active_panel_second = panel_second;
+			g_bright_data.active_panel_second = panel_second;
+			ret = bl_register_panel_second_event_notify();
+			ret |= br_register_panel_second_event_notify();
+		} else {
+			BLACK_DEBUG_PRINTK("theia_check_panel_dt failed, get no active panel_second\n");
+		}
+	}
+
 	return ret;
 }
 
@@ -435,11 +533,25 @@ static void check_dt_work_func(struct work_struct *work)
 
 void black_screen_check_init(void)
 {
-	BLACK_DEBUG_PRINTK("%s called\n", __func__);
-
-	g_black_data.status = BLACK_STATUS_INIT;
+#if IS_ENABLED(CONFIG_DRM_PANEL_NOTIFY) || IS_ENABLED(CONFIG_QCOM_PANEL_EVENT_NOTIFIER)
+        struct device_node *np = NULL;
+#endif
+        g_black_data.status = BLACK_STATUS_INIT;
 
 #if IS_ENABLED(CONFIG_DRM_PANEL_NOTIFY) || IS_ENABLED(CONFIG_QCOM_PANEL_EVENT_NOTIFIER)
+	np = of_find_node_by_name(NULL, "ssc_interactive");
+	if (!np) {
+		pr_err("ssc_interactive dts info missing.\n");
+	} else {
+		if (of_property_read_bool(np, "is-folding-device")) {
+			g_black_data.is_fold_dev = true;
+			BLACK_DEBUG_PRINTK("supported fold device");
+		} else {
+			g_black_data.is_fold_dev = false;
+			BLACK_DEBUG_PRINTK("unsupported fold device");
+		}
+	}
+
 	g_black_data.active_panel = NULL;
 	g_black_data.cookie = NULL;
 	g_check_dt_retry_count = 2;
@@ -452,6 +564,13 @@ void black_screen_check_init(void)
 		BLACK_DEBUG_PRINTK("black_screen_check_init, register fb notifier fail\n");
 		return;
 	}
+#if IS_ENABLED(CONFIG_OPLUS_MTK_DRM_SUB_NOTIFY)
+	if (mtk_disp_sub_notifier_register("oplus_theia_sub", &g_black_data.fb_notif)) {
+		g_black_data.status = BLACK_STATUS_INIT_FAIL;
+		BLACK_DEBUG_PRINTK("black_screen_check_init, register sub fb notifier fail\n");
+		return;
+	}
+#endif
 #endif
 	sprintf(g_black_data.error_id, "%s", "null");
 
@@ -475,7 +594,12 @@ void black_screen_exit(void)
 	cancel_delayed_work_sync(&g_check_dt_work);
 	if (g_black_data.active_panel && g_black_data.cookie)
 		panel_event_notifier_unregister(g_black_data.cookie);
+	if (g_black_data.active_panel_second && g_black_data.cookie_second)
+		panel_event_notifier_unregister(g_black_data.cookie_second);
 #elif IS_ENABLED(CONFIG_OPLUS_MTK_DRM_GKI_NOTIFY)
 	mtk_disp_notifier_unregister(&g_black_data.fb_notif);
+#if IS_ENABLED(CONFIG_OPLUS_MTK_DRM_SUB_NOTIFY)
+	mtk_disp_sub_notifier_unregister(&g_black_data.fb_notif);
+#endif
 #endif
 }

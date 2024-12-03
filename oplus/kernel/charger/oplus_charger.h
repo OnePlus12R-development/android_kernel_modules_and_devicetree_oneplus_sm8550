@@ -357,6 +357,8 @@ static inline void getnstimeofday(struct timespec *ts)
 #define NOTIFY_MOS_OPEN_ERROR			24
 #define NOTIFY_CURRENT_UNBALANCE		25
 #define NOTIFY_ALLOW_READING_ERR		26
+#define NOTIFY_ANTI_EXPANSION_WARNING		28
+#define NOTIFY_ANTI_EXPANSION_ERROR		29
 
 #define OPLUS_CHG_500_CHARGING_CURRENT	500
 #define OPLUS_CHG_900_CHARGING_CURRENT	900
@@ -1575,6 +1577,8 @@ struct oplus_chg_chip {
 	int poweroff_emergency_batt_temp;
 	int usbtemp_batt_temp_over_hot;
 	int usbtemp_temp_gap_with_batt_temp_in_over_hot;
+	bool anti_expansion_warning;
+	bool anti_expansion_error;
 };
 
 #define TTF_UPDATE_UEVENT_BIT		BIT(30)
@@ -1705,6 +1709,12 @@ struct oplus_chg_operations {
 	int (*get_cp_tsbat)(void);
 	int (*get_abnormal_adapter_disconnect_cnt)(void);
 	int (*set_pd_aicr)(int current_ma, bool en);
+	void (*chg_check_break)(int vbus_rising);
+	void (*track_check_wired_charging_break)(int value);
+	bool (*get_adapter_update_status)(void);
+	bool (*get_fastchg_to_normal)(void);
+	bool (*get_fastchg_to_warm)(void);
+	int (*get_support_type)(void);
 };
 
 int __attribute__((weak))
@@ -1972,5 +1982,6 @@ int oplus_get_adapter_power(void);
 int oplus_get_project_power(void);
 int oplus_set_chg_up_limit(int charge_limit_enable, int charge_limit_value,
 	int is_force_set_charge_limit, int charge_limit_recharge_value, int callname);
+void oplus_comm_set_anti_expansion_status(struct oplus_chg_chip *chip, int val);
 //#endif
 #endif /*_OPLUS_CHARGER_H_*/

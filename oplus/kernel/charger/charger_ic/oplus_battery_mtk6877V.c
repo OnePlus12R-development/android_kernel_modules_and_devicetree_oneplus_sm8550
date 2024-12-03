@@ -78,6 +78,9 @@
 #define OPLUS_MIN_PDO_CUR	3000
 #define TEMP_25C 250
 
+int oplus_mtk_hv_flashled_plug(int plug);
+int oplus_chg_get_mmi_status(void);
+
 struct tag_bootmode {
 	u32 size;
 	u32 tag;
@@ -105,6 +108,14 @@ struct mtk_oplus_chg_interface mtk_oplus_chg_intf = {
         .reset_fastchg_after_usbout = oplus_vooc_reset_fastchg_after_usbout,
         /* VOOCPHY related */
         .get_voocphy_support = oplus_chg_get_voocphy_support,
+        .get_mmi_status = oplus_chg_get_mmi_status,
+        .chg_check_break = oplus_chg_check_break,
+        .track_check_wired_charging_break = oplus_chg_track_check_wired_charging_break,
+        .get_adapter_update_status = oplus_vooc_get_adapter_update_status,
+        .get_fastchg_to_normal = oplus_vooc_get_fastchg_to_normal,
+        .get_fastchg_to_warm = oplus_vooc_get_fastchg_to_warm,
+        .get_support_type = oplus_pps_get_support_type,
+        .hv_flashled_plug = oplus_mtk_hv_flashled_plug,
 };
 
 static bool em_mode = false;
@@ -7699,17 +7710,17 @@ static int battery_get_property(struct power_supply *psy,
 	return 0;
 }
 
-static enum power_supply_property mt_ac_properties[] = {
+static const enum power_supply_property mt_ac_properties[] = {
 	POWER_SUPPLY_PROP_ONLINE,
 };
 
-static enum power_supply_property mt_usb_properties[] = {
+static const enum power_supply_property mt_usb_properties[] = {
 	POWER_SUPPLY_PROP_ONLINE,
 	POWER_SUPPLY_PROP_CURRENT_MAX,
 	POWER_SUPPLY_PROP_VOLTAGE_MAX,
 };
 
-static enum power_supply_property battery_properties[] = {
+static const enum power_supply_property battery_properties[] = {
 	POWER_SUPPLY_PROP_STATUS,
 	POWER_SUPPLY_PROP_HEALTH,
 	POWER_SUPPLY_PROP_PRESENT,

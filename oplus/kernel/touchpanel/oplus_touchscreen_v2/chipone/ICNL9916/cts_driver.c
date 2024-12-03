@@ -154,6 +154,10 @@ static int cts_mode_switch(void *chip_data, work_mode mode, int flag)
             if (ret)
                 TPD_INFO("<E> Set earjack mode failed %d\n", ret);
             break;
+		case MODE_WATERPROOF:
+			TPD_INFO("<I> switch MODE_WATERPROOF: %s\n", flag ? "In" : "Out");
+			ret = cts_if->set_waterproof_mode(cts_dev, flag);
+			break;
         default:
             break;
     }
@@ -549,10 +553,13 @@ static void cts_rate_white_list_ctrl(void *chip_data, int value)
 	}
 
 	switch (value) {
-        case 120:  /*120HZ*/
+        case 120:		/* 120HZ */
+            cmd = 0x90;
+			break;
+        case 180:		/* 180HZ */
             cmd = 0xA0;
-            break;
-        case 180:   /*  60HZ*/
+			break;
+        case 240:		/* 240HZ */
             cmd = 0xC0;
             break;
 		default:
@@ -755,7 +762,7 @@ static struct debug_info_proc_operations debug_info_proc_ops = {
     .delta_read         = cts_delta_read,
     .main_register_read = NULL,
 };
-/*
+
 static int cts_update_headfile_fw(void *chip_data, struct panel_info *panel_data)
 {
     struct chipone_ts_data *cts_data = (struct chipone_ts_data *)chip_data;
@@ -768,8 +775,8 @@ static int cts_update_headfile_fw(void *chip_data, struct panel_info *panel_data
     cts_firmware.name = panel_data->fw_name;
     cts_firmware.hwid = cts_dev->hwdata->hwid;
     cts_firmware.fwid = cts_dev->hwdata->fwid;
-    cts_firmware.data = (u8 *)panel_data->firmware_headfile.firmware_data;
-    cts_firmware.size = panel_data->firmware_headfile.firmware_size;
+    cts_firmware.data = (u8 *)tsdata->firmware_in_dts->data;
+    cts_firmware.size = tsdata->firmware_in_dts->size;
 
     TPD_INFO("<I> Fw name:%s!\n", cts_firmware.name);
     TPD_INFO("<I> Fw size:%zu!\n", cts_firmware.size);
@@ -785,7 +792,7 @@ static int cts_update_headfile_fw(void *chip_data, struct panel_info *panel_data
 
     return 0;
 }
-*/
+
 
 static int cts_gstr_rawdata_test(struct seq_file *s, void *chip_data,
 	struct auto_testdata *cts_testdata, struct test_item_info *p_test_item_info)
@@ -1394,7 +1401,8 @@ static int cts_driver_probe(struct spi_device *client)
     }
 
     disable_irq_nosync(tsdata->irq);
-
+	tsdata->tp_suspend_order = TP_LCD_SUSPEND;
+	tsdata->tp_resume_order = LCD_TP_RESUME;
     cts_data->pdata->rst_gpio = tsdata->hw_res.reset_gpio;
 
     ret = cts_plat_reset_device(cts_data->pdata);
@@ -1407,13 +1415,17 @@ static int cts_driver_probe(struct spi_device *client)
         TPD_INFO("<E> Probe device failed %d\n", ret);
         goto err_free_common_touch;
     }
-/*
-    ret = cts_update_headfile_fw(tsdata->chip_data, &tsdata->panel_data);
-    if (ret) {
-        TPD_INFO("<E> update head firmware failed\n");
-        //goto err_free_common_touch;
-    }
-*/
+#ifdef CONFIG_TOUCHPANEL_MTK_PLATFORM
+	if (tsdata->boot_mode == RECOVERY_BOOT) {
+#else
+	if (tsdata->boot_mode == MSM_BOOT_MODE__RECOVERY) {
+#endif
+		ret = cts_update_headfile_fw(tsdata->chip_data, &tsdata->panel_data);
+		if (ret) {
+			TPD_INFO("<E> update head firmware failed\n");
+			goto err_free_common_touch;
+		}
+	}
     enable_irq(tsdata->irq);
 
     ret = cts_tool_init(cts_data);

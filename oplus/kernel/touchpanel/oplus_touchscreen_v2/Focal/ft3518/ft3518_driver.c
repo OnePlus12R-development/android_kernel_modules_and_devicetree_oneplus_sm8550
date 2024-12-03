@@ -1798,6 +1798,11 @@ static u32 fts_u32_trigger_reason(void *chip_data, int gesture_enable,
 		return IRQ_FW_AUTO_RESET;
 	}
 
+	/*glove mode*/
+	if (!(buf[0] == 0xFF && buf[1] == 0 && buf[2] == 0xFF)) {
+		TPD_DEBUG("%s, GloveMode:%d", __func__, buf[0]&0x40 ? 1 : 0);
+	}
+
 	/*confirm need print debug info*/
 	if (ts_data->rbuf[0] != ts_data->irq_type) {
 		SET_BIT(result_event, IRQ_FW_HEALTH);
@@ -2038,14 +2043,26 @@ static void fts_health_report(void *chip_data, struct monitor_data *mon_data)
 	TPD_INFO("Health register(0x01):0x%x", ret);
 	if(ret != 0xff) {
 		if ((ret & 0x40) && (ts_data->glove_mode_flag == 0)) {
-			TPD_INFO("Health register(0x01):Enter glove mode");
+			TPD_INFO("Health register(0x01):GloveMode:1");
 			ts_data->glove_mode_flag = 1;
+			tp_healthinfo_report(mon_data, HEALTH_GLOVE, &ts_data->glove_mode_flag);
 		}
 		if ((!(ret & 0x40)) && (ts_data->glove_mode_flag == 1)) {
-			TPD_INFO("Health register(0x01):Quit glove mode");
+			TPD_INFO("Health register(0x01):GloveMode:0");
 			ts_data->glove_mode_flag = 0;
+			tp_healthinfo_report(mon_data, HEALTH_GLOVE, &ts_data->glove_mode_flag);
+		}
+
+		if ((ret & 0x01) && (ts_data->water_mode == 0)) {
+			ts_data->water_mode = 1;
+			TPD_INFO("%s:water flag =%d", __func__, ts_data->water_mode);
+		}
+		if ((!(ret & 0x01)) && (ts_data->water_mode == 1)) {
+			ts_data->water_mode = 0;
+			TPD_INFO("%s:water flag =%d", __func__, ts_data->water_mode);
 		}
 	}
+
 	ret = touch_i2c_read_byte(ts_data->client, FTS_REG_HEALTH_1);
 	TPD_INFO("Health register(0xFD):0x%x", ret);
 	ret = touch_i2c_read_byte(ts_data->client, FTS_REG_HEALTH_2);
@@ -2386,6 +2403,23 @@ static void fts_set_gesture_state(void *chip_data, int state)
 	ts_data->gesture_state = state;
 }
 
+static void fts_get_water_mode(void *chip_data)
+{
+	struct chip_data_ft3518 *ts_data = (struct chip_data_ft3518 *)chip_data;
+	struct touchpanel_data *ts = i2c_get_clientdata(ts_data->client);
+	TPD_INFO("%s: water flag %d!\n", __func__, ts_data->water_mode);
+	if (ts_data->water_mode == 1) {
+		ts->water_mode = 1;
+	}
+	else {
+		ts->water_mode = 0;
+	}
+}
+
+static void fts_force_water_mode(void *chip_data, bool enable)
+{
+	TPD_INFO("%s: %s force_water_mode is not supported .\n", __func__, enable ? "Enter" : "Exit");
+}
 static void fts_enable_gesture_mask(void *chip_data, uint32_t enable)
 {
 	int ret = 0;
@@ -2474,6 +2508,25 @@ static int ft3518_parse_dts(struct chip_data_ft3518 *ts_data, struct i2c_client 
 	return 0;
 }
 
+static void fts_get_glove_mode(void *chip_data, int *enable)
+{
+	u8 regval = 0;
+	struct chip_data_ft3518 *ts_data = (struct chip_data_ft3518 *)chip_data;
+
+	if (!ts_data || !enable) {
+		TPD_INFO("Failed to get glove mode config, null pointer");
+		return;
+	}
+
+	regval = touch_i2c_read_byte(ts_data->client, FTS_REG_GLOVE_MODE_SWITCH);
+	if(regval < 0) {
+		TPD_INFO("Failed to get glove mode config\n");
+		return;
+	}
+
+	*enable = regval;
+	return;
+}
 
 static struct oplus_touchpanel_operations fts_ops = {
 	.power_control              = fts_power_control,
@@ -2502,6 +2555,9 @@ static struct oplus_touchpanel_operations fts_ops = {
 	.set_high_frame_rate        = fts_set_high_frame_rate,
 	.set_gesture_state          = fts_set_gesture_state,
 	.send_temperature           = fts_send_temperature,
+	.get_glove_mode             = fts_get_glove_mode,
+	.get_water_mode             = fts_get_water_mode,
+	.force_water_mode           = fts_force_water_mode,
 	/*todo
 	        .get_vendor                 = synaptics_get_vendor,
 	        .get_keycode                = synaptics_get_keycode,

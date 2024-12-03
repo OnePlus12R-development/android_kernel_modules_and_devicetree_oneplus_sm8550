@@ -377,17 +377,10 @@ static int sc8547a_read_byte(struct sc8547a_device *chip, u8 addr, u8 *data)
 	int rc = 0;
 
 	mutex_lock(&chip->i2c_rw_lock);
-	rc = i2c_master_send(chip->client, &addr_buf, 1);
-	if (rc < 1) {
-		chg_err("write 0x%04x error, rc = %d \n", addr, rc);
-		rc = rc < 0 ? rc : -EIO;
-		goto error;
-	}
-
-	rc = i2c_master_recv(chip->client, data, 1);
-	if (rc < 1) {
+	rc = i2c_smbus_read_i2c_block_data(chip->client, addr_buf, 1,
+					    data);
+	if (rc < 0) {
 		chg_err("read 0x%04x error, rc = %d \n", addr, rc);
-		rc = rc < 0 ? rc : -EIO;
 		goto error;
 	}
 	mutex_unlock(&chip->i2c_rw_lock);
@@ -404,17 +397,10 @@ static int sc8547a_read_data(struct sc8547a_device *chip, u8 addr, u8 *buf,
 	int rc = 0;
 
 	mutex_lock(&chip->i2c_rw_lock);
-	rc = i2c_master_send(chip->client, &addr_buf, 1);
-	if (rc < 1) {
+	rc = i2c_smbus_read_i2c_block_data(chip->client, addr_buf, len,
+					    buf);
+	if (rc < 0) {
 		chg_err("read 0x%04x error, rc=%d\n", addr, rc);
-		rc = rc < 0 ? rc : -EIO;
-		goto error;
-	}
-
-	rc = i2c_master_recv(chip->client, buf, len);
-	if (rc < len) {
-		chg_err("read 0x%04x error, rc=%d\n", addr, rc);
-		rc = rc < 0 ? rc : -EIO;
 		goto error;
 	}
 	mutex_unlock(&chip->i2c_rw_lock);

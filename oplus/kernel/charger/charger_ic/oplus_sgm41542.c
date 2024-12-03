@@ -35,12 +35,19 @@
 #include "../oplus_chg_ops_manager.h"
 #include "../voocphy/oplus_voocphy.h"
 #include "oplus_sgm41542.h"
+#include "oplus_sgm41515d.h"
 #include <linux/pm_wakeup.h>
 #include <linux/regulator/driver.h>
 #include <linux/regulator/machine.h>
 #include <tcpm.h>
 #include <tcpci.h>
 #include "../oplus_chg_track.h"
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+extern int oplus_chg_get_pd_type(void);
+extern int oplus_chg_pd_setup(void);
+extern int oplus_chg_get_charger_subtype(void);
+#endif
 
 struct chip_sgm41542 {
 	struct device		*dev;
@@ -82,6 +89,7 @@ struct chip_sgm41542 {
 	bool support_hvdcp;
 	bool is_hvdcp;
 	bool pre_is_hvdcp;
+	int	part_id;
 
 	struct wakeup_source *suspend_ws;
 	/*fix chgtype identify error*/
@@ -94,6 +102,16 @@ static int aicl_result = 500;
 static bool btb_detect_over;
 static bool dumpreg_by_irq = 0;
 
+static const unsigned int SGM41515D_IPRECHG_CURRENT_STABLE[IPRECHG_CURRENT_STABLE_LEN] = {
+	5, 10, 15, 20, 30, 40, 50, 60,
+	80, 100, 120, 140, 160, 180, 200, 240
+};
+
+static const unsigned int SGM41515D_ITERM_CURRENT_STABLE[ITERM_CURRENT_STABLE_LEN] = {
+	5, 10, 15, 20, 30, 40, 50, 60,
+	80, 100, 120, 140, 160, 180, 200, 240
+};
+
 static const struct charger_properties sgm41542_chg_props = {
 	.alias_name = "sgm41542",
 };
@@ -102,10 +120,27 @@ int __attribute__((weak)) oplus_chg_enable_qc_detect(void)
 {
 	return 0;
 }
+
 int oplus_sgm41542_get_pd_type(void)
 {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+	return oplus_chg_get_pd_type();
+#else
 	return 0;
+#endif
 }
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+static int oplus_sgm41542_chg_set_pd_config(void)
+{
+	return oplus_chg_pd_setup();
+}
+
+static int oplus_sgm41542_chg_get_charger_subtype(void)
+{
+	return oplus_chg_get_charger_subtype();
+}
+#endif
+
 static int oplus_get_boot_reason(void)
 {
 	return 0;
@@ -895,10 +930,38 @@ int sgm41542_charging_current_write_fast(int chg_cur)
 	if(atomic_read(&chip->charger_suspended) == 1)
 		return 0;
 
-	chg_err("set charge current = %d\n", chg_cur);
+	if (chip->part_id == REG0B_SGM41515D_PART_ID) {
+		chg_err("sgm41515d set charge current = %d\n", chg_cur);
+		if (chg_cur <= SGM41515D_SET_CURRENT_40MA)
+			tmp = chg_cur / SGM41515D_SET_CURRENT_STEP_5MA;
+		else if (chg_cur <= SGM41515D_SET_CURRENT_110MA)
+			tmp = SGM41515D_SET_CURRENT_REG_VAL_40MA +
+			      (chg_cur - SGM41515D_SET_CURRENT_40MA) /
+			      SGM41515D_SET_CURRENT_STEP_10MA;
+		else if (chg_cur <= SGM41515D_SET_CURRENT_270MA)
+			tmp = SGM41515D_SET_CURRENT_REG_VAL_110MA +
+			      (chg_cur - SGM41515D_SET_CURRENT_110MA) /
+			      SGM41515D_SET_CURRENT_STEP_20MA;
+		else if (chg_cur <= SGM41515D_SET_CURRENT_540MA)
+			tmp = SGM41515D_SET_CURRENT_REG_VAL_270MA +
+			      (chg_cur - SGM41515D_SET_CURRENT_270MA) /
+			      SGM41515D_SET_CURRENT_STEP_30MA;
+		else if (chg_cur <= SGM41515D_SET_CURRENT_1500MA)
+			tmp = SGM41515D_SET_CURRENT_REG_VAL_540MA +
+			      (chg_cur - SGM41515D_SET_CURRENT_540MA) /
+			      SGM41515D_SET_CURRENT_STEP_60MA;
+		else if (chg_cur <= SGM41515D_SET_CURRENT_2940MA)
+			tmp = SGM41515D_SET_CURRENT_REG_VAL_1500MA +
+			      (chg_cur - SGM41515D_SET_CURRENT_1500MA) /
+			      SGM41515D_SET_CURRENT_STEP_120MA;
+		else
+			tmp = SGM41515D_SET_CURRENT_REG_VAL_3000MA;
+	} else {
+		chg_err("set charge current = %d\n", chg_cur);
 
-	tmp = chg_cur - REG02_SGM41542_FAST_CHG_CURRENT_LIMIT_OFFSET;
-	tmp = tmp / REG02_SGM41542_FAST_CHG_CURRENT_LIMIT_STEP;
+		tmp = chg_cur - REG02_SGM41542_FAST_CHG_CURRENT_LIMIT_OFFSET;
+		tmp = tmp / REG02_SGM41542_FAST_CHG_CURRENT_LIMIT_STEP;
+	}
 
 	rc = sgm41542_config_interface(chip, REG02_SGM41542_ADDRESS,
 			tmp << REG02_SGM41542_FAST_CHG_CURRENT_LIMIT_SHIFT,
@@ -947,13 +1010,25 @@ int sgm41542_set_termchg_current(int term_curr)
 	if(atomic_read(&chip->charger_suspended) == 1)
 		return 0;
 
-	chg_err("term_current = %d\n", term_curr);
-	tmp = term_curr - REG03_SGM41542_TERM_CHG_CURRENT_LIMIT_OFFSET;
-	tmp = tmp / REG03_SGM41542_TERM_CHG_CURRENT_LIMIT_STEP;
+	if (chip->part_id == REG0B_SGM41515D_PART_ID) {
+		if(term_curr > SGM41515D_ITERM_CURRENT_STABLE[ITERM_CURRENT_STABLE_LEN - 1])
+			term_curr = SGM41515D_ITERM_CURRENT_STABLE[ITERM_CURRENT_STABLE_LEN - 1];
+
+		for (tmp = 1; tmp < 16 && term_curr >= SGM41515D_ITERM_CURRENT_STABLE[tmp]; tmp++) {
+			chg_err("%s:tmp = %d check next !\n", __func__, tmp);
+		}
+		tmp--;
+		chg_err("sgm41515d term_current = %d tmp = %d\n", term_curr, tmp);
+	} else {
+		chg_err("term_current = %d\n", term_curr);
+		tmp = term_curr - REG03_SGM41542_TERM_CHG_CURRENT_LIMIT_OFFSET;
+		tmp = tmp / REG03_SGM41542_TERM_CHG_CURRENT_LIMIT_STEP;
+	}
 
 	rc = sgm41542_config_interface(chip, REG03_SGM41542_ADDRESS,
-			tmp << REG03_SGM41542_PRE_CHG_CURRENT_LIMIT_SHIFT,
-			REG03_SGM41542_PRE_CHG_CURRENT_LIMIT_MASK);
+			tmp << REG03_SGM41542_TERM_CHG_CURRENT_LIMIT_SHIFT,
+			REG03_SGM41542_TERM_CHG_CURRENT_LIMIT_MASK);
+
 	return 0;
 }
 
@@ -990,7 +1065,10 @@ int sgm41542_otg_enable(void)
 
 	sgm41542_set_wdt_timer(REG05_SGM41542_WATCHDOG_TIMER_DISABLE);
 
-	rc = sgm41542_otg_ilim_set(REG02_SGM41542_OTG_CURRENT_LIMIT_1200MA);
+	if (chip->part_id == REG0B_SGM41515D_PART_ID)
+		rc = sgm41542_otg_ilim_set(REG02_SGM41515D_OTG_CURRENT_LIMIT_1200MA);
+	else
+		rc = sgm41542_otg_ilim_set(REG02_SGM41542_OTG_CURRENT_LIMIT_1200MA);
 	if (rc < 0)
 		chg_err("Couldn't sgm41542_otg_ilim_set rc = %d\n", rc);
 
@@ -1353,8 +1431,21 @@ int sgm41542_set_prechg_current(int ipre_mA)
 	if (atomic_read(&chip->charger_suspended) == 1)
 		return 0;
 
-	tmp = ipre_mA - REG03_SGM41542_PRE_CHG_CURRENT_LIMIT_OFFSET;
-	tmp = tmp / REG03_SGM41542_PRE_CHG_CURRENT_LIMIT_STEP;
+	if (chip->part_id == REG0B_SGM41515D_PART_ID) {
+		if(ipre_mA > SGM41515D_IPRECHG_CURRENT_STABLE[IPRECHG_CURRENT_STABLE_LEN - 1])
+			ipre_mA = SGM41515D_IPRECHG_CURRENT_STABLE[IPRECHG_CURRENT_STABLE_LEN - 1];
+
+		for (tmp = 1; tmp < 16 && ipre_mA >= SGM41515D_IPRECHG_CURRENT_STABLE[tmp]; tmp++) {
+			chg_err("%s:tmp = %d check next !\n", __func__, tmp);
+		}
+		tmp--;
+		chg_err("sgm41515d prechg_current = %d tmp = %d\n", ipre_mA, tmp);
+	} else {
+		chg_err("prechg_current = %d\n", ipre_mA);
+		tmp = ipre_mA - REG03_SGM41542_PRE_CHG_CURRENT_LIMIT_OFFSET;
+		tmp = tmp / REG03_SGM41542_PRE_CHG_CURRENT_LIMIT_STEP;
+	}
+
 	rc = sgm41542_config_interface(chip, REG03_SGM41542_ADDRESS,
 			(tmp + 1) << REG03_SGM41542_PRE_CHG_CURRENT_LIMIT_SHIFT,
 			REG03_SGM41542_PRE_CHG_CURRENT_LIMIT_MASK);
@@ -1575,7 +1666,6 @@ bool sgm41542_get_deivce_online(void)
 {
 	int rc = 0;
 	int reg_val = 0;
-	int part_id = 0x00;
 	struct chip_sgm41542 *chip = charger_ic;
 
 	if (!chip)
@@ -1584,6 +1674,7 @@ bool sgm41542_get_deivce_online(void)
 	if(atomic_read(&chip->charger_suspended) == 1)
 		return 0;
 
+	chip->part_id = 0x00;
 	rc = sgm41542_read_reg(chip, REG0B_SGM41542_ADDRESS, &reg_val);
 	if (rc) {
 		rc = sgm41542_read_reg(chip, REG0B_SGM41542_ADDRESS, &reg_val);
@@ -1593,10 +1684,17 @@ bool sgm41542_get_deivce_online(void)
 		}
 	}
 
-	part_id = (reg_val & REG0B_SGM41542_PN_MASK) >> SGM41542_DEVID_SHIFT;
-	chg_err("sgm41542 part_id=0x%02X\n", part_id);
+	chip->part_id = (reg_val & REG0B_SGM41542_PN_MASK) >> SGM41542_DEVID_SHIFT;
+	chg_err("sgm41542 part_id=0x%02X\n", chip->part_id);
 
-	if (part_id == 0x0c || part_id == 0x0d) /*part id 1100=SGM41541; 1101=SGM41542*/
+/*
+part id:
+1100=SGM41541
+1101=SGM41542
+0001=SGM41515D
+*/
+	if (chip->part_id == 0x0c || chip->part_id == 0x0d ||
+		chip->part_id == REG0B_SGM41515D_PART_ID)
 		return true;
 
 	return false;
@@ -1631,7 +1729,10 @@ int sgm41542_hardware_init(void)
 
 	sgm41542_float_voltage_write(WPC_TERMINATION_VOLTAGE);
 
-	sgm41542_otg_ilim_set(REG02_SGM41542_OTG_CURRENT_LIMIT_1200MA);
+	if (chip->part_id == REG0B_SGM41515D_PART_ID)
+		sgm41542_otg_ilim_set(REG02_SGM41515D_OTG_CURRENT_LIMIT_1200MA);
+	else
+		sgm41542_otg_ilim_set(REG02_SGM41542_OTG_CURRENT_LIMIT_1200MA);
 
 	sgm41542_set_prechg_voltage_threshold();
 
@@ -2460,8 +2561,35 @@ __attribute__((unused)) static int sgm41542_get_ichg(struct charger_device *chg_
 	ret = sgm41542_read_reg(chip, REG02_SGM41542_ADDRESS, &reg_val);
 	if (!ret) {
 		ichg = (reg_val & REG02_SGM41542_FAST_CHG_CURRENT_LIMIT_MASK) >> REG02_SGM41542_FAST_CHG_CURRENT_LIMIT_SHIFT;
-		ichg = ichg * REG02_SGM41542_FAST_CHG_CURRENT_LIMIT_STEP;
-		*curr = ichg * 1000;
+		if (chip->part_id == REG0B_SGM41515D_PART_ID) {
+			if (ichg <= SGM41515D_SET_CURRENT_REG_VAL_40MA)
+				*curr = ichg * SGM41515D_SET_CURRENT_STEP_5MA * 1000;
+			else if (ichg <= SGM41515D_SET_CURRENT_REG_VAL_110MA)
+				*curr = (SGM41515D_SET_CURRENT_40MA +
+				        (ichg - SGM41515D_SET_CURRENT_REG_VAL_40MA) *
+				        SGM41515D_SET_CURRENT_STEP_10MA) * 1000;
+			else if (ichg <= SGM41515D_SET_CURRENT_REG_VAL_270MA)
+				*curr = (SGM41515D_SET_CURRENT_110MA +
+				        (ichg - SGM41515D_SET_CURRENT_REG_VAL_110MA) *
+				        SGM41515D_SET_CURRENT_STEP_20MA) * 1000;
+			else if (ichg <= SGM41515D_SET_CURRENT_REG_VAL_540MA)
+				*curr = (SGM41515D_SET_CURRENT_270MA +
+				        (ichg - SGM41515D_SET_CURRENT_REG_VAL_270MA) *
+				        SGM41515D_SET_CURRENT_STEP_30MA) * 1000;
+			else if (ichg <= SGM41515D_SET_CURRENT_REG_VAL_1500MA)
+				*curr = (SGM41515D_SET_CURRENT_540MA +
+				        (ichg - SGM41515D_SET_CURRENT_REG_VAL_540MA) *
+				        SGM41515D_SET_CURRENT_STEP_60MA) * 1000;
+			else if (ichg <= SGM41515D_SET_CURRENT_REG_VAL_2940MA)
+				*curr = (SGM41515D_SET_CURRENT_1500MA +
+				        (ichg - SGM41515D_SET_CURRENT_REG_VAL_1500MA) *
+				        SGM41515D_SET_CURRENT_STEP_120MA) * 1000;
+			else
+				*curr = SGM41515D_SET_CURRENT_3000MA * 1000;
+		} else {
+			ichg = ichg * REG02_SGM41542_FAST_CHG_CURRENT_LIMIT_STEP;
+			*curr = ichg * 1000;
+		}
 	}
 
 	return ret;
@@ -2555,9 +2683,14 @@ static int sgm41542_set_boost_ilmt(struct charger_device *chg_dev, u32 curr)
 {
 	int ret = 0;
 	u8 val = REG04_SGM41542_CHG_VOL_LIMIT_MASK;
+	struct chip_sgm41542 *chip = charger_ic;
 
-	if ((curr/1000) >= REG02_SGM41542_BOOSTI_1200)
-		val = REG02_SGM41542_OTG_CURRENT_LIMIT_1200MA;
+	if ((curr/1000) >= REG02_SGM41542_BOOSTI_1200) {
+		if (chip->part_id == REG0B_SGM41515D_PART_ID)
+			val = REG02_SGM41515D_OTG_CURRENT_LIMIT_1200MA;
+		else
+			val = REG02_SGM41542_OTG_CURRENT_LIMIT_1200MA;
+	}
 
 	ret = sgm41542_otg_ilim_set(val);
 
@@ -2702,6 +2835,10 @@ struct oplus_chg_operations  oplus_chg_sgm41542_ops = {
 	.set_qc_config = sgm41542_set_qc_config,
 	.oplus_chg_pd_setup = oplus_sgm41542_pd_setup,
 	.oplus_chg_get_pd_type = oplus_sgm41542_get_pd_type,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+	.oplus_chg_pd_setup = oplus_sgm41542_chg_set_pd_config,
+	.get_charger_subtype = oplus_sgm41542_chg_get_charger_subtype,
+#endif
 	.enable_qc_detect = oplus_chg_enable_qc_detect,
 	.input_current_write_without_aicl = sgm41542_input_current_limit_without_aicl,
 	.oplus_chg_wdt_enable = sgm41542_wdt_enable,

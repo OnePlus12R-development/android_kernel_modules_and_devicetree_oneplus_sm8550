@@ -57,6 +57,7 @@
 #define OEM_MISC_CTL_DATA_PAIR(cmd, enable) ((enable ? 0x3 : 0x1) << cmd)
 #define OPLUS_PD_ONLY_CHECK_INTERVAL round_jiffies_relative(msecs_to_jiffies(50))
 #define OPLUS_GET_BATT_INFO_FROM_ADSP_INTERVAL round_jiffies_relative(msecs_to_jiffies(100))
+#define OPLUS_HBOOST_NOTIFY_INTERVAL round_jiffies_relative(msecs_to_jiffies(3000))
 
 #define OPLUS_PD_5V 5000
 #define OPLUS_PD_9V 9000
@@ -135,12 +136,13 @@ int unregister_hboost_event_notifier(struct notifier_block *nb)
 EXPORT_SYMBOL(unregister_hboost_event_notifier);
 
 #define BATTERY_TYPE_EVENT 99
-static void oplus_chg_hboost_notify_battery_type(void)
+static void oplus_hboost_notify_work(struct work_struct *work)
 {
 	char battery_type_str[OPLUS_BATTERY_TYPE_LEN] = { 0 };
 	int rc;
 	int type;
 
+	chg_info("start hboost notify work\n");
 	rc = oplus_gauge_get_battery_type_str(battery_type_str);
 	if (rc)
 		chg_err("get battery type failed, rc=%d\n", rc);
@@ -4679,6 +4681,8 @@ static int oplus_chg_parse_custom_dt(struct battery_chg_dev *bcdev)
 	}
 
 	bcdev->bypass_vooc_support = of_property_read_bool(node, "oplus,bypass_vooc_support");
+	bcdev->ufcs_run_check_support = of_property_read_bool(node, "oplus,ufcs_run_check_support");
+
 	return 0;
 }
 #endif /*OPLUS_FEATURE_CHG_BASIC*/
@@ -5093,6 +5097,7 @@ static void oplus_plugin_irq_work(struct work_struct *work)
 		bcdev->ufcs_handshake_ok = false;
 		bcdev->ufcs_pdo_ready = false;
 		bcdev->ufcs_verify_auth_ready = false;
+		bcdev->adapter_verify_auth = false;
 		bcdev->ufcs_power_info_ready = false;
 		bcdev->ufcs_vdm_emark_ready = false;
 		bcdev->bc12_completed = false;
@@ -10190,12 +10195,45 @@ static int oplus_chg_adsp_ufcs_config_wd(struct oplus_chg_ic_dev *ic_dev, u16 ti
 	return rc;
 }
 
+static int oplus_chg_adsp_ufcs_running_state(struct oplus_chg_ic_dev *ic_dev, bool *state)
+{
+	int rc = 0;
+	struct battery_chg_dev *bcdev;
+	struct psy_state *pst = NULL;
+
+	if (ic_dev == NULL) {
+		chg_err("ic_dev is NULL");
+		return -ENODEV;
+	}
+
+	bcdev = oplus_chg_ic_get_drvdata(ic_dev);
+	if (!bcdev) {
+		chg_err("bcdev is NULL");
+		return -ENODEV;
+	}
+
+	pst = &bcdev->psy_list[PSY_TYPE_BATTERY];
+	rc = read_property_id(bcdev, pst, BATT_GET_UFCS_RUNNING_STATE);
+	if (rc < 0) {
+		chg_err("rc is %d read failed!", rc);
+	} else {
+		*state = pst->prop[BATT_GET_UFCS_RUNNING_STATE];
+		rc = 0;
+	}
+
+	return rc;
+}
+
+#define OPLUS_UFCS_WAIT_EXIT_MAX_RETRY		30
+
 static int oplus_chg_adsp_ufcs_exit_ufcs_mode(struct oplus_chg_ic_dev *ic_dev)
 {
 	int rc = 0;
 	struct psy_state *pst = NULL;
 	struct battery_chg_dev *bcdev;
 	int exit = 1;
+	bool state = true;
+	int retry_count = 0; /* wait at most 600ms */
 
 	if (ic_dev == NULL) {
 		chg_err("oplus_chg_ic_dev is NULL");
@@ -10208,6 +10246,27 @@ static int oplus_chg_adsp_ufcs_exit_ufcs_mode(struct oplus_chg_ic_dev *ic_dev)
 	if (rc < 0) {
 		chg_err("set ufcs config fail, rc= %d\n", rc);
 		return -1;
+	}
+
+	if (bcdev->ufcs_run_check_support) {
+		/* wait until the ufcs is realy exited to avoid DP/DM access conflict! */
+		while (retry_count < OPLUS_UFCS_WAIT_EXIT_MAX_RETRY) {
+			rc = oplus_chg_adsp_ufcs_running_state(ic_dev, &state);
+			chg_info("retry_count = %d, state = %d, rc = %d", retry_count, state, rc);
+
+			if ((rc < 0) || (state == false)) {
+				chg_info("ufcs is exited now, not wait, retry_count %d\n", retry_count);
+				break;
+			}
+
+			/* when the usb is not connected, no need to wait! */
+			if (!bcdev->cid_status) {
+				chg_info("usb unpluged, not retry.\n");
+				break;
+			}
+			retry_count++;
+			msleep(20);
+		}
 	}
 
 	bcdev->ufcs_power_ready = false;
@@ -10759,6 +10818,7 @@ static int battery_chg_probe(struct platform_device *pdev)
 	INIT_DELAYED_WORK(&bcdev->vbus_collapse_rerun_icl_work, oplus_vbus_collapse_rerun_icl_work);
 	INIT_DELAYED_WORK(&bcdev->check_adspfg_status, oplus_check_adspfg_status_work);
 	INIT_DELAYED_WORK(&bcdev->publish_close_cp_item_work, oplus_publish_close_cp_item_work);
+	INIT_DELAYED_WORK(&bcdev->hboost_notify_work, oplus_hboost_notify_work);
 #endif
 #ifdef OPLUS_FEATURE_CHG_BASIC
 	INIT_DELAYED_WORK(&bcdev->vchg_trig_work, oplus_vchg_trig_work);
@@ -10886,7 +10946,7 @@ static int battery_chg_probe(struct platform_device *pdev)
 
 	INIT_DELAYED_WORK(&bcdev->get_manu_battinfo_work, oplus_get_manu_battinfo_work);
 	schedule_delayed_work(&bcdev->get_manu_battinfo_work, OPLUS_GET_BATT_INFO_FROM_ADSP_INTERVAL);
-	oplus_chg_hboost_notify_battery_type();
+	schedule_delayed_work(&bcdev->hboost_notify_work, OPLUS_HBOOST_NOTIFY_INTERVAL);
 
 	chg_info("battery_chg_probe end...\n");
 #endif

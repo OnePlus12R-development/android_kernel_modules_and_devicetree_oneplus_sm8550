@@ -3890,6 +3890,7 @@ static void oplus_mms_gauge_set_curve_work(struct work_struct *work)
 	unsigned int adapter_id;
 	union mms_msg_data data = { 0 };
 	int rc;
+	int batt_temp_region;
 
 	if (chip->wired_online) {
 		type = oplus_wired_get_chg_type();
@@ -3932,15 +3933,23 @@ static void oplus_mms_gauge_set_curve_work(struct work_struct *work)
 
 		adapter_id = sid_to_adapter_id(chip->vooc_sid);
 	} else if (chip->wls_online) {
-		chg_info("oplus_mms_gauge_set_curve_work: %d\n", chip->wls_online);
 		rc = oplus_mms_get_item_data(chip->wls_topic, WLS_ITEM_WLS_TYPE, &data, false);
 		if (rc < 0) {
 			type = OPLUS_CHG_WLS_UNKNOWN;
 			chg_err("get wls type err\n");
 		}
-
 		adapter_id = 0;
 		type = data.intval;
+
+		oplus_mms_get_item_data(chip->comm_topic, COMM_ITEM_TEMP_REGION, &data, false);
+		batt_temp_region = data.intval;
+		if ((batt_temp_region <= TEMP_REGION_LITTLE_COLD || batt_temp_region >= TEMP_REGION_WARM) &&
+		    (type == OPLUS_CHG_WLS_SVOOC || type == OPLUS_CHG_WLS_PD_65W)) {
+			type = OPLUS_CHG_WLS_BPP;
+		}
+
+		chg_info("oplus_mms_gauge_set_curve_work, wls_online:%d, type:%d, batt_temp_region:%d\n",
+		         chip->wls_online, type, batt_temp_region);
 
 		switch (type) {
 		case OPLUS_CHG_WLS_UNKNOWN:

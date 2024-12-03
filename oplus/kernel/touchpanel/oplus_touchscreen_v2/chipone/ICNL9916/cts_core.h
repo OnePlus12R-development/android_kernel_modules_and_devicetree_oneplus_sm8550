@@ -463,7 +463,7 @@ struct cts_interface {
 	int (*set_sensitive_lv_set)(const struct cts_device *cts_dev, int cmd);
     int (*set_diaphragm_lv_set)(const struct cts_device *cts_dev, int cmd);
     int (*get_water_flag)(const struct cts_device *cts_dev, u8 *cmd);
-
+	int (*set_waterproof_mode)(const struct cts_device *cts_dev, int cmd);
     int (*prepare_test)(struct cts_device *cts_dev);
     int (*prepare_black_test)(struct cts_device *cts_dev);
 	int (*set_black_test_pwr_mode)(const struct cts_device *cts_dev, u8 pwr_mode);

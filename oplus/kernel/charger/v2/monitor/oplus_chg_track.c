@@ -852,6 +852,7 @@ struct oplus_chg_track {
 	struct delayed_work uisoc_keep_2_err_trigger_work;
 	struct delayed_work uisoc_drop_err_trigger_work;
 	struct delayed_work endurance_change_work;
+	struct delayed_work wired_retention_online_trigger_work;
 
 	oplus_chg_track_trigger *mmi_chg_info_trigger;
 	oplus_chg_track_trigger *slow_chg_info_trigger;
@@ -864,6 +865,7 @@ struct oplus_chg_track {
 	oplus_chg_track_trigger *rechg_info_trigger;
 	oplus_chg_track_trigger *endurance_info_trigger;
 	oplus_chg_track_trigger *eis_timeout_info_trigger;
+	oplus_chg_track_trigger *wired_retention_online_trigger;
 
 	struct delayed_work mmi_chg_info_trigger_work;
 	struct delayed_work slow_chg_info_trigger_work;
@@ -1027,6 +1029,7 @@ static struct flag_reason_table track_flag_reason_table[] = {
 	{ TRACK_NOTIFY_FLAG_DUMMY_START_ABNORMAL, "DummyStartClearError" },
 	{ TRACK_NOTIFY_FLAG_WIRED_ONLINE_ERROR, "WiredOnlineStatusError" },
 	{ TRACK_NOTIFY_FLAG_UISOC_KEEP_2_ERROR, "UisocKeep2Error" },
+	{ TRACK_NOTIFY_FLAG_WIRED_RETENTION_ONLINE, "WiredRetentionOnline" },
 	{ TRACK_NOTIFY_FLAG_BCC_SI_ABNORMAL, "BccSiAbnormal" },
 	{ TRACK_NOTIFY_FLAG_EIS_ABNORMAL, "EisAbnormal" }
 };
@@ -3954,6 +3957,52 @@ static void oplus_chg_track_eis_timeout_info_trigger_work(struct work_struct *wo
 	mutex_unlock(&chip->eis_timeout_info_lock);
 }
 
+static void oplus_chg_track_wired_retention_online_trigger_work(struct work_struct *work)
+{
+	struct delayed_work *dwork = to_delayed_work(work);
+	struct oplus_chg_track *chip = container_of(
+		dwork, struct oplus_chg_track, wired_retention_online_trigger_work);
+	struct oplus_monitor *monitor = chip->monitor;
+	struct oplus_chg_track_status *track_status = &chip->track_status;
+	int index = 0;
+
+	if (!chip || !track_status || !monitor)
+		return;
+	if (chip->wired_retention_online_trigger)
+		kfree(chip->wired_retention_online_trigger);
+
+	chip->wired_retention_online_trigger = kzalloc(sizeof(oplus_chg_track_trigger), GFP_KERNEL);
+	if (!chip->wired_retention_online_trigger) {
+		chg_err("wired_retention_online_trigger memery alloc fail\n");
+		return;
+	}
+	chip->wired_retention_online_trigger->type_reason = TRACK_NOTIFY_TYPE_CHARGING_BREAK;
+	chip->wired_retention_online_trigger->flag_reason = TRACK_NOTIFY_FLAG_WIRED_RETENTION_ONLINE;
+
+	oplus_chg_track_get_charger_type(monitor, track_status,
+					 TRACK_CHG_GET_LAST_TIME_TYPE);
+	index += snprintf(&(chip->wired_retention_online_trigger->crux_info[index]),
+		OPLUS_CHG_TRACK_CURX_INFO_LEN - index, "$$retention_state@@%d", monitor->pre_retention_state);
+	index += snprintf(&(chip->wired_retention_online_trigger->crux_info[index]),
+		OPLUS_CHG_TRACK_CURX_INFO_LEN - index,
+		"$$retention_disconnect_count@@%d", monitor->total_disconnect_count);
+	index += snprintf(&(chip->wired_retention_online_trigger->crux_info[index]),
+		OPLUS_CHG_TRACK_CURX_INFO_LEN - index,
+		"$$retention_real_type@@%s", track_status->power_info.wired_info.adapter_type);
+
+	oplus_chg_track_obtain_power_info(&(chip->wired_retention_online_trigger->crux_info[index]),
+					  OPLUS_CHG_TRACK_CURX_INFO_LEN - index);
+	oplus_chg_track_upload_trigger_data(chip->wired_retention_online_trigger);
+	kfree(chip->wired_retention_online_trigger);
+	chip->wired_retention_online_trigger = NULL;
+}
+
+void oplus_chg_track_upload_wired_retention_online_info(struct oplus_monitor *monitor)
+{
+	if (monitor->track != NULL)
+		schedule_delayed_work(&monitor->track->wired_retention_online_trigger_work, 0);
+}
+
 static void oplus_chg_track_wired_online_err_trigger_work(struct work_struct *work)
 {
 	struct delayed_work *dwork = to_delayed_work(work);
@@ -4515,6 +4564,8 @@ static int oplus_chg_track_init(struct oplus_chg_track *track_dev)
 	INIT_DELAYED_WORK(&track_dev->sub_gauge_info.sili_alg_lifetime_load_trigger_work,
 		oplus_chg_track_sub_gauge_sili_alg_lifetime_work);
 	INIT_DELAYED_WORK(&chip->endurance_change_work, oplus_chg_track_endurance_change_work);
+	INIT_DELAYED_WORK(&chip->wired_retention_online_trigger_work,
+		oplus_chg_track_wired_retention_online_trigger_work);
 
 	return ret;
 }

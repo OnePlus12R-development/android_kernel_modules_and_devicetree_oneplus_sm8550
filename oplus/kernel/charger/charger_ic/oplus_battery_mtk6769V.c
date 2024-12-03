@@ -6381,7 +6381,7 @@ static int oplus_charger_probe(struct platform_device *pdev)
 				chg_err("RT9471D charger IC currently not supported\n");
 				break;
 			case (1 << SGM41512):
-				/*oplus_chip->chg_ops = &oplus_chg_sgm41512_ops;*/
+				oplus_chip->chg_ops = &oplus_chg_sgm41512_ops;
 				chg_err("SGM41512 charger IC currently not supported\n");
 				break;
 #ifdef CONFIG_CHARGER_SC6607
@@ -6539,7 +6539,6 @@ static int oplus_charger_probe(struct platform_device *pdev)
 		oplus_chg_parse_charger_dt_2nd_override(oplus_chip);
 	}
 	oplus_chg_init(oplus_chip);
-	platform_set_drvdata(pdev, oplus_chip);
 	device_init_wakeup(&pdev->dev, 1);
 	oplus_chg_wake_update_work();
 	oplus_tbatt_power_off_task_init(oplus_chip);

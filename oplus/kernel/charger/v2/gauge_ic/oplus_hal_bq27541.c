@@ -6779,7 +6779,7 @@ static bool init_gauge_auth(struct chip_bq27541 *chip,
 	memcpy(authenticate_data->message, rst->msg, len);
 	bq27541_sha1_hmac_authenticate(chip, authenticate_data);
 
-	if (strncmp(authenticate_data->message, rst->rcv_msg, len)) {
+	if (memcmp(authenticate_data->message, rst->rcv_msg, len)) {
 		pr_err("Gauge authenticate compare failed\n");
 		return false;
 	} else {
@@ -9114,6 +9114,7 @@ rerun:
 	if (fg_ic->batt_nfg8011b) {
 		memset(fg_ic->chem_id, 0, sizeof(fg_ic->chem_id));
 		nfg8011b_get_sili_chemistry_info(fg_ic, fg_ic->chem_id, sizeof(fg_ic->chem_id));
+		nfg8011b_effect_term_volt_init(fg_ic);
 	}
 
 	INIT_DELAYED_WORK(&fg_ic->get_manu_battinfo_work, oplus_bq27541_get_manu_battinfo_work);

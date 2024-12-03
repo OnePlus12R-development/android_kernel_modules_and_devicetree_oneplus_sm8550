@@ -6514,6 +6514,7 @@ static int bq28z610_get_2cell_voltage(void)
 #define AUTH_TAG "ogauge_auth="
 #define AUTH_SHA256_TAG "ogauge_sha256_auth="
 #define AUTH_PROP "ogauge_auth"
+#define BOOTARGS_PROP "bootargs"
 #define AUTH_SHA256_PROP "ogauge_sha256_auth"
 #ifdef MODULE
 #include <asm/setup.h>
@@ -6564,8 +6565,12 @@ static int get_auth_msg(u8 *source, u8 *rst)
 
 	str = strstr(oplus_chg_get_cmdline(AUTH_PROP), AUTH_TAG);
 	if (str == NULL) {
-		pr_err("Asynchronous authentication is not supported!!!\n");
-		return -1;
+		pr_err("Asynchronous auth not received from %s!!!\n", AUTH_PROP);
+		str = strstr(oplus_chg_get_cmdline(BOOTARGS_PROP), AUTH_TAG);
+		if (str == NULL) {
+			pr_err("Asynchronous auth not received from %s!!!\n", BOOTARGS_PROP);
+			return -1;
+		}
 	}
 	pr_info("%s\n", str);
 	str += strlen(AUTH_TAG);

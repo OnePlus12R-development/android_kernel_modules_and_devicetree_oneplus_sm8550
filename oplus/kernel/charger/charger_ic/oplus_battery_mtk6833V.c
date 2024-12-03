@@ -78,6 +78,9 @@
 #define OPLUS_MIN_PDO_CUR	3000
 #define TEMP_25C 250
 
+int oplus_mtk_hv_flashled_plug(int plug);
+int oplus_chg_get_mmi_status(void);
+
 static int charger_ic__det_flag = 0;
 struct tag_bootmode {
 	u32 size;
@@ -106,6 +109,14 @@ struct mtk_oplus_chg_interface mtk_oplus_chg_intf = {
         .reset_fastchg_after_usbout = oplus_vooc_reset_fastchg_after_usbout,
         /* VOOCPHY related */
         .get_voocphy_support = oplus_chg_get_voocphy_support,
+        .get_mmi_status = oplus_chg_get_mmi_status,
+        .chg_check_break = oplus_chg_check_break,
+        .track_check_wired_charging_break = oplus_chg_track_check_wired_charging_break,
+        .get_adapter_update_status = oplus_vooc_get_adapter_update_status,
+        .get_fastchg_to_normal = oplus_vooc_get_fastchg_to_normal,
+        .get_fastchg_to_warm = oplus_vooc_get_fastchg_to_warm,
+        .get_support_type = oplus_pps_get_support_type,
+        .hv_flashled_plug = oplus_mtk_hv_flashled_plug,
 };
 
 static bool em_mode = false;

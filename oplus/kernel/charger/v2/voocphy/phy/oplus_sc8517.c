@@ -24,6 +24,7 @@
 #include <oplus_mms.h>
 #include <oplus_impedance_check.h>
 #include "../oplus_voocphy.h"
+#include "../chglib/oplus_chglib.h"
 #include "oplus_sc8517.h"
 
 struct sc8517_device {
@@ -62,6 +63,30 @@ static enum oplus_cp_work_mode g_cp_support_work_mode[] = {
 	CP_WORK_MODE_BYPASS,
 };
 
+#ifndef I2C_ERR_MAX
+#define I2C_ERR_MAX 2
+#endif
+
+static void sc8517_i2c_error(struct oplus_voocphy_manager *voocphy, bool happen)
+{
+	struct vphy_chip *v_chip = NULL;
+
+	if (!voocphy)
+		return;
+
+	if (happen) {
+		voocphy->voocphy_iic_err = true;
+		voocphy->voocphy_iic_err_num++;
+		if (voocphy->voocphy_iic_err_num >= I2C_ERR_MAX) {
+			v_chip = oplus_chglib_get_vphy_chip(voocphy->dev);
+			if (v_chip)
+				oplus_chglib_creat_i2c_err(v_chip->dev); /* CP I2C error */
+		}
+	} else {
+		voocphy->voocphy_iic_err_num = 0;
+	}
+}
+
 static bool sc8517_check_work_mode_support(enum oplus_cp_work_mode mode)
 {
 	int i;
@@ -71,36 +96,6 @@ static bool sc8517_check_work_mode_support(enum oplus_cp_work_mode mode)
 			return true;
 	}
 	return false;
-}
-
-static void sc8517_i2c_error(struct oplus_voocphy_manager *voocphy, bool happen)
-{
-	struct sc8517_device *chip;
-	int report_flag = 0;
-
-	if (!voocphy)
-		return;
-	chip = voocphy->priv_data;
-
-	if (!chip || chip->error_reported)
-		return;
-
-	if (happen) {
-		voocphy->voocphy_iic_err = true;
-		voocphy->voocphy_iic_err_num++;
-		if (voocphy->voocphy_iic_err_num >= I2C_ERR_NUM) {
-			report_flag |= MAIN_I2C_ERROR;
-#ifdef OPLUS_CHG_UNDEF /* TODO */
-			oplus_chg_sc8517_error(report_flag, NULL, 0);
-#endif
-			chip->error_reported = true;
-		}
-	} else {
-		voocphy->voocphy_iic_err_num = 0;
-#ifdef OPLUS_CHG_UNDEF /* TODO */
-		oplus_chg_sc8517_error(0, NULL, 0);
-#endif
-	}
 }
 
 static int __sc8517_read_byte(struct i2c_client *client, u8 reg, u8 *data)
@@ -238,13 +233,11 @@ static s32 sc8517_read_word(struct i2c_client *client, u8 reg)
 	mutex_lock(&chip->i2c_rw_lock);
 	ret = i2c_smbus_read_word_data(client, reg);
 	if (ret < 0) {
-		/* TODO
-		sc8517_i2c_error(chip, true); */
+		sc8517_i2c_error(voocphy, true);
 		chg_err("i2c read word fail: can't read reg:0x%02X \n", reg);
 		mutex_unlock(&chip->i2c_rw_lock);
 		return ret;
 	}
-
 	mutex_unlock(&chip->i2c_rw_lock);
 
 	return ret;
@@ -269,8 +262,7 @@ static s32 sc8517_write_word(struct i2c_client *client, u8 reg, u16 val)
 	mutex_lock(&chip->i2c_rw_lock);
 	ret = i2c_smbus_write_word_data(client, reg, val);
 	if (ret < 0) {
-		/* TODO
-		sc8517_i2c_error(chip, true); */
+		sc8517_i2c_error(voocphy, true);
 		chg_err("i2c write word fail: can't write 0x%02X to reg:0x%02X\n", val, reg);
 		mutex_unlock(&chip->i2c_rw_lock);
 		return ret;
@@ -284,6 +276,7 @@ static int sc8517_read_i2c_nonblock(struct i2c_client *client, u8 reg, u8 length
 {
 	int rc = 0;
 	int retry = 3;
+	struct oplus_voocphy_manager *voocphy = i2c_get_clientdata(client);
 
 	rc = i2c_smbus_read_i2c_block_data(client, reg, length, returnData);
 	if (rc < 0) {
@@ -297,8 +290,12 @@ static int sc8517_read_i2c_nonblock(struct i2c_client *client, u8 reg, u8 length
 		}
 	}
 
-	if (rc < 0)
+	if (rc < 0) {
+		sc8517_i2c_error(voocphy, true);
 		chg_err("read err, rc = %d,\n", rc);
+	} else {
+		sc8517_i2c_error(voocphy, false);
+	}
 
 	return rc;
 }
@@ -335,8 +332,12 @@ static int sc8517_read_i2c_block(struct i2c_client *client, u8 reg, u8 length, u
 		}
 	}
 
-	if (rc < 0)
+	if (rc < 0) {
+		sc8517_i2c_error(voocphy, true);
 		chg_err("read err, rc = %d,\n", rc);
+	} else {
+		sc8517_i2c_error(voocphy, false);
+	}
 	mutex_unlock(&chip->i2c_rw_lock);
 
 	return rc;

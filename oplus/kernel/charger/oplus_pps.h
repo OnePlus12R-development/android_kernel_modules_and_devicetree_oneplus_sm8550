@@ -758,6 +758,8 @@ struct oplus_pps_operations {
 	int (*pps_get_cp_slave_b_vac)(void);
 	int (*pps_get_cp_slave_b_vout)(void);
 	int (*pps_get_cp_slave_b_tdie)(void);
+	int (*get_support_type)(void);
+	int (*track_check_wired_charging_break)(int value);
 };
 
 struct oplus_pps_chip *oplus_pps_get_pps_chip(void);

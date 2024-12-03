@@ -1030,11 +1030,6 @@ static int tp_baseline_debug_read_func(struct seq_file *s, void *v)
 		}
 	}
 
-	/*step6: return to normal mode*/
-	if (syna_tcm_reset(tcm->tcm_dev) < 0) {
-		TPD_INFO("%s, %d, sw reset failed.\n", __func__, __LINE__);
-	}
-
 	mutex_unlock(&tcm->mutex);
 
 	return 0;

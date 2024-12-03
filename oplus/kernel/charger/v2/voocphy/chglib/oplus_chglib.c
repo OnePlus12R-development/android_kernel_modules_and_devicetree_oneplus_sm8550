@@ -484,6 +484,23 @@ void oplus_chglib_creat_ic_err(struct device *dev, int type)
 	schedule_work(&chip->err_report_work);
 }
 
+
+void oplus_chglib_creat_i2c_err(struct device *dev)
+{
+	struct vphy_chip *chip = NULL;
+
+	if (!dev) {
+		chg_err("dev or str is null, return\n");
+		return;
+	}
+	chip = oplus_chglib_get_vphy_chip(dev);
+	if (!chip)
+		return;
+
+	schedule_work(&chip->i2c_err_report_work);
+}
+
+
 static void oplus_chglib_check_charger_out_work(struct work_struct *work)
 {
 	struct vphy_chip *chip = container_of(work,
@@ -524,9 +541,32 @@ static void oplus_chglib_err_report_work(struct work_struct *work)
 	if (curr_time - pre_upload_time > TRACK_DEVICE_ABNORMAL_UPLOAD_PERIOD)
 		upload_count = 0;
 	if (upload_count < TRACK_UPLOAD_COUNT_MAX) {
+		if (upload_count == 0)
+			pre_upload_time = track_get_local_time_s();
 		upload_count++;
 		pre_upload_time = track_get_local_time_s();
 		oplus_chg_ic_creat_err_msg(chip->ic_dev, OPLUS_IC_ERR_CP, 0, "OcpHappen");
+		oplus_chg_ic_virq_trigger(chip->ic_dev, OPLUS_IC_VIRQ_ERR);
+	}
+}
+
+static void oplus_chglib_i2c_err_report_work(struct work_struct *work)
+{
+	struct vphy_chip *chip = container_of(work,
+			struct vphy_chip, i2c_err_report_work);
+	static int i2c_upload_count = 0;
+	static int pre_i2c_upload_time = 0;
+	int curr_time = track_get_local_time_s();
+
+	if (curr_time - pre_i2c_upload_time > TRACK_DEVICE_ABNORMAL_UPLOAD_PERIOD)
+		i2c_upload_count = 0;
+
+	/* Record up to 10 times per day */
+	if (i2c_upload_count < TRACK_UPLOAD_COUNT_MAX) {
+		if (i2c_upload_count == 0)
+			pre_i2c_upload_time = track_get_local_time_s();
+		i2c_upload_count++;
+		oplus_chg_ic_creat_err_msg(chip->ic_dev, OPLUS_IC_ERR_I2C, 0, "I2C_err");
 		oplus_chg_ic_virq_trigger(chip->ic_dev, OPLUS_IC_VIRQ_ERR);
 	}
 }
@@ -1321,6 +1361,7 @@ struct vphy_chip *oplus_chglib_register_vphy(struct device *dev, struct hw_vphy_
 	INIT_WORK(&chip->send_absent_notify_work, oplus_chglib_send_absent_notify_work);
 	INIT_WORK(&chip->check_charger_out_work, oplus_chglib_check_charger_out_work);
 	INIT_WORK(&chip->err_report_work, oplus_chglib_err_report_work);
+	INIT_WORK(&chip->i2c_err_report_work, oplus_chglib_i2c_err_report_work);
 	oplus_mms_wait_topic("wired", oplus_chglib_subscribe_wired_topic, chip);
 	oplus_mms_wait_topic("vooc", oplus_chglib_subscribe_vooc_topic, chip);
 	oplus_mms_wait_topic("common", oplus_chglib_subscribe_common_topic, chip);

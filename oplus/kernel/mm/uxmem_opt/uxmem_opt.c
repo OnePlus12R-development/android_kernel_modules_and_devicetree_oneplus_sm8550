@@ -233,6 +233,14 @@ static struct page *page_pool_remove(struct page_pool *pool, int migratetype)
 
 	spin_lock_irqsave(&pool->lock, flags);
 	page = list_first_entry_or_null(&pool->items[migratetype], struct page, lru);
+
+	/* FIXME: migratetype is not needed for uxmem pool and needs to be removed */
+	if (!page) {
+		/* fallback to the other migratetype */
+		migratetype = (migratetype + 1) % POOL_MIGRATETYPE_TYPES_SIZE;
+		page = list_first_entry_or_null(&pool->items[migratetype], struct page, lru);
+	}
+
 	if (page) {
 		pool->count[migratetype]--;
 		list_del(&page->lru);

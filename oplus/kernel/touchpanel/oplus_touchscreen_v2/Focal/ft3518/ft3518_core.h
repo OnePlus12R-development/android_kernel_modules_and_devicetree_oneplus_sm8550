@@ -259,6 +259,7 @@ struct chip_data_ft3518 {
 	bool read_buffer_support;
 	bool ft3518_grip_v2_support;
 	bool snr_read_support;
+	bool water_mode;
 };
 
 

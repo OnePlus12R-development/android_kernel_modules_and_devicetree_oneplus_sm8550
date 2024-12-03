@@ -69,6 +69,7 @@
 #define HEART			17
 #define S_GESTURE		18 /* new project not use this gesture type*/
 #define PENDETECT		18
+#define WATERPROOF_RUS_BIT	7
 
 #define HEALTH_REPORT_GRIP          "grip_report"
 #define HEALTH_REPORT_BASELINE_ERR  "baseline_err"
@@ -88,6 +89,7 @@
 #define HEALTH_REPORT_RST_PARITY    "parity_rst"
 #define HEALTH_REPORT_RST_WD        "wd_rst"
 #define HEALTH_REPORT_RST_OTHER     "other_rst"
+#define HEALTH_REPORT_GLOVE_ENTER	"glove_enterTimes"
 
 #define FINGERPRINT_DOWN_DETECT 0X0f
 #define FINGERPRINT_UP_DETECT 0X1f
@@ -207,6 +209,11 @@ typedef enum {
 	MODE_WATERPROOF,
 	MODE_LEATHER_COVER,
 } work_mode;
+
+typedef enum {
+	GLOVE_EXIT,
+	GLOVE_ENTER,
+} glove_status;
 
 typedef enum {
 	TP_BUS_I2C = 0,
@@ -606,6 +613,7 @@ typedef enum {
 	TYPE_PENCIL_MAXEYE = 2,
 	TYPE_PENCIL_MAXEYE_2ND = 3,
 	TYPE_PENCIL_SUNWODA = 4,
+	TYPE_PENCIL_MAXEYE_3RD = 5,
 } pencil_type;
 
 typedef enum {
@@ -776,6 +784,10 @@ struct monitor_data {
 
 	u64 screenon_timer;
 	u64 total_screenon_time;
+
+	u64 glove_en_timer;
+	u64 total_glove_en_time;
+	u64 glove_enter_count;
 
 	int auto_test_total_times;
 	int auto_test_failed_times;
@@ -1332,6 +1344,7 @@ struct oplus_touchpanel_operations {
 	void (*freq_hop_trigger)(void *chip_data); /*trigger frequency-hopping*/
 	void (*force_water_mode)(void *chip_data, bool enable); /*force enter water mode*/
 	void (*get_water_mode)(void *chip_data); /*force enter water mode*/
+	void (*get_glove_mode)(void *chip_data, int *enable); /*get glove mode parameters*/
 	void (*set_noise_modetest)(void *chip_data, bool enable);
 	uint8_t (*get_noise_modetest)(void *chip_data);
 	/*If the tp ic need do something, use this!*/

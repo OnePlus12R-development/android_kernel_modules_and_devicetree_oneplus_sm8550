@@ -2103,11 +2103,6 @@ static int oplus_chg_vg_get_sili_lifetime_info(
 			} else {
 				rc = 0;
 			}
-		} else {
-			if ((rc > 0) && buf[index + rc - 1] != '\n') {
-				buf[index + rc] = '\n';
-				index++;
-			}
 		}
 		index += rc;
 	}

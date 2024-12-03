@@ -472,6 +472,7 @@ struct full_voltage_condition {
 
 #define VBATT_BASE_FOR_ADAPTER                  3404
 #define VBATT_DIV_FOR_ADAPTER                   10
+#define VBATT_MAX_FOR_ADAPTER                   4654
 
 #define VOOC_RX_RECEIVED_STATUS	0x03
 #define VOOC_RX_STARTED_STATUS  	0X01

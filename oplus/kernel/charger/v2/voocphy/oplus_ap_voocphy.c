@@ -2636,9 +2636,11 @@ static int oplus_voocphy_handle_eis_process(struct oplus_voocphy_manager *chip)
 			} else {
 				chip->eis_copycat_detect_cnt = 0;
 			}
+
+			if (chip->adapter_is_vbus_ok_count < 3)
+				chip->adapter_is_vbus_ok_count++;
 		}
 
-		chip->adapter_is_vbus_ok_count = 0;
 		chip->eis_status = EIS_STATUS_HIGH_CURRENT;
 		voocphy_info("<EIS>eis_high_status, vbus[%d]\n", chip->cp_vbus);
 	} else {
@@ -2651,11 +2653,15 @@ static int oplus_voocphy_handle_eis_process(struct oplus_voocphy_manager *chip)
 						&chip->voocphy_tx_buff[0], BIT_ACTIVE);
 		} else {
 			if (eis_status == EIS_STATUS_DISABLE) {
+				oplus_voocphy_write_mesg_mask(TX0_DET_BIT4_MASK,
+							&chip->voocphy_tx_buff[0], BIT_ACTIVE);
+
 				voocphy_info("<EIS> exit for eis_status[%d]\n", eis_status);
 				chip->eis_status = EIS_STATUS_DISABLE;
 				oplus_chglib_suspend_charger(true);
-				chip->adapter_is_vbus_ok_count++;
-				return VOOCPHY_ENOTALLOWED;
+				if (chip->copycat_vooc_support == true)
+					chip->adapter_is_vbus_ok_count++;
+				return VOOCPHY_SUCCESS;
 			} else {
 				oplus_voocphy_write_mesg_mask(TX0_DET_BIT5_MASK,
 							&chip->voocphy_tx_buff[0], BIT_ACTIVE);
@@ -3052,11 +3058,12 @@ static int oplus_voocphy_non_vooc20_handle_get_batt_vol_cmd(struct oplus_voocphy
 		} else {
 			vbatt1 = chip->gauge_vbatt;
 		}
-		if (vbatt1 < VBATT_BASE_FOR_ADAPTER) {
+		if (vbatt1 < VBATT_BASE_FOR_ADAPTER)
 			vbatt = 0;
-		} else {
+		else if (vbatt1 > VBATT_MAX_FOR_ADAPTER)
+			vbatt = (VBATT_MAX_FOR_ADAPTER - VBATT_BASE_FOR_ADAPTER) / VBATT_DIV_FOR_ADAPTER;
+		else
 			vbatt = (vbatt1 - VBATT_BASE_FOR_ADAPTER) / VBATT_DIV_FOR_ADAPTER;
-		}
 
 		data_temp_l =  ((vbatt >> 6) & 0x1) | (((vbatt >> 5) & 0x1) << 1)
 		               | (((vbatt >> 4) & 0x1) << 2) | (((vbatt >> 3) & 0x1) << 3)
@@ -3744,7 +3751,7 @@ static int oplus_vooc_adapter_work_as_power_bank(struct oplus_voocphy_manager *c
 		switch(chip->adapter_mesg) {
 		case VOOC_CMD_ASK_FASTCHG_ORNOT :
 			if (chip->vooc_move_head == false) {
-				if (chip->fastchg_real_allow) {
+				if (chip->fastchg_real_allow && chip->oplus_ap_fastchg_allow) {
 					status |= oplus_voocphy_write_mesg_mask(TX0_DET_BIT3_MASK,
                                                                                 &chip->voocphy_tx_buff[0], 1);
 				} else {

@@ -335,6 +335,7 @@ oplus_chg-$(CONFIG_OPLUS_CHARGER_MTK6833) += \
 oplus_chg-$(CONFIG_OPLUS_CHARGER_MTK6769R) += \
 		voocphy/oplus_voocphy.o \
 		charger_ic/oplus_sc6607_charger.o \
+		charger_ic/oplus_sgm41512_charger.o \
 		charger_ic/oplus_battery_mtk6769V.o \
 		charger_ic/oplus_usbtemp.o
 

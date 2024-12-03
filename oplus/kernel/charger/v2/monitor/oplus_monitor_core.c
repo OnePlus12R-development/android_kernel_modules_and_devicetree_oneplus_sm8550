@@ -26,6 +26,7 @@
 #include <oplus_smart_chg.h>
 #include <oplus_chg_ufcs.h>
 #include <oplus_chg_wls.h>
+#include <oplus_chg_state_retention.h>
 
 #include "oplus_monitor_internal.h"
 #include <oplus_chg_dual_chan.h>
@@ -556,6 +557,56 @@ static void oplus_monitor_subscribe_gauge_topic(struct oplus_mms *topic,
 		oplus_gauge_get_batt_capacity_mah(chip->gauge_topic));
 	chip->batt_soh_comp = min(chip->batt_soh + chip->batt_soh_coeff * chip->batt_soh / 100, 100);
 	chip->gauge_inited = true;
+}
+
+static void oplus_monitor_retention_subs_callback(struct mms_subscribe *subs,
+					     enum mms_msg_type type, u32 id, bool sync)
+{
+	struct oplus_monitor *chip = subs->priv_data;
+	union mms_msg_data data = { 0 };
+
+	switch (type) {
+	case MSG_TYPE_ITEM:
+		switch (id) {
+		case RETENTION_ITEM_CONNECT_STATUS:
+			oplus_mms_get_item_data(chip->retention_topic, id, &data, false);
+			chip->retention_state = !!data.intval;
+			if (chip->pre_retention_state != chip->retention_state && !chip->retention_state &&
+				chip->total_disconnect_count > 0)
+				oplus_chg_track_upload_wired_retention_online_info(chip);
+			break;
+		case RETENTION_ITEM_TOTAL_DISCONNECT_COUNT:
+			oplus_mms_get_item_data(chip->retention_topic, id, &data, false);
+			if (data.intval > 0)
+				chip->total_disconnect_count = data.intval - chip->vooc_normal_connect_count_level;
+			chip->pre_retention_state = chip->retention_state;
+			if (!chip->retention_state)
+				chip->vooc_normal_connect_count_level = 0;
+			break;
+		default:
+			break;
+		}
+		break;
+	default:
+		break;
+	}
+}
+
+static void oplus_monitor_subscribe_retention_topic(struct oplus_mms *topic,
+					       void *prv_data)
+{
+	struct oplus_monitor *chip = prv_data;
+
+	chip->retention_topic = topic;
+	chip->retention_subs =
+		oplus_mms_subscribe(chip->retention_topic, chip,
+				    oplus_monitor_retention_subs_callback,
+				    "monitor");
+	if (IS_ERR_OR_NULL(chip->retention_subs)) {
+		chg_err("subscribe retention topic error, rc=%ld\n",
+			PTR_ERR(chip->retention_subs));
+		return;
+	}
 }
 
 static void oplus_monitor_ufcs_subs_callback(struct mms_subscribe *subs,
@@ -1374,6 +1425,11 @@ static void oplus_monitor_vooc_subs_callback(struct mms_subscribe *subs,
 			if (!!data.intval)
 				chip->chg_ctrl_by_vooc = true;
 			break;
+		case VOOC_ITEM_NORMAL_CONNECT_COUNT_LEVEL:
+			oplus_mms_get_item_data(chip->vooc_topic, id, &data,
+						false);
+			chip->vooc_normal_connect_count_level = data.intval;
+			break;
 		default:
 			break;
 		}
@@ -1706,6 +1762,7 @@ static int oplus_monitor_probe(struct platform_device *pdev)
 	oplus_mms_wait_topic("dual_chan", oplus_monitor_subscribe_dual_chan_topic, chip);
 	oplus_mms_wait_topic("gauge", oplus_monitor_subscribe_gauge_topic, chip);
 	oplus_mms_wait_topic("ufcs", oplus_monitor_subscribe_ufcs_topic, chip);
+	oplus_mms_wait_topic("retention", oplus_monitor_subscribe_retention_topic, chip);
 
 	chg_info("probe success\n");
 	return 0;

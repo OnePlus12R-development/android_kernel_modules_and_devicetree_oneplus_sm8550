@@ -955,6 +955,31 @@ static ssize_t stop_charging_enable_store(struct device *dev, struct device_attr
 static DEVICE_ATTR_RW(stop_charging_enable);
 #endif
 
+static ssize_t battery_notify_code_store(struct device *dev,
+				       struct device_attribute *attr,
+				       const char *buf, size_t count)
+{
+	struct oplus_chg_chip *chip = NULL;
+	int val = 0;
+
+	chip = (struct oplus_chg_chip *)dev_get_drvdata(oplus_battery_dir);
+	if (!chip) {
+		chg_err("chip is NULL\n");
+		return -EINVAL;
+	}
+
+	if (kstrtos32(buf, 0, &val)) {
+		chg_err("buf error\n");
+		return -EINVAL;
+	}
+
+	chg_info("notify_code %d, val %d\n", chip->notify_code, val);
+
+	oplus_comm_set_anti_expansion_status(chip, val);
+
+	return count;
+}
+
 static ssize_t battery_notify_code_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct oplus_chg_chip *chip = NULL;
@@ -967,7 +992,7 @@ static ssize_t battery_notify_code_show(struct device *dev, struct device_attrib
 
 	return sprintf(buf, "%d\n", chip->notify_code);
 }
-static DEVICE_ATTR_RO(battery_notify_code);
+static DEVICE_ATTR_RW(battery_notify_code);
 
 int __attribute__((weak)) oplus_chg_get_subcurrent(void)
 {
@@ -2615,7 +2640,9 @@ static ssize_t protocol_type_show(struct device *dev,
 	int rc = 0;
 	bool wls_online = false;
 	bool vooc_online = false;
-	union oplus_chg_mod_propval pval;
+	union oplus_chg_mod_propval pval = {
+		0,
+	};
 
 	chip = (struct oplus_chg_chip *)dev_get_drvdata(oplus_common_dir);
 	if (!chip) {
@@ -2645,16 +2672,20 @@ static ssize_t protocol_type_show(struct device *dev,
 
 	wls_online = oplus_wpc_get_online_status() || oplus_chg_is_wls_present();
 	if (wls_online) {
-		rc = oplus_chg_mod_get_property(chip->wls_ocm,
-						OPLUS_CHG_PROP_WLS_TYPE, &pval);
-		if (rc < 0)
+		if (is_wls_ocm_available(chip)) {
+			rc = oplus_chg_mod_get_property(chip->wls_ocm,
+							OPLUS_CHG_PROP_WLS_TYPE, &pval);
+			if (rc < 0)
+				fast_chg_type = CHARGER_SUBTYPE_DEFAULT;
+			else if (pval.intval == OPLUS_CHG_WLS_VOOC)
+				fast_chg_type = CHARGER_SUBTYPE_FASTCHG_VOOC;
+			else if (pval.intval == OPLUS_CHG_WLS_SVOOC || pval.intval == OPLUS_CHG_WLS_PD_65W)
+				fast_chg_type = CHARGER_SUBTYPE_FASTCHG_SVOOC;
+			else
+				fast_chg_type = CHARGER_SUBTYPE_DEFAULT;
+		} else {
 			fast_chg_type = CHARGER_SUBTYPE_DEFAULT;
-		else if (pval.intval == OPLUS_CHG_WLS_VOOC)
-			fast_chg_type = CHARGER_SUBTYPE_FASTCHG_VOOC;
-		else if (pval.intval == OPLUS_CHG_WLS_SVOOC || pval.intval == OPLUS_CHG_WLS_PD_65W)
-			fast_chg_type = CHARGER_SUBTYPE_FASTCHG_SVOOC;
-		else
-			fast_chg_type = CHARGER_SUBTYPE_DEFAULT;
+		}
 	}
 
 	if (protocol_type_by_user > 0)
@@ -2696,14 +2727,17 @@ static ssize_t ui_power_show(struct device *dev,
 		return -EINVAL;
 	}
 
-	adapter_power = oplus_get_adapter_power();
+	if (fast_chg_type_by_user > 0)
+		adapter_power = oplus_get_vooc_adapter_power(fast_chg_type_by_user) * 1000;
+	else
+		adapter_power = oplus_get_adapter_power();
 	project_power = oplus_get_project_power();
 
 	ufcs_online = oplus_is_ufcs_charging();
 	pps_online = oplus_is_pps_charging();
 
 	if (ufcs_online) {
-		pps_or_ufcs_power = oplus_ufcs_adapter_id_to_power();
+		pps_or_ufcs_power = oplus_ufcs_get_power();
 	} else if (pps_online) {
 		pps_or_ufcs_power = oplus_pps_show_power();
 	}

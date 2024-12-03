@@ -86,8 +86,11 @@ struct pwrkey_monitor_data {
 	struct timer_list timer;
 	struct work_struct error_happen_work;
 #if IS_ENABLED(CONFIG_DRM_PANEL_NOTIFY) || IS_ENABLED(CONFIG_QCOM_PANEL_EVENT_NOTIFIER)
+	bool is_fold_dev;
 	struct drm_panel *active_panel;
+	struct drm_panel *active_panel_second;
 	void *cookie;
+	void *cookie_second;
 #endif
 	char error_id[64]; /*format: systemserver_pid:time_sec:time_usec*/
 };
@@ -122,6 +125,7 @@ void theia_send_event_init(void);
 void theia_send_event_exit(void);
 #if IS_ENABLED(CONFIG_DRM_PANEL_NOTIFY) || IS_ENABLED(CONFIG_QCOM_PANEL_EVENT_NOTIFIER)
 int br_register_panel_event_notify(void);
+int br_register_panel_second_event_notify(void);
 #endif
 bool is_system_boot_completed(void);
 #endif /* __POWERKEY_MONITOR_H_ */

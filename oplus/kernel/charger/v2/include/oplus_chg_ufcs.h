@@ -68,8 +68,9 @@ enum ufcs_user_err_type {
 	UFCS_ERR_MAX,
 };
 
-int oplus_ufcs_current_to_level(struct oplus_mms *topic, int curr);
+int oplus_ufcs_current_to_level(struct oplus_mms *topic, int ibus_curr);
 enum fastchg_protocol_type oplus_ufcs_adapter_id_to_protocol_type(u32 id);
 int oplus_ufcs_get_ufcs_power(struct oplus_mms *topic);
-
+int oplus_ufcs_get_curve_ibus(struct oplus_mms *mms);
+int oplus_ufcs_level_to_current(struct oplus_mms *mms, int cool_down);
 #endif /* __OPLUS_CHG_UFCS_H__ */

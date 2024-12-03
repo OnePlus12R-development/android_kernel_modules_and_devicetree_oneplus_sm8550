@@ -62,6 +62,7 @@
 #include <oplus_parallel.h>
 #include <linux/ktime.h>
 #include <linux/sched/clock.h>
+#include <oplus_chg_state_retention.h>
 
 #define FULL_COUNTS_SW		5
 #define FULL_COUNTS_HW		4
@@ -229,6 +230,7 @@ struct oplus_chg_comm {
 	struct oplus_mms *ufcs_topic;
 	struct oplus_mms *pps_topic;
 	struct oplus_mms *err_topic;
+	struct oplus_mms *retention_topic;
 	struct mms_subscribe *gauge_subs;
 	struct mms_subscribe *wired_subs;
 	struct mms_subscribe *vooc_subs;
@@ -236,6 +238,7 @@ struct oplus_chg_comm {
 	struct mms_subscribe *ufcs_subs;
 	struct mms_subscribe *pps_subs;
 	struct mms_subscribe *comm_subs;
+	struct mms_subscribe *retention_subs;
 
 	spinlock_t remuse_lock;
 
@@ -250,6 +253,7 @@ struct oplus_chg_comm {
 	struct work_struct gauge_remuse_work;
 	struct work_struct noplug_batt_volt_work;
 	struct work_struct wired_chg_check_work;
+	struct work_struct offline_delayed_process_work;
 
 	struct delayed_work ffc_start_work;
 	struct delayed_work charge_timeout_work;
@@ -304,6 +308,7 @@ struct oplus_chg_comm {
 	bool gauge_remuse;
 	bool comm_remuse;
 	bool fv_over;
+	bool retention_state;
 
 	bool batt_exist;
 	int vbat_mv;
@@ -1896,7 +1901,7 @@ static int oplus_comm_get_mmi_state(struct oplus_chg_comm *chip)
 		chip->chg_suspend_votable = find_votable("CHG_SUSPEND");
 
 	if (chip->chg_disable_votable)
-		mmi_chg = ((!get_client_vote(chip->chg_disable_votable, MMI_CHG_VOTER)) &&
+		mmi_chg = ((!(get_client_vote(chip->chg_disable_votable, MMI_CHG_VOTER) && !chip->wls_online)) &&
 		    (!get_client_vote(chip->chg_disable_votable, CHG_LIMIT_CHG_VOTER)));
 	if (chip->chg_suspend_votable)
 		mmi_chg = mmi_chg && (!get_client_vote(chip->chg_suspend_votable, CHG_LIMIT_CHG_VOTER));
@@ -2193,7 +2198,7 @@ static int oplus_comm_push_uisoc_drop_msg(struct oplus_chg_comm *chip,  int err,
 {
 	struct oplus_mms *err_topic;
 	struct mms_msg *msg;
-	static int pre_uisoc_low_power_drop_err;
+	static int pre_uisoc_low_power_drop_err = 0;
 	int rc;
 	static int Vterm = 0;
 	static int start_UISoc = 0;
@@ -2518,6 +2523,7 @@ static unsigned long oplus_comm_ui_soc_low_battery_control(struct oplus_chg_comm
 	static unsigned long last_jiffies = 0;
 	unsigned long jiffies_diff = 0;
 	int term_voltage = 0;
+	int ui_soc;
 
 	if (p_force_down_1 == NULL)
 		return soc_down_jiffies;
@@ -2529,6 +2535,7 @@ static unsigned long oplus_comm_ui_soc_low_battery_control(struct oplus_chg_comm
 	    vbat_low_soc_to_1 == TIMES_OF_LOW_BATT_CONTROL_ENABLE)) {
 
 		last_jiffies = jiffies;
+		ui_soc = chip->ui_soc;
 		if (is_gauge_term_voltage_votable_available(chip))
 			term_voltage = get_effective_result(chip->gauge_term_voltage_votable);
 
@@ -2547,7 +2554,7 @@ static unsigned long oplus_comm_ui_soc_low_battery_control(struct oplus_chg_comm
 		}
 
 		if ((chip->vbat_min_mv < term_voltage + volt_diff_of_soc_2) &&
-		    (chip->ibat_ma < chip->config.current_limit_of_drop_soc_2) && (chip->ui_soc >= UI_SOC_LOW_LIMIT)) {
+		    (chip->ibat_ma < chip->config.current_limit_of_drop_soc_2) && (ui_soc >= UI_SOC_LOW_LIMIT)) {
 			vbat_low_soc_to_2 ++;
 			if (vbat_low_soc_to_2 > TIMES_OF_LOW_BATT_CONTROL_ENABLE) {
 				vbat_low_soc_to_2 = TIMES_OF_LOW_BATT_CONTROL_ENABLE;
@@ -2557,9 +2564,9 @@ static unsigned long oplus_comm_ui_soc_low_battery_control(struct oplus_chg_comm
 					load_current = chip->config.load_current_of_drop_soc_2;
 
 					t_sum = back_rm * SEC_OF_ONE_HOUR / load_current;
-					t_soc_x_to_2 = t_sum / (chip->ui_soc - 2);
+					t_soc_x_to_2 = t_sum / (ui_soc - 2);
 					chg_err("ui_soc x to 2 smooth soc:%d temp:%d %d vbat_min:%d, term_v:%d %d jiff_n:%ld jiff:%ld t_soc:%d %d %d %d",
-					    chip->ui_soc, chip->shell_temp, volt_diff_of_soc_2, chip->vbat_min_mv,
+					    ui_soc, chip->shell_temp, volt_diff_of_soc_2, chip->vbat_min_mv,
 					    term_voltage, vbat_low_soc_to_2, soc_down_jiffies, chip->soc_update_jiffies,
 					    t_soc_x_to_2, back_rm, load_current, chip->ibat_ma);
 				}
@@ -2578,7 +2585,7 @@ static unsigned long oplus_comm_ui_soc_low_battery_control(struct oplus_chg_comm
 		/* Solve the ui_soc 5% jump to 0% problem. When the actual soc is 0%,
 		 * take out 1% in Power saving mode to smooth the ui_soc.
 		 */
-		if ((chip->vbat_min_mv < term_voltage && (chip->smooth_soc == 0)) && (chip->ui_soc > 1)) {
+		if ((chip->vbat_min_mv < term_voltage && (chip->smooth_soc == 0)) && (ui_soc > 1)) {
 			vbat_low_soc_to_1 ++;
 			if (vbat_low_soc_to_1 > TIMES_OF_LOW_BATT_CONTROL_ENABLE) {
 				vbat_low_soc_to_1 = TIMES_OF_LOW_BATT_CONTROL_ENABLE;
@@ -2588,9 +2595,9 @@ static unsigned long oplus_comm_ui_soc_low_battery_control(struct oplus_chg_comm
 					load_current = chip->config.load_current_of_drop_soc_1;
 
 					t_sum = back_rm * SEC_OF_ONE_HOUR / load_current;
-					t_soc_x_to_1 = t_sum / (chip->ui_soc - 1);
+					t_soc_x_to_1 = t_sum / (ui_soc - 1);
 					chg_err("ui_soc x to 1 smooth soc:%d temp:%d %d vbat_min:%d, term_v:%d %d jiff_n:%ld jiff:%ld t_soc:%d %d %d %d\n",
-					    chip->ui_soc, chip->shell_temp, volt_diff_of_soc_2, chip->vbat_min_mv,
+					    ui_soc, chip->shell_temp, volt_diff_of_soc_2, chip->vbat_min_mv,
 					    term_voltage, vbat_low_soc_to_1, soc_down_jiffies, chip->soc_update_jiffies,
 					    t_soc_x_to_1, *p_force_down_1, back_rm, load_current);
 				}
@@ -5153,6 +5160,51 @@ static void oplus_comm_subscribe_pps_topic(struct oplus_mms *topic, void *prv_da
 	chip->pps_online = !!data.intval;
 }
 
+static void oplus_comm_retention_subs_callback(struct mms_subscribe *subs,
+	enum mms_msg_type type, u32 id, bool sync)
+{
+	struct oplus_chg_comm *chip = subs->priv_data;
+	union mms_msg_data data = { 0 };
+	bool offline;
+
+	switch (type) {
+	case MSG_TYPE_ITEM:
+		switch (id) {
+		case RETENTION_ITEM_CONNECT_STATUS:
+			oplus_mms_get_item_data(chip->retention_topic, id, &data,
+						false);
+			chip->retention_state = !!data.intval;
+			offline = !chip->wired_online && !chip->wls_online;
+			if (!chip->retention_state && offline)
+				schedule_work(&chip->offline_delayed_process_work);
+			break;
+		default:
+			break;
+		}
+		break;
+	default:
+		break;
+	}
+}
+
+static void oplus_comm_subscribe_retention_topic(struct oplus_mms *topic, void *prv_data)
+{
+	struct oplus_chg_comm *chip = prv_data;
+	union mms_msg_data data = { 0 };
+
+	chip->retention_topic = topic;
+	chip->retention_subs =
+		oplus_mms_subscribe(topic, chip, oplus_comm_retention_subs_callback, "chg_comm");
+	if (IS_ERR_OR_NULL(chip->retention_subs)) {
+		chg_err("subscribe retention topic error, rc=%ld\n",
+			PTR_ERR(chip->retention_subs));
+		return;
+	}
+
+	oplus_mms_get_item_data(topic, RETENTION_ITEM_CONNECT_STATUS, &data, true);
+	chip->retention_state = !!data.intval;
+}
+
 static void oplus_comm_subs_comm_callback(struct mms_subscribe *subs,
 						enum mms_msg_type type, u32 id, bool sync)
 {
@@ -5269,6 +5321,19 @@ int oplus_comm_get_dec_vol(struct oplus_mms *topic, int *fv_dec, int *wired_ffc_
 	return 0;
 }
 
+/* For the status not controlled by the driver, clear it here */
+static void oplus_comm_offline_clean_process(struct oplus_chg_comm *chip)
+{
+	if (chip->chg_cycle_status & CHG_CYCLE_VOTER__USER) {
+		oplus_comm_set_chg_cycle_status(chip,
+			chip->chg_cycle_status & (~(int)CHG_CYCLE_VOTER__USER));
+		if (!chip->chg_cycle_status) {
+			vote(chip->chg_suspend_votable, DEBUG_VOTER, false, 0, false);
+			vote(chip->chg_disable_votable, MMI_CHG_VOTER, false, 0, false);
+		}
+	}
+}
+
 static void oplus_comm_plugin_work(struct work_struct *work)
 {
 	struct oplus_chg_comm *chip =
@@ -5284,6 +5349,7 @@ static void oplus_comm_plugin_work(struct work_struct *work)
 
 	chg_info("wired_online = %d, wls_online = %d\n", chip->wired_online, chip->wls_online);
 	if (chip->wired_online || chip->wls_online) {
+		flush_work(&chip->offline_delayed_process_work);
 		chip->low_temp_check_jiffies = jiffies;
 		chip->dec_vol_index = oplus_comm_get_dec_vol_index(chip);
 		oplus_comm_check_shell_temp(chip, true);
@@ -5379,19 +5445,27 @@ static void oplus_comm_plugin_work(struct work_struct *work)
 			chip->bms_heat_temp_compensation = 0;
 			oplus_comm_set_slow_chg(chip->comm_topic, 0, 0, false);
 		}
-		if (chip->chg_cycle_status & CHG_CYCLE_VOTER__USER) {
-			oplus_comm_set_chg_cycle_status(chip, chip->chg_cycle_status & (~(int)CHG_CYCLE_VOTER__USER));
-			if (!chip->chg_cycle_status) {
-				vote(chip->chg_suspend_votable, DEBUG_VOTER, false, 0, false);
-				vote(chip->chg_disable_votable, MMI_CHG_VOTER, false, 0, false);
-			}
-		}
+		if (!chip->retention_state)
+		    oplus_comm_offline_clean_process(chip);
 		vote(chip->chg_suspend_votable, CHG_LIMIT_CHG_VOTER, false, 0, false);
 		vote(chip->chg_disable_votable, CHG_LIMIT_CHG_VOTER, false, 0, false);
 		oplus_comm_check_fcc_gear(chip, true);
 	}
 	/* Ensure that the charging status is updated in a timely manner */
 	schedule_work(&chip->gauge_check_work);
+}
+
+static void oplus_comm_offline_delayed_process_work(struct work_struct *work)
+{
+	struct oplus_chg_comm *chip =
+		container_of(work, struct oplus_chg_comm, offline_delayed_process_work);
+
+	flush_work(&chip->plugin_work);
+	if (chip->wired_online || chip->wls_online)
+		return;
+
+	/* Handling actions intercepted by retention_state */
+	oplus_comm_offline_clean_process(chip);
 }
 
 static void oplus_comm_chg_type_change_work(struct work_struct *work)
@@ -8803,6 +8877,7 @@ static int oplus_comm_driver_probe(struct platform_device *pdev)
 	INIT_WORK(&comm_dev->gauge_remuse_work, oplus_comm_gauge_remuse_work);
 	INIT_WORK(&comm_dev->noplug_batt_volt_work, oplus_comm_noplug_batt_volt_work);
 	INIT_WORK(&comm_dev->wired_chg_check_work, oplus_wired_chg_check_work);
+	INIT_WORK(&comm_dev->offline_delayed_process_work, oplus_comm_offline_delayed_process_work);
 
 	INIT_DELAYED_WORK(&comm_dev->ffc_start_work, oplus_comm_ffc_start_work);
 	INIT_DELAYED_WORK(&comm_dev->charge_timeout_work, oplus_comm_charge_timeout_work);
@@ -8821,6 +8896,7 @@ static int oplus_comm_driver_probe(struct platform_device *pdev)
 	oplus_mms_wait_topic("wireless", oplus_comm_subscribe_wls_topic, comm_dev);
 	oplus_mms_wait_topic("ufcs", oplus_comm_subscribe_ufcs_topic, comm_dev);
 	oplus_mms_wait_topic("pps", oplus_comm_subscribe_pps_topic, comm_dev);
+	oplus_mms_wait_topic("retention", oplus_comm_subscribe_retention_topic, comm_dev);
 
 #if IS_ENABLED(CONFIG_DRM_PANEL_NOTIFY) || IS_ENABLED(CONFIG_OPLUS_CHG_DRM_PANEL_NOTIFY)
 	oplus_comm_set_led_on(comm_dev, true);
@@ -8875,6 +8951,8 @@ static int oplus_comm_driver_remove(struct platform_device *pdev)
 		oplus_mms_unsubscribe(comm_dev->wls_subs);
 	if (!IS_ERR_OR_NULL(comm_dev->comm_subs))
 		oplus_mms_unsubscribe(comm_dev->comm_subs);
+	if (!IS_ERR_OR_NULL(comm_dev->retention_subs))
+		oplus_mms_unsubscribe(comm_dev->retention_subs);
 
 	if (comm_dev->lcd_notify_reg) {
 #if IS_ENABLED(CONFIG_DRM_PANEL_NOTIFY) || IS_ENABLED(CONFIG_OPLUS_CHG_DRM_PANEL_NOTIFY)
